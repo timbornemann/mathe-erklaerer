@@ -30,8 +30,7 @@ export const solveMathProblem = async (
         const savedKey = localStorage.getItem('GEMINI_API_KEY');
         if (savedKey) return savedKey;
       }
-      const envKey = process.env.API_KEY;
-      return (envKey && envKey !== 'undefined') ? envKey : '';
+      return '';
     };
 
     const ai = new GoogleGenAI({ apiKey: getApiKey() });

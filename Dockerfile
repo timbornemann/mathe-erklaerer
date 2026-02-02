@@ -30,5 +30,8 @@ COPY --from=builder /app/dist ./dist
 # Exponiere Port 3012
 EXPOSE 3012
 
+# Run as non-root user for security
+USER node
+
 # Starte den Server auf Port 3012
 CMD ["serve", "-s", "dist", "-l", "3012"]
