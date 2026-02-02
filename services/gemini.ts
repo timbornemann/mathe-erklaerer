@@ -25,7 +25,16 @@ export const solveMathProblem = async (
   mimeType: string = 'image/jpeg'
 ): Promise<MathSolution> => {
   try {
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    const getApiKey = () => {
+      if (typeof window !== 'undefined') {
+        const savedKey = localStorage.getItem('GEMINI_API_KEY');
+        if (savedKey) return savedKey;
+      }
+      const envKey = process.env.API_KEY;
+      return (envKey && envKey !== 'undefined') ? envKey : '';
+    };
+
+    const ai = new GoogleGenAI({ apiKey: getApiKey() });
     const modelId = 'gemini-3-pro-preview';
 
     const parts: any[] = [];

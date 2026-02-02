@@ -1,20 +1,74 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
+# MatheGenius AI 🧮🤖
 
-# Run and deploy your AI Studio app
+**MatheGenius AI** ist dein persönlicher Schritt-für-Schritt Mathe-Tutor, basierend auf der Google Gemini 3 API.
 
-This contains everything you need to run your app locally.
+Die Anwendung löst mathematische Aufgaben extrem detailliert und verständlich. Du kannst Aufgaben entweder als Text eingeben oder einfach ein Foto davon hochladen.
 
-View your app in AI Studio: https://ai.studio/apps/drive/15B0GIY-YDffZ6dknz4296xNH9r5Mics8
+## 🚀 Features
 
-## Run Locally
+*   **📷 Foto-Analyse**: lade einfach ein Bild deiner Matheaufgabe hoch.
+*   **✍️ Text-Eingabe**: Gib Formeln oder Textaufgaben direkt ein.
+*   **🧠 Schritt-für-Schritt Lösungen**: Erhalte nicht nur das Ergebnis, sondern verstehe den Weg dorthin mit ausführlichen Erklärungen und Formeln (LaTeX gerendert).
+*   **🔑 Eigener API Key**: Nutze deinen eigenen Google API Key (kostenlos via AI Studio). Dieser wird sicher nur in deinem Browser gespeichert.
+*   **📜 Verlauf**: Deine gelösten Aufgaben werden lokal gespeichert, sodass du später darauf zurückgreifen kannst.
+*   **📱 Responsive & Modern**: Funktioniert auf Desktop, Tablet und Mobile.
 
-**Prerequisites:**  Node.js
+---
 
+## 🛠 Nutzung
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+Es gibt drei Wege, MatheGenius AI zu nutzen:
+
+### 1. Docker Image (Empfohlen) 🐳
+
+Am einfachsten startest du die App mit dem vorgefertigten Docker Image. Du benötigst keine Entwicklungsumgebung, nur Docker.
+
+```bash
+# Beispiel: Port 3012 auf deinem Rechner nutzen
+docker run -d -p 3012:3012 ghcr.io/<DEIN-GITHUB-USERNAME>/<DEIN-REPO-NAME>:latest
+```
+*(Ersetze `<DEIN-GITHUB-USERNAME>` und `<DEIN-REPO-NAME>` mit den entsprechenden Daten dieses Repositories.)*
+
+Öffne danach **http://localhost:3012** im Browser.
+
+### 2. Docker Compose (Lokal bauen) 🏗️
+
+Wenn du den Code hast und die Anwendung lokal containerisiert starten willst:
+
+```bash
+docker-compose up --build
+```
+Die App ist unter **http://localhost:3012** erreichbar.
+
+### 3. Lokale Entwicklung (Node.js) 💻
+
+1.  Repository klonen.
+2.  Abhängigkeiten installieren:
+    ```bash
+    npm install
+    ```
+3.  Entwicklungsserver starten:
+    ```bash
+    npm run dev
+    ```
+4.  Browser öffnet sich (standardmäßig auf Port 3012).
+
+---
+
+## 🔑 API Key Einrichtung
+
+Beim ersten Start siehst du oben rechts im Header ein **Schlüssel-Symbol**.
+1. Klicke darauf.
+2. Gib deinen **Google Gemini API Key** ein.
+   (Falls du keinen hast: [Hier kostenlos erstellen](https://aistudio.google.com/)).
+3. Der Key wird **lokal in deinem Browser** gespeichert. Er wird niemals an uns oder andere Server gesendet, sondern direkt für die Anfrage an Google genutzt.
+
+---
+
+## Technischer Stack
+
+*   **Frontend**: React, TypeScript, Vite
+*   **AI**: Google Gemini API (@google/genai)
+*   **Styling**: TailwindCSS (via CDN), Lucide Icons
+*   **Rendering**: KaTeX für mathematische Formeln
+*   **Deployment**: Docker, GitHub Packages (GHCR)

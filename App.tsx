@@ -13,8 +13,10 @@ import {
   Type,
   Clock,
   Trash2,
-  ChevronRight
-} from 'lucide-react'; // Using lucide-react directly based on imports in previous files
+  ChevronRight,
+  Settings
+} from 'lucide-react';
+import ApiKeyManager from './components/ApiKeyManager';
 
 const App: React.FC = () => {
   const [state, setState] = useState<MathState>({
@@ -195,14 +197,17 @@ const App: React.FC = () => {
   if (state.solution) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-purple-50 flex flex-col items-center p-4 md:p-8">
-        <header className="w-full max-w-4xl mb-8 flex items-center justify-center space-x-3 cursor-pointer group" onClick={handleReset}>
-          <div className="bg-indigo-600 p-3 rounded-xl shadow-lg shadow-indigo-200 group-hover:bg-indigo-700 transition-colors">
-            <Calculator className="w-8 h-8 text-white" />
+        <header className="w-full max-w-4xl mb-8 flex items-center justify-between">
+          <div className="flex items-center space-x-3 cursor-pointer group" onClick={handleReset}>
+            <div className="bg-indigo-600 p-3 rounded-xl shadow-lg shadow-indigo-200 group-hover:bg-indigo-700 transition-colors">
+              <Calculator className="w-8 h-8 text-white" />
+            </div>
+            <div>
+              <h1 className="text-3xl font-extrabold text-slate-800 tracking-tight">MatheGenius AI</h1>
+              <p className="text-sm text-slate-500">Zurück zur Übersicht</p>
+            </div>
           </div>
-          <div>
-            <h1 className="text-3xl font-extrabold text-slate-800 tracking-tight">MatheGenius AI</h1>
-            <p className="text-sm text-slate-500">Zurück zur Übersicht</p>
-          </div>
+          <ApiKeyManager />
         </header>
 
         <SolutionViewer solution={state.solution} onReset={handleReset} />
@@ -214,14 +219,17 @@ const App: React.FC = () => {
     <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-purple-50 flex flex-col items-center p-4 md:p-8">
       
       {/* Header */}
-      <header className="w-full max-w-4xl mb-8 flex items-center justify-center space-x-3">
-        <div className="bg-indigo-600 p-3 rounded-xl shadow-lg shadow-indigo-200">
-          <Calculator className="w-8 h-8 text-white" />
+      <header className="w-full max-w-4xl mb-8 flex items-center justify-between">
+        <div className="flex items-center space-x-3">
+          <div className="bg-indigo-600 p-3 rounded-xl shadow-lg shadow-indigo-200">
+            <Calculator className="w-8 h-8 text-white" />
+          </div>
+          <div>
+            <h1 className="text-3xl font-extrabold text-slate-800 tracking-tight">MatheGenius AI</h1>
+            <p className="text-sm text-slate-500">Dein persönlicher Schritt-für-Schritt Tutor</p>
+          </div>
         </div>
-        <div>
-          <h1 className="text-3xl font-extrabold text-slate-800 tracking-tight">MatheGenius AI</h1>
-          <p className="text-sm text-slate-500">Dein persönlicher Schritt-für-Schritt Tutor</p>
-        </div>
+        <ApiKeyManager />
       </header>
 
       {/* Main Card */}
