@@ -107,11 +107,21 @@ const SolutionViewer: React.FC<SolutionViewerProps> = ({ solution, onReset }) =>
 
       <div className="bg-white rounded-3xl shadow-xl overflow-hidden border border-slate-100 min-h-[400px] flex flex-col">
         {/* Card Header */}
-        <div className="bg-slate-50/80 p-6 border-b border-slate-100 flex justify-between items-center backdrop-blur-sm">
-          <span className="bg-indigo-100 text-indigo-700 px-3 py-1 rounded-full text-xs font-bold tracking-wide uppercase">
-            Schritt {currentStep + 1} von {totalSteps}
-          </span>
-          <h2 className="text-xl font-bold text-slate-800 truncate ml-4 flex-1 text-right">
+        <div className="bg-slate-50/80 p-4 md:p-6 border-b border-slate-100 flex justify-between items-center backdrop-blur-sm gap-4">
+          <div className="flex items-center gap-2 md:gap-3 flex-shrink-0">
+             <button
+               onClick={onReset}
+               className="flex items-center gap-2 px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-slate-600 hover:text-indigo-600 hover:border-indigo-200 transition-all text-xs font-bold shadow-sm"
+               title="Neue Aufgabe beginnen"
+             >
+               <RotateCcw className="w-3.5 h-3.5" />
+               <span className="hidden md:inline">Neu</span>
+             </button>
+             <span className="bg-indigo-100 text-indigo-700 px-3 py-1.5 rounded-full text-xs font-bold tracking-wide uppercase">
+              {currentStep + 1} / {totalSteps}
+             </span>
+          </div>
+          <h2 className="text-lg md:text-xl font-bold text-slate-800 truncate text-right">
             {step.title}
           </h2>
         </div>
@@ -170,9 +180,13 @@ const SolutionViewer: React.FC<SolutionViewerProps> = ({ solution, onReset }) =>
         </div>
       </div>
       
-      <div className="mt-4 text-center">
-        <button onClick={onReset} className="text-slate-400 hover:text-slate-600 text-sm font-medium">
-          Abbrechen & Neue Aufgabe
+      <div className="mt-6 flex justify-center">
+        <button 
+          onClick={onReset} 
+          className="flex items-center gap-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 px-4 py-2 rounded-full transition-all text-sm font-medium"
+        >
+          <RotateCcw className="w-4 h-4" />
+          <span>Abbrechen & Neue Aufgabe</span>
         </button>
       </div>
     </div>

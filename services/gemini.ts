@@ -9,12 +9,12 @@ REGELN:
 2. Erkläre jeden Schritt so, dass ein Schüler ihn sofort versteht.
 3. Gib für jeden Schritt relevante Formeln an.
 4. Nutze LaTeX Formatierung. 
-   - WICHTIG: Im Textfeld 'explanation' MUSST du mathematische Ausdrücke (Variablen, Zahlen, kleine Formeln) mit einfachen Dollarzeichen umschließen ($x^2$).
+   - WICHTIG: In allen Textfeldern ('explanation', 'title', 'finalAnswer') MUSST du mathematische Ausdrücke (Variablen, Zahlen, Formeln) zwingend mit einfachen Dollarzeichen umschließen (z.B. "Berechne $x^2$" oder "Lösung: $x=5$").
    - Im Array 'formulas' nutze KEINE Dollarzeichen, nur den rohen LaTeX-Code.
 5. Das Ausgabeformat muss striktes JSON sein.
 
 Struktur der Schritte:
-- title: Kurze Überschrift was passiert (z.B. "Klammern auflösen")
+- title: Kurze Überschrift was passiert (z.B. "Klammern auflösen", "$x$ ausklammern")
 - explanation: Ausführliche textliche Erklärung mit Inline-LaTeX ($...$).
 - formulas: Ein Array von LaTeX-Strings (ohne $), die die Rechnung in diesem Schritt zeigen. Zeige hier VORHER -> NACHHER oder die Zwischenrechnung.
 `;
