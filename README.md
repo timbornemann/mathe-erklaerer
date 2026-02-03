@@ -19,17 +19,18 @@ Die Anwendung löst mathematische Aufgaben extrem detailliert und verständlich.
 
 Es gibt drei Wege, MatheGenius AI zu nutzen:
 
-### 1. Docker Image (Empfohlen) 🐳
+### 1. Schnellstart mit dem fertigen Docker-Image (empfohlen) 🐳
 
-Am einfachsten startest du die App mit dem vorgefertigten Docker Image. Du benötigst keine Entwicklungsumgebung, nur Docker.
+Wenn du nicht lokal bauen möchtest, kannst du das bereits bereitgestellte Docker-Image aus der GitHub Container Registry nutzen:
 
 ```bash
-# Beispiel: Port 3012 auf deinem Rechner nutzen
-docker run -d -p 3012:3012 ghcr.io/<DEIN-GITHUB-USERNAME>/<DEIN-REPO-NAME>:latest
+docker pull ghcr.io/timbornemann/mathe-erklaerer:latest
+docker run -d --name mathe-erklaerer -p 3012:3012 ghcr.io/timbornemann/mathe-erklaerer:latest
 ```
-*(Ersetze `<DEIN-GITHUB-USERNAME>` und `<DEIN-REPO-NAME>` mit den entsprechenden Daten dieses Repositories.)*
 
-Öffne danach **http://localhost:3012** im Browser.
+Die Anwendung ist danach unter **http://localhost:3012** erreichbar.
+
+
 
 ### 2. Docker Compose (Lokal bauen) 🏗️
 
