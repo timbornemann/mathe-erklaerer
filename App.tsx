@@ -96,7 +96,9 @@ const App: React.FC = () => {
       ...prev,
       solution: item.solution,
       isLoading: false,
-      error: null
+      error: null,
+      textInput: item.prompt,
+      inputMode: item.mode
     }));
   };
 
@@ -210,7 +212,11 @@ const App: React.FC = () => {
           <ApiKeyManager />
         </header>
 
-        <SolutionViewer solution={state.solution} onReset={handleReset} />
+        <SolutionViewer 
+          solution={state.solution} 
+          onReset={handleReset} 
+          initialPrompt={state.textInput || (state.inputMode === InputMode.IMAGE ? "Foto-Analyse" : "Dein Mathe-Problem")}
+        />
       </div>
     );
   }
