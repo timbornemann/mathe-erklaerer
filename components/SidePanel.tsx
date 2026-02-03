@@ -1,8 +1,9 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, X, MessageSquare, Loader2, Maximize2, Minimize2 } from 'lucide-react';
+import { Send, X, MessageSquare, Loader2, Volume2, VolumeX } from 'lucide-react';
 import MathRenderer from './MathRenderer';
 import { SolutionStep } from '../types';
 import { chatWithAI } from '../services/gemini';
+import { speakText } from '../services/tts';
 
 interface SidePanelProps {
   currentStep: SolutionStep;
@@ -34,29 +35,89 @@ const SidePanel: React.FC<SidePanelProps> = ({
   ]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [isSoundEnabled, setIsSoundEnabled] = useState(true);
+  const [ttsError, setTtsError] = useState<string | null>(null);
+  
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
 
   // Scroll to bottom on new messages
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isOpen]);
 
-  // Reset chat when step changes? 
-  // Maybe not, the user might want context from previous steps. 
-  // But the "current step" context updates.
-  // Let's keep history but add a system note if step changes?
-  // For now, let's just keep the chat continuous.
+  // TTS Effect: Play latest AI message if sound enabled
+  useEffect(() => {
+    if (!isOpen) {
+      stopAudio();
+      return;
+    }
+
+    const lastMessage = messages[messages.length - 1];
+    if (lastMessage && lastMessage.role === 'model' && isSoundEnabled && !ttsError) {
+      // Small delay to ensure it doesn't conflict with previous sounds or UI updates
+      const timer = setTimeout(() => {
+        handleSpeak(lastMessage.content);
+      }, 500);
+      return () => clearTimeout(timer);
+    }
+  }, [messages, isOpen, ttsError]); 
+
+  // Stop audio on unmount or close
+  useEffect(() => {
+    return () => stopAudio();
+  }, []);
+
+  const stopAudio = () => {
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.currentTime = 0;
+      audioRef.current = null;
+    }
+  };
+
+  const handleSpeak = async (text: string) => {
+    stopAudio();
+    if (!isSoundEnabled) return;
+
+    try {
+      const audio = await speakText(text);
+      audioRef.current = audio;
+      audio.play().catch(e => console.error("Playback error:", e));
+      
+      audio.onended = () => { audioRef.current = null; };
+    } catch (err: any) {
+      console.warn("TTS failed:", err);
+      setTtsError(err.message || "TTS Fehler");
+      setIsSoundEnabled(false);
+    }
+  };
+
+  const toggleSound = () => {
+    if (ttsError) {
+      // If there was an error, try to clear it and re-enable
+      setTtsError(null);
+      setIsSoundEnabled(true);
+      return;
+    }
+    const newState = !isSoundEnabled;
+    setIsSoundEnabled(newState);
+    if (!newState) {
+      stopAudio();
+    }
+  };
 
   const handleSend = async () => {
+    // ... (rest of simple code)
     if (!input.trim() || isLoading) return;
-
+    stopAudio();
+    // ...
     const userMsg = input.trim();
     setInput('');
     setMessages(prev => [...prev, { role: 'user', content: userMsg }]);
     setIsLoading(true);
 
     try {
-      // Prepare context
       const context = {
         currentStep,
         allSteps,
@@ -106,15 +167,26 @@ const SidePanel: React.FC<SidePanelProps> = ({
           <MessageSquare className="w-5 h-5" />
           <div>
             <h3 className="font-bold">KI Tutor</h3>
-            <p className="text-xs text-indigo-200">Schritt {stepIndex + 1}: {currentStep.title}</p>
+            <p className="text-xs text-indigo-200">
+              {ttsError ? <span className="text-red-300 font-bold">{ttsError}</span> : `Schritt ${stepIndex + 1}: ${currentStep.title}`}
+            </p>
           </div>
         </div>
-        <button 
-          onClick={onToggle}
-          className="p-2 hover:bg-indigo-500 rounded-full transition-colors"
-        >
-          <X className="w-5 h-5" />
-        </button>
+        <div className="flex items-center gap-1">
+          <button 
+            onClick={toggleSound}
+            className={`p-2 rounded-full transition-colors ${ttsError ? 'bg-red-500 hover:bg-red-600' : 'hover:bg-indigo-500'}`}
+            title={ttsError ? "Fehler zurücksetzen" : (isSoundEnabled ? "Ton ausschalten" : "Ton einschalten")}
+          >
+            {isSoundEnabled ? <Volume2 className="w-5 h-5" /> : <VolumeX className="w-5 h-5" />}
+          </button>
+          <button 
+            onClick={onToggle}
+            className="p-2 hover:bg-indigo-500 rounded-full transition-colors"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
       </div>
 
       {/* Messages */}
