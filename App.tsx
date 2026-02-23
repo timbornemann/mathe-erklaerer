@@ -14,7 +14,7 @@ import {
   Clock,
   Trash2,
   ChevronRight,
-  Settings
+  GraduationCap
 } from 'lucide-react';
 import ApiKeyManager from './components/ApiKeyManager';
 
@@ -27,7 +27,8 @@ const App: React.FC = () => {
     imagePreview: null,
     solution: null,
     error: null,
-    history: []
+    history: [],
+    tutorLibrary: []
   });
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -43,13 +44,31 @@ const App: React.FC = () => {
         console.error("Failed to parse history", e);
       }
     }
+
+    const savedTutorLibrary = localStorage.getItem('mathGeniusTutorLibrary');
+    if (savedTutorLibrary) {
+      try {
+        const parsedTutorLibrary = JSON.parse(savedTutorLibrary);
+        setState(prev => ({ ...prev, tutorLibrary: parsedTutorLibrary }));
+      } catch (e) {
+        console.error("Failed to parse tutor library", e);
+      }
+    }
   }, []);
 
   const saveToHistory = (newItem: HistoryItem) => {
     setState(prev => {
       const updatedHistory = [newItem, ...prev.history].slice(0, 50); // Keep last 50 items
       localStorage.setItem('mathGeniusHistory', JSON.stringify(updatedHistory));
-      return { ...prev, history: updatedHistory };
+
+      if (newItem.mode !== InputMode.TUTOR) {
+        return { ...prev, history: updatedHistory };
+      }
+
+      const updatedTutorLibrary = [newItem, ...prev.tutorLibrary].slice(0, 25);
+      localStorage.setItem('mathGeniusTutorLibrary', JSON.stringify(updatedTutorLibrary));
+
+      return { ...prev, history: updatedHistory, tutorLibrary: updatedTutorLibrary };
     });
   };
 
@@ -57,7 +76,8 @@ const App: React.FC = () => {
     e.stopPropagation();
     if (window.confirm("Möchtest du den gesamten Verlauf wirklich löschen?")) {
       localStorage.removeItem('mathGeniusHistory');
-      setState(prev => ({ ...prev, history: [] }));
+      localStorage.removeItem('mathGeniusTutorLibrary');
+      setState(prev => ({ ...prev, history: [], tutorLibrary: [] }));
     }
   };
 
@@ -66,7 +86,11 @@ const App: React.FC = () => {
     setState(prev => {
       const updatedHistory = prev.history.filter(item => item.id !== id);
       localStorage.setItem('mathGeniusHistory', JSON.stringify(updatedHistory));
-      return { ...prev, history: updatedHistory };
+
+      const updatedTutorLibrary = prev.tutorLibrary.filter(item => item.id !== id);
+      localStorage.setItem('mathGeniusTutorLibrary', JSON.stringify(updatedTutorLibrary));
+
+      return { ...prev, history: updatedHistory, tutorLibrary: updatedTutorLibrary };
     });
   };
 
@@ -154,8 +178,13 @@ const App: React.FC = () => {
   const handleSubmit = useCallback(async () => {
     if (state.isLoading) return;
 
-    if (state.inputMode === InputMode.TEXT && !state.textInput.trim()) {
-      setState(prev => ({ ...prev, error: "Bitte gib eine Matheaufgabe ein." }));
+    if ((state.inputMode === InputMode.TEXT || state.inputMode === InputMode.TUTOR) && !state.textInput.trim()) {
+      setState(prev => ({ 
+        ...prev, 
+        error: state.inputMode === InputMode.TUTOR
+          ? "Bitte beschreibe ein Thema oder Sachgebiet für den Tutor-Modus."
+          : "Bitte gib eine Matheaufgabe ein."
+      }));
       return;
     }
 
@@ -170,7 +199,8 @@ const App: React.FC = () => {
       const solution = await solveMathProblem(
         state.textInput, 
         state.imagePreview || undefined,
-        state.imageFile?.type
+        state.imageFile?.type,
+        state.inputMode
       );
 
       // Create history item
@@ -178,7 +208,7 @@ const App: React.FC = () => {
         id: crypto.randomUUID(),
         timestamp: Date.now(),
         mode: state.inputMode,
-        prompt: state.textInput || (state.inputMode === InputMode.IMAGE ? "Foto-Analyse" : "Aufgabe"),
+        prompt: state.textInput || (state.inputMode === InputMode.IMAGE ? "Foto-Analyse" : state.inputMode === InputMode.TUTOR ? "Tutor-Modus" : "Aufgabe"),
         preview: solution.finalAnswer || solution.steps[0]?.title || "Gelöste Aufgabe",
         solution: solution
       };
@@ -268,6 +298,17 @@ const App: React.FC = () => {
               <Camera className="w-4 h-4" />
               <span>Foto / Scan</span>
             </button>
+            <button
+              onClick={() => handleModeChange(InputMode.TUTOR)}
+              className={`flex items-center space-x-2 px-6 py-2.5 rounded-lg text-sm font-semibold transition-all duration-200 ${
+                state.inputMode === InputMode.TUTOR
+                  ? 'bg-white text-indigo-600 shadow-sm'
+                  : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200/50'
+              }`}
+            >
+              <GraduationCap className="w-4 h-4" />
+              <span>Tutor-Modus</span>
+            </button>
           </div>
 
           {/* Text Input Mode */}
@@ -279,6 +320,22 @@ const App: React.FC = () => {
                 onPaste={handlePaste}
                 placeholder="Gib hier deine Matheaufgabe ein (z.B. 'Löse die Gleichung x^2 - 4 = 0')... Tipp: Du kannst auch ein Bild mit Strg+V einfügen!"
                 className="w-full h-32 p-4 bg-slate-50 rounded-2xl border border-slate-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 focus:bg-white transition-all resize-none text-slate-700 text-lg placeholder:text-slate-400"
+              />
+            </div>
+          )}
+
+          {/* Tutor Input Mode */}
+          {state.inputMode === InputMode.TUTOR && (
+            <div className="space-y-4">
+              <div className="rounded-2xl border border-indigo-100 bg-indigo-50/60 p-4 text-sm text-indigo-900">
+                Beschreibe das Thema, das du wirklich von Grund auf lernen möchtest (z.&nbsp;B. <strong>Bruchrechnung</strong>, <strong>lineare Funktionen</strong> oder <strong>quadratische Gleichungen</strong>). 
+                Du bekommst dann eine vollständige Lernstrecke mit verständlichen Erklärungen, vorgerechneten Beispielen und Übungsaufgaben mit Musterlösung.
+              </div>
+              <textarea
+                value={state.textInput}
+                onChange={handleTextChange}
+                placeholder="Welches Thema soll ich dir beibringen? Beschreibe gerne dein Level (z.B. 'Noch nie gehört', 'Grundlagen bekannt', 'bitte ab Klasse 8 Niveau')."
+                className="w-full h-40 p-4 bg-slate-50 rounded-2xl border border-slate-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 focus:bg-white transition-all resize-none text-slate-700 text-lg placeholder:text-slate-400"
               />
             </div>
           )}
@@ -346,18 +403,18 @@ const App: React.FC = () => {
           <div className="mt-6 flex justify-end">
             <button
               onClick={handleSubmit}
-              disabled={state.isLoading || (state.inputMode === InputMode.TEXT && !state.textInput) || (state.inputMode === InputMode.IMAGE && !state.imageFile)}
+              disabled={state.isLoading || ((state.inputMode === InputMode.TEXT || state.inputMode === InputMode.TUTOR) && !state.textInput) || (state.inputMode === InputMode.IMAGE && !state.imageFile)}
               className="bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed text-white px-8 py-3 rounded-xl font-bold text-lg shadow-lg shadow-indigo-200 flex items-center space-x-2 transition-all active:scale-95"
             >
               {state.isLoading ? (
                 <>
                   <Loader2 className="w-5 h-5 animate-spin" />
-                  <span>Löse Aufgabe...</span>
+                  <span>{state.inputMode === InputMode.TUTOR ? 'Erstelle Tutor-Lektion...' : 'Löse Aufgabe...'}</span>
                 </>
               ) : (
                 <>
                   <Send className="w-5 h-5" />
-                  <span>Aufgabe Lösen</span>
+                  <span>{state.inputMode === InputMode.TUTOR ? 'Tutor starten' : 'Aufgabe Lösen'}</span>
                 </>
               )}
             </button>
@@ -372,7 +429,9 @@ const App: React.FC = () => {
                <div className="absolute top-0 left-0 w-full h-full border-t-4 border-indigo-600 rounded-full animate-spin"></div>
              </div>
              <p className="mt-6 text-indigo-900 font-medium animate-pulse">
-               Die KI analysiert deine Aufgabe und berechnet die Schritte...
+               {state.inputMode === InputMode.TUTOR
+                ? 'Die KI erstellt deine Lernsequenz mit Erklärungen und Übungen...'
+                : 'Die KI analysiert deine Aufgabe und berechnet die Schritte...'}
              </p>
           </div>
         )}
@@ -405,8 +464,14 @@ const App: React.FC = () => {
                >
                  <div className="flex-1 min-w-0 pr-4">
                    <div className="flex items-center gap-2 mb-2">
-                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider ${item.mode === InputMode.IMAGE ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'}`}>
-                        {item.mode === InputMode.IMAGE ? 'Foto' : 'Text'}
+                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider ${
+                        item.mode === InputMode.IMAGE
+                          ? 'bg-purple-100 text-purple-700'
+                          : item.mode === InputMode.TUTOR
+                          ? 'bg-emerald-100 text-emerald-700'
+                          : 'bg-blue-100 text-blue-700'
+                      }`}>
+                        {item.mode === InputMode.IMAGE ? 'Foto' : item.mode === InputMode.TUTOR ? 'Tutor' : 'Text'}
                       </span>
                       <span className="text-xs text-slate-400">
                         {new Date(item.timestamp).toLocaleDateString()} • {new Date(item.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
@@ -443,6 +508,28 @@ const App: React.FC = () => {
         </section>
       )}
       
+      {state.tutorLibrary.length > 0 && !state.isLoading && (
+        <section className="w-full max-w-4xl mb-8">
+          <div className="flex items-center justify-between mb-4 px-2">
+            <h3 className="text-xl font-bold text-slate-700">Tutor-Bibliothek</h3>
+            <span className="text-xs text-slate-400">Gespeicherte Lernpfade</span>
+          </div>
+          <div className="grid gap-3">
+            {state.tutorLibrary.map((item) => (
+              <button
+                key={`tutor-${item.id}`}
+                onClick={() => handleHistoryRestore(item)}
+                className="text-left bg-emerald-50 border border-emerald-100 hover:border-emerald-300 rounded-2xl p-4 transition-all"
+              >
+                <p className="text-xs text-emerald-700 font-bold uppercase tracking-wide mb-1">Tutor-Lernpfad</p>
+                <p className="text-slate-800 font-semibold line-clamp-1">{item.prompt}</p>
+                <p className="text-slate-500 text-sm line-clamp-2">{item.preview}</p>
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
+
       <footer className="mt-12 text-slate-400 text-sm">
         Powered by Google Gemini 3
       </footer>
