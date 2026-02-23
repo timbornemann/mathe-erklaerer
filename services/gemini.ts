@@ -73,8 +73,12 @@ const getApiKey = () => {
   if (typeof window !== 'undefined') {
     const savedKey = localStorage.getItem('GEMINI_API_KEY');
     if (savedKey) return savedKey;
+
+    const runtimeKey = (window as any).__APP_CONFIG__?.GEMINI_API_KEY;
+    if (runtimeKey) return runtimeKey;
   }
-  return '';
+
+  return import.meta.env.VITE_GEMINI_API_KEY || '';
 };
 
 const buildMathSchema = () => ({

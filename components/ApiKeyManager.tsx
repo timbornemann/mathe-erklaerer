@@ -5,6 +5,7 @@ const ApiKeyManager: React.FC = () => {
   const [isOpen, setIsOpen] = useState(false);
   const [apiKey, setApiKey] = useState('');
   const [isSaved, setIsSaved] = useState(false);
+  const runtimeKey = typeof window !== 'undefined' ? (window as any).__APP_CONFIG__?.GEMINI_API_KEY : '';
 
   useEffect(() => {
     const savedKey = localStorage.getItem('GEMINI_API_KEY');
@@ -52,8 +53,13 @@ const ApiKeyManager: React.FC = () => {
           </div>
           
           <p className="text-xs text-slate-500 mb-3 leading-relaxed">
-            Gib deinen Google Gemini API Key ein. Er wird nur lokal in deinem Browser gespeichert.
+            Gib deinen Google Gemini API Key ein. Er wird lokal gespeichert und überschreibt optional den Container-Key.
           </p>
+          {runtimeKey && (
+            <p className="text-[11px] text-emerald-600 mb-3 leading-relaxed">
+              Container-Key aktiv: Die App funktioniert auch ohne lokalen Browser-Key.
+            </p>
+          )}
           
           <div className="space-y-3">
             <input

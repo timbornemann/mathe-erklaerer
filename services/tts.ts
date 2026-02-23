@@ -5,13 +5,17 @@ export const speakText = async (text: string): Promise<HTMLAudioElement> => {
     if (typeof window !== 'undefined') {
       const savedKey = localStorage.getItem('GEMINI_API_KEY');
       if (savedKey) return savedKey;
+
+      const runtimeKey = (window as any).__APP_CONFIG__?.GEMINI_API_KEY;
+      if (runtimeKey) return runtimeKey;
     }
-    return '';
+
+    return import.meta.env.VITE_GEMINI_API_KEY || '';
   };
 
   const apiKey = getApiKey();
   if (!apiKey) {
-    throw new Error("Kein API Key gefunden. Bitte API Key eingeben.");
+    throw new Error("Kein API Key gefunden. Bitte API Key eingeben oder im Container als GEMINI_API_KEY setzen.");
   }
 
   // Clean Markdown for speech
