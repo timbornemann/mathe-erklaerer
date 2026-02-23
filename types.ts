@@ -1,6 +1,7 @@
 export enum InputMode {
   TEXT = 'TEXT',
-  IMAGE = 'IMAGE'
+  IMAGE = 'IMAGE',
+  TUTOR = 'TUTOR'
 }
 
 export interface SolutionStep {
@@ -32,4 +33,5 @@ export interface MathState {
   solution: MathSolution | null;
   error: string | null;
   history: HistoryItem[];
+  tutorLibrary: HistoryItem[];
 }
