@@ -26,6 +26,7 @@ RUN npm install -g serve
 
 # Kopiere den Build-Output vom Builder
 COPY --from=builder /app/dist ./dist
+COPY docker-entrypoint.sh ./docker-entrypoint.sh
 
 # Exponiere Port 3012
 EXPOSE 3012
@@ -34,4 +35,5 @@ EXPOSE 3012
 USER node
 
 # Starte den Server auf Port 3012
+ENTRYPOINT ["./docker-entrypoint.sh"]
 CMD ["serve", "-s", "dist", "-l", "3012"]

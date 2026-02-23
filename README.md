@@ -25,11 +25,15 @@ Wenn du nicht lokal bauen möchtest, kannst du das bereits bereitgestellte Docke
 
 ```bash
 docker pull ghcr.io/timbornemann/mathe-erklaerer:latest
-docker run -d --name mathe-erklaerer -p 3012:3012 ghcr.io/timbornemann/mathe-erklaerer:latest
+docker run -d --name mathe-erklaerer -p 3012:3012 \
+  -e GEMINI_API_KEY=dein_google_api_key \
+  ghcr.io/timbornemann/mathe-erklaerer:latest
 ```
 
 Die Anwendung ist danach unter **http://localhost:3012** erreichbar.
 
+Optional kannst du den Key auch weglassen und später im Browser hinterlegen.
+Mit `GEMINI_API_KEY` ist der Key jedoch direkt für alle Geräte verfügbar, die auf den Container zugreifen.
 
 
 ### 2. Docker Compose (Lokal bauen) 🏗️
@@ -37,6 +41,8 @@ Die Anwendung ist danach unter **http://localhost:3012** erreichbar.
 Wenn du den Code hast und die Anwendung lokal containerisiert starten willst:
 
 ```bash
+# optional: in .env setzen
+# GEMINI_API_KEY=dein_google_api_key
 docker-compose up --build
 ```
 Die App ist unter **http://localhost:3012** erreichbar.
@@ -57,6 +63,12 @@ Die App ist unter **http://localhost:3012** erreichbar.
 ---
 
 ## 🔑 API Key Einrichtung
+
+### Containerweiter API Key (optional, empfohlen bei Docker)
+
+Wenn du die App in Docker betreibst, kannst du den API Key als Umgebungsvariable `GEMINI_API_KEY` setzen.
+Dann ist der Key automatisch in der App verfügbar – auch von anderen Geräten im Netzwerk, solange sie auf denselben Container zugreifen.
+Ein lokal im Browser gesetzter Key hat weiterhin Vorrang.
 
 Beim ersten Start siehst du oben rechts im Header ein **Schlüssel-Symbol**.
 1. Klicke darauf.
