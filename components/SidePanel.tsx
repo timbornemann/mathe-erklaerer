@@ -148,7 +148,7 @@ const SidePanel: React.FC<SidePanelProps> = ({
     return (
       <button
         onClick={onToggle}
-        className="fixed bottom-6 right-6 z-50 bg-indigo-600 hover:bg-indigo-700 text-white p-4 rounded-full shadow-xl transition-all hover:scale-110 active:scale-95 group"
+        className="fixed bottom-4 right-4 sm:bottom-6 sm:right-6 z-50 bg-indigo-600 hover:bg-indigo-700 text-white p-3.5 sm:p-4 rounded-full shadow-xl transition-all hover:scale-110 active:scale-95 group"
         title="KI Assistent öffnen"
       >
         <MessageSquare className="w-6 h-6" />
@@ -160,9 +160,9 @@ const SidePanel: React.FC<SidePanelProps> = ({
   }
 
   return (
-    <div className="fixed right-0 top-0 h-full w-full md:w-[400px] bg-white shadow-2xl z-40 transform transition-transform duration-300 ease-in-out border-l border-slate-200 flex flex-col">
+    <div className="fixed right-0 top-0 h-full w-full md:w-[400px] bg-white shadow-2xl z-40 transform transition-transform duration-300 ease-in-out border-l border-slate-200 flex flex-col pb-[env(safe-area-inset-bottom)]">
       {/* Header */}
-      <div className="p-4 bg-indigo-600 text-white flex justify-between items-center shadow-md">
+      <div className="p-3 sm:p-4 bg-indigo-600 text-white flex justify-between items-center shadow-md">
         <div className="flex items-center gap-2">
           <MessageSquare className="w-5 h-5" />
           <div>
@@ -190,14 +190,14 @@ const SidePanel: React.FC<SidePanelProps> = ({
       </div>
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto p-4 bg-slate-50 space-y-4">
+      <div className="flex-1 overflow-y-auto p-3 sm:p-4 bg-slate-50 space-y-3 sm:space-y-4">
         {messages.map((msg, idx) => (
           <div 
             key={idx} 
             className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
           >
             <div 
-              className={`max-w-[85%] rounded-2xl p-3 shadow-sm ${
+              className={`max-w-[90%] sm:max-w-[85%] rounded-2xl p-3 shadow-sm text-sm sm:text-base ${
                 msg.role === 'user' 
                   ? 'bg-indigo-600 text-white rounded-br-none' 
                   : 'bg-white border border-slate-200 text-slate-700 rounded-bl-none'
@@ -225,7 +225,7 @@ const SidePanel: React.FC<SidePanelProps> = ({
       </div>
 
       {/* Input */}
-      <div className="p-4 bg-white border-t border-slate-200">
+      <div className="p-3 sm:p-4 bg-white border-t border-slate-200">
         <div className="relative">
           <textarea
             value={input}

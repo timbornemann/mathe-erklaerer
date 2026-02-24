@@ -228,14 +228,14 @@ const App: React.FC = () => {
   // If we have a solution, render the viewer instead of the input form
   if (state.solution) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-purple-50 flex flex-col items-center p-4 md:p-8">
-        <header className="w-full max-w-4xl mb-8 flex items-center justify-between">
+      <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-purple-50 flex flex-col items-center p-3 sm:p-4 md:p-8">
+        <header className="w-full max-w-4xl mb-6 md:mb-8 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center space-x-3 cursor-pointer group" onClick={handleReset}>
-            <div className="bg-indigo-600 p-3 rounded-xl shadow-lg shadow-indigo-200 group-hover:bg-indigo-700 transition-colors">
-              <Calculator className="w-8 h-8 text-white" />
+            <div className="bg-indigo-600 p-2.5 sm:p-3 rounded-xl shadow-lg shadow-indigo-200 group-hover:bg-indigo-700 transition-colors">
+              <Calculator className="w-6 h-6 sm:w-8 sm:h-8 text-white" />
             </div>
             <div>
-              <h1 className="text-3xl font-extrabold text-slate-800 tracking-tight">MatheGenius AI</h1>
+              <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-800 tracking-tight">MatheGenius AI</h1>
               <p className="text-sm text-slate-500">Zurück zur Übersicht</p>
             </div>
           </div>
@@ -252,33 +252,33 @@ const App: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-purple-50 flex flex-col items-center p-4 md:p-8">
+    <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-purple-50 flex flex-col items-center p-3 sm:p-4 md:p-8">
       
       {/* Header */}
-      <header className="w-full max-w-4xl mb-8 flex items-center justify-between">
+      <header className="w-full max-w-4xl mb-6 md:mb-8 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center space-x-3">
-          <div className="bg-indigo-600 p-3 rounded-xl shadow-lg shadow-indigo-200">
-            <Calculator className="w-8 h-8 text-white" />
+          <div className="bg-indigo-600 p-2.5 sm:p-3 rounded-xl shadow-lg shadow-indigo-200">
+            <Calculator className="w-6 h-6 sm:w-8 sm:h-8 text-white" />
           </div>
           <div>
-            <h1 className="text-3xl font-extrabold text-slate-800 tracking-tight">MatheGenius AI</h1>
-            <p className="text-sm text-slate-500">Dein persönlicher Schritt-für-Schritt Tutor</p>
+            <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-800 tracking-tight">MatheGenius AI</h1>
+            <p className="text-xs sm:text-sm text-slate-500">Dein persönlicher Schritt-für-Schritt Tutor</p>
           </div>
         </div>
         <ApiKeyManager />
       </header>
 
       {/* Main Card */}
-      <main className="w-full max-w-4xl bg-white rounded-3xl shadow-xl overflow-hidden border border-slate-100 transition-all mb-12">
+      <main className="w-full max-w-4xl bg-white rounded-2xl sm:rounded-3xl shadow-xl overflow-hidden border border-slate-100 transition-all mb-8 md:mb-12">
         
         {/* Input Section */}
-        <div className="p-6 md:p-8 bg-white">
+        <div className="p-4 sm:p-6 md:p-8 bg-white">
           
           {/* Tabs */}
-          <div className="flex space-x-2 mb-6 bg-slate-100 p-1 rounded-xl w-fit">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mb-6 bg-slate-100 p-1 rounded-xl w-full">
             <button
               onClick={() => handleModeChange(InputMode.TEXT)}
-              className={`flex items-center space-x-2 px-6 py-2.5 rounded-lg text-sm font-semibold transition-all duration-200 ${
+              className={`flex items-center justify-center space-x-2 px-3 sm:px-4 py-3 rounded-lg text-sm font-semibold transition-all duration-200 ${
                 state.inputMode === InputMode.TEXT
                   ? 'bg-white text-indigo-600 shadow-sm'
                   : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200/50'
@@ -289,7 +289,7 @@ const App: React.FC = () => {
             </button>
             <button
               onClick={() => handleModeChange(InputMode.IMAGE)}
-              className={`flex items-center space-x-2 px-6 py-2.5 rounded-lg text-sm font-semibold transition-all duration-200 ${
+              className={`flex items-center justify-center space-x-2 px-3 sm:px-4 py-3 rounded-lg text-sm font-semibold transition-all duration-200 ${
                 state.inputMode === InputMode.IMAGE
                   ? 'bg-white text-indigo-600 shadow-sm'
                   : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200/50'
@@ -300,7 +300,7 @@ const App: React.FC = () => {
             </button>
             <button
               onClick={() => handleModeChange(InputMode.TUTOR)}
-              className={`flex items-center space-x-2 px-6 py-2.5 rounded-lg text-sm font-semibold transition-all duration-200 ${
+              className={`flex items-center justify-center space-x-2 px-3 sm:px-4 py-3 rounded-lg text-sm font-semibold transition-all duration-200 ${
                 state.inputMode === InputMode.TUTOR
                   ? 'bg-white text-indigo-600 shadow-sm'
                   : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200/50'
@@ -319,7 +319,7 @@ const App: React.FC = () => {
                 onChange={handleTextChange}
                 onPaste={handlePaste}
                 placeholder="Gib hier deine Matheaufgabe ein (z.B. 'Löse die Gleichung x^2 - 4 = 0')... Tipp: Du kannst auch ein Bild mit Strg+V einfügen!"
-                className="w-full h-32 p-4 bg-slate-50 rounded-2xl border border-slate-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 focus:bg-white transition-all resize-none text-slate-700 text-lg placeholder:text-slate-400"
+                className="w-full h-36 sm:h-32 p-4 bg-slate-50 rounded-2xl border border-slate-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 focus:bg-white transition-all resize-none text-slate-700 text-base sm:text-lg placeholder:text-slate-400"
               />
             </div>
           )}
@@ -327,7 +327,7 @@ const App: React.FC = () => {
           {/* Tutor Input Mode */}
           {state.inputMode === InputMode.TUTOR && (
             <div className="space-y-4">
-              <div className="rounded-2xl border border-indigo-100 bg-indigo-50/60 p-4 text-sm text-indigo-900">
+              <div className="rounded-2xl border border-indigo-100 bg-indigo-50/60 p-4 text-sm leading-relaxed text-indigo-900">
                 Beschreibe das Thema, das du wirklich von Grund auf lernen möchtest (z.&nbsp;B. <strong>Bruchrechnung</strong>, <strong>lineare Funktionen</strong> oder <strong>quadratische Gleichungen</strong>). 
                 Du bekommst dann eine vollständige Lernstrecke mit verständlichen Erklärungen, vorgerechneten Beispielen und Übungsaufgaben mit Musterlösung.
               </div>
@@ -335,7 +335,7 @@ const App: React.FC = () => {
                 value={state.textInput}
                 onChange={handleTextChange}
                 placeholder="Welches Thema soll ich dir beibringen? Beschreibe gerne dein Level (z.B. 'Noch nie gehört', 'Grundlagen bekannt', 'bitte ab Klasse 8 Niveau')."
-                className="w-full h-40 p-4 bg-slate-50 rounded-2xl border border-slate-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 focus:bg-white transition-all resize-none text-slate-700 text-lg placeholder:text-slate-400"
+                className="w-full h-44 sm:h-40 p-4 bg-slate-50 rounded-2xl border border-slate-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 focus:bg-white transition-all resize-none text-slate-700 text-base sm:text-lg placeholder:text-slate-400"
               />
             </div>
           )}
@@ -346,7 +346,7 @@ const App: React.FC = () => {
               {!state.imagePreview ? (
                 <div 
                   onClick={() => fileInputRef.current?.click()}
-                  className="w-full h-48 border-2 border-dashed border-slate-300 rounded-2xl flex flex-col items-center justify-center bg-slate-50 hover:bg-indigo-50 hover:border-indigo-400 transition-all cursor-pointer group"
+                  className="w-full h-52 sm:h-48 border-2 border-dashed border-slate-300 rounded-2xl flex flex-col items-center justify-center bg-slate-50 hover:bg-indigo-50 hover:border-indigo-400 transition-all cursor-pointer group"
                 >
                   <div className="bg-white p-4 rounded-full shadow-sm mb-3 group-hover:scale-110 transition-transform">
                     <ImageIcon className="w-8 h-8 text-indigo-500" />
@@ -404,7 +404,7 @@ const App: React.FC = () => {
             <button
               onClick={handleSubmit}
               disabled={state.isLoading || ((state.inputMode === InputMode.TEXT || state.inputMode === InputMode.TUTOR) && !state.textInput) || (state.inputMode === InputMode.IMAGE && !state.imageFile)}
-              className="bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed text-white px-8 py-3 rounded-xl font-bold text-lg shadow-lg shadow-indigo-200 flex items-center space-x-2 transition-all active:scale-95"
+              className="w-full sm:w-auto justify-center bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed text-white px-6 sm:px-8 py-3.5 rounded-xl font-bold text-base sm:text-lg shadow-lg shadow-indigo-200 flex items-center space-x-2 transition-all active:scale-95"
             >
               {state.isLoading ? (
                 <>
@@ -423,7 +423,7 @@ const App: React.FC = () => {
         
         {/* Loading State Visualization */}
         {state.isLoading && (
-          <div className="p-12 text-center bg-slate-50/50 border-t border-slate-100">
+          <div className="p-8 sm:p-12 text-center bg-slate-50/50 border-t border-slate-100">
              <div className="inline-block relative w-20 h-20">
                <div className="absolute top-0 left-0 w-full h-full border-4 border-indigo-100 rounded-full animate-pulse"></div>
                <div className="absolute top-0 left-0 w-full h-full border-t-4 border-indigo-600 rounded-full animate-spin"></div>
@@ -441,26 +441,26 @@ const App: React.FC = () => {
       {/* History Section */}
       {state.history.length > 0 && !state.isLoading && (
         <section className="w-full max-w-4xl animate-in slide-in-from-bottom-8 fade-in duration-500">
-           <div className="flex items-center justify-between mb-4 px-2">
+           <div className="flex items-center justify-between mb-4 px-1 sm:px-2 gap-2">
              <h3 className="text-xl font-bold text-slate-700 flex items-center gap-2">
                <Clock className="w-5 h-5 text-indigo-500" />
                Verlauf
              </h3>
              <button 
                onClick={clearHistory}
-               className="text-xs text-red-400 hover:text-red-600 flex items-center gap-1 px-3 py-1 rounded-full hover:bg-red-50 transition-colors"
+               className="text-xs text-red-400 hover:text-red-600 flex items-center gap-1 px-3 py-1.5 rounded-full hover:bg-red-50 transition-colors"
              >
                <Trash2 className="w-3 h-3" />
                Verlauf löschen
              </button>
            </div>
            
-           <div className="grid gap-4 md:grid-cols-1">
+           <div className="grid gap-3 sm:gap-4 md:grid-cols-1">
              {state.history.map((item) => (
                <div 
                   key={item.id}
                   onClick={() => handleHistoryRestore(item)}
-                  className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100 hover:shadow-md hover:border-indigo-200 transition-all cursor-pointer group flex items-start justify-between"
+                  className="bg-white p-4 sm:p-5 rounded-2xl shadow-sm border border-slate-100 hover:shadow-md hover:border-indigo-200 transition-all cursor-pointer group flex items-start justify-between gap-2"
                >
                  <div className="flex-1 min-w-0 pr-4">
                    <div className="flex items-center gap-2 mb-2">
@@ -493,7 +493,7 @@ const App: React.FC = () => {
                  <div className="flex flex-col items-end gap-2">
                     <button 
                       onClick={(e) => deleteHistoryItem(e, item.id)}
-                      className="p-2 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-full transition-colors opacity-0 group-hover:opacity-100"
+                      className="p-2 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-full transition-colors opacity-100 sm:opacity-0 sm:group-hover:opacity-100"
                       title="Eintrag löschen"
                     >
                       <Trash2 className="w-4 h-4" />
@@ -530,7 +530,7 @@ const App: React.FC = () => {
         </section>
       )}
 
-      <footer className="mt-12 text-slate-400 text-sm">
+      <footer className="mt-8 md:mt-12 text-slate-400 text-xs sm:text-sm text-center px-4">
         Powered by Google Gemini 3
       </footer>
     </div>
