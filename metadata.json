@@ -1,5 +1,5 @@
 {
-  "name": "MatheGenius AI",
+  "name": "Mathe Erklaerer",
   "description": "Eine intelligente Mathe-Hilfe, die Aufgaben per Text oder Foto löst und extrem detaillierte, schrittweise Erklärungen liefert.",
   "requestFramePermissions": [
     "camera",

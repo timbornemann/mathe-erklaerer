@@ -253,7 +253,7 @@ const App: React.FC = () => {
               <Calculator className="w-6 h-6 sm:w-8 sm:h-8 text-white" />
             </div>
             <div>
-              <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-800 tracking-tight">MatheGenius AI</h1>
+              <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-800 tracking-tight">Mathe Erklaerer</h1>
               <p className="text-sm text-slate-500">Zurück zur Übersicht</p>
             </div>
           </div>
@@ -279,7 +279,7 @@ const App: React.FC = () => {
             <Calculator className="w-6 h-6 sm:w-8 sm:h-8 text-white" />
           </div>
           <div>
-            <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-800 tracking-tight">MatheGenius AI</h1>
+            <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-800 tracking-tight">Mathe Erklaerer</h1>
             <p className="text-xs sm:text-sm text-slate-500">Dein persönlicher Schritt-für-Schritt Tutor</p>
           </div>
         </div>

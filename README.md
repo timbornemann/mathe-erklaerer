@@ -1,6 +1,6 @@
-# MatheGenius AI 🧮🤖
+# Mathe Erklaerer 🧮🤖
 
-**MatheGenius AI** ist dein persönlicher Schritt-für-Schritt Mathe-Tutor, basierend auf der Google Gemini 3 API.
+**Mathe Erklaerer** ist dein persönlicher Schritt-für-Schritt Mathe-Tutor, basierend auf der Google Gemini 3 API.
 
 Die Anwendung löst mathematische Aufgaben extrem detailliert und verständlich. Du kannst Aufgaben entweder als Text eingeben oder einfach ein Foto davon hochladen.
 
@@ -17,7 +17,7 @@ Die Anwendung löst mathematische Aufgaben extrem detailliert und verständlich.
 
 ## 🛠 Nutzung
 
-Es gibt drei Wege, MatheGenius AI zu nutzen:
+Es gibt drei Wege, Mathe Erklaerer zu nutzen:
 
 ### 1. Schnellstart mit dem fertigen Docker-Image (empfohlen) 🐳
 
