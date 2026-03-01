@@ -1,18 +1,21 @@
 import React, { useState } from 'react';
 import { 
   ArrowLeft, Play, BookOpen, ClipboardList, Plus, X, Save,
-  CheckCircle2, XCircle, Eye 
+  CheckCircle2, XCircle, Eye, Loader2, RotateCcw
 } from 'lucide-react';
 import MathRenderer from './MathRenderer';
-import { PracticeRoom, MathSolution } from '../types';
+import { PracticeRoom, PracticeTask, MathSolution } from '../types';
 import SolutionViewer from './SolutionViewer';
+import { solvePracticeTask } from '../services/gemini';
 
 type DetailTab = 'continue' | 'examples' | 'history';
 
 interface PracticeRoomDetailProps {
   room: PracticeRoom;
   onContinue: (additionalPrompt?: string) => void;
+  onResumeTask: (task: PracticeTask) => void;
   onUpdateExamples: (examples: string[]) => void;
+  onTaskUpdated: (task: PracticeTask) => void;
   onBack: () => void;
   isLoading: boolean;
 }
@@ -20,7 +23,9 @@ interface PracticeRoomDetailProps {
 const PracticeRoomDetail: React.FC<PracticeRoomDetailProps> = ({
   room,
   onContinue,
+  onResumeTask,
   onUpdateExamples,
+  onTaskUpdated,
   onBack,
   isLoading
 }) => {
@@ -29,6 +34,7 @@ const PracticeRoomDetail: React.FC<PracticeRoomDetailProps> = ({
   const [editedExamples, setEditedExamples] = useState<string[]>([...room.exampleTasks]);
   const [viewingSolution, setViewingSolution] = useState<MathSolution | null>(null);
   const [viewingTaskText, setViewingTaskText] = useState('');
+  const [generatingSolutionForId, setGeneratingSolutionForId] = useState<string | null>(null);
 
   const correctCount = room.generatedTasks.filter(t => t.isCorrect === true).length;
   const attemptedCount = room.generatedTasks.filter(t => t.isCorrect !== undefined).length;
@@ -48,6 +54,21 @@ const PracticeRoomDetail: React.FC<PracticeRoomDetailProps> = ({
     const filtered = editedExamples.filter(t => t.trim() !== '');
     onUpdateExamples(filtered);
     setEditedExamples(filtered.length ? filtered : ['']);
+  };
+
+  const handleGenerateSolutionForTask = async (task: PracticeTask) => {
+    setGeneratingSolutionForId(task.id);
+    try {
+      const solution = await solvePracticeTask(task.taskText);
+      const updated: PracticeTask = { ...task, fullSolution: solution };
+      onTaskUpdated(updated);
+      setViewingSolution(solution);
+      setViewingTaskText(task.taskText);
+    } catch (err: any) {
+      console.error("Failed to generate solution:", err);
+    } finally {
+      setGeneratingSolutionForId(null);
+    }
   };
 
   if (viewingSolution) {
@@ -211,25 +232,49 @@ const PracticeRoomDetail: React.FC<PracticeRoomDetailProps> = ({
                             </span>
                           )}
                           {task.isCorrect === undefined && (
-                            <span className="text-xs text-slate-400">Nicht beantwortet</span>
+                            <span className="text-xs text-amber-500 font-medium">Offen</span>
                           )}
                         </div>
                         <div className="text-sm text-slate-700 line-clamp-3">
                           <MathRenderer content={task.taskText} />
                         </div>
                       </div>
-                      {task.fullSolution && (
-                        <button
-                          onClick={() => {
-                            setViewingSolution(task.fullSolution!);
-                            setViewingTaskText(task.taskText);
-                          }}
-                          className="flex items-center gap-1 text-xs text-indigo-500 hover:text-indigo-700 px-2 py-1 rounded-lg hover:bg-indigo-50 transition-colors flex-shrink-0"
-                        >
-                          <Eye className="w-3.5 h-3.5" />
-                          Lösung
-                        </button>
-                      )}
+                      <div className="flex flex-col gap-1 flex-shrink-0">
+                        {task.isCorrect === undefined && (
+                          <button
+                            onClick={() => onResumeTask(task)}
+                            className="flex items-center gap-1 text-xs text-indigo-500 hover:text-indigo-700 px-2 py-1 rounded-lg hover:bg-indigo-50 transition-colors"
+                          >
+                            <RotateCcw className="w-3.5 h-3.5" />
+                            Fortsetzen
+                          </button>
+                        )}
+                        {task.fullSolution ? (
+                          <button
+                            onClick={() => {
+                              setViewingSolution(task.fullSolution!);
+                              setViewingTaskText(task.taskText);
+                            }}
+                            className="flex items-center gap-1 text-xs text-indigo-500 hover:text-indigo-700 px-2 py-1 rounded-lg hover:bg-indigo-50 transition-colors"
+                          >
+                            <Eye className="w-3.5 h-3.5" />
+                            Lösung
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => handleGenerateSolutionForTask(task)}
+                            disabled={generatingSolutionForId === task.id}
+                            className="flex items-center gap-1 text-xs text-indigo-500 hover:text-indigo-700 px-2 py-1 rounded-lg hover:bg-indigo-50 transition-colors disabled:opacity-50"
+                          >
+                            {generatingSolutionForId === task.id ? (
+                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            ) : (
+                              <Eye className="w-3.5 h-3.5" />
+                            )}
+                            Lösung erstellen
+                          </button>
+                        )}
+                      </div>
                     </div>
                   </div>
                 ))

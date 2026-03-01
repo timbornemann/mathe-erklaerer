@@ -126,9 +126,20 @@ const PracticeSession: React.FC<PracticeSessionProps> = ({
     }
   };
 
-  const handleShowSolution = async () => {
+  const handleShowSolution = async (skipCheck?: boolean) => {
+    const prevPhase = phase;
     setPhase('loading_solution');
     setError(null);
+
+    if (skipCheck) {
+      setIsCorrect(false);
+      const skippedTask: PracticeTask = {
+        ...currentTask,
+        isCorrect: false,
+        aiFeedback: 'Lösung ohne eigenen Versuch angezeigt.'
+      };
+      onTaskUpdated(skippedTask);
+    }
 
     try {
       const solution = await solvePracticeTask(currentTask.taskText);
@@ -139,15 +150,15 @@ const PracticeSession: React.FC<PracticeSessionProps> = ({
         fullSolution: solution,
         userSolution: solutionText || undefined,
         userSolutionImage: solutionImage || undefined,
-        isCorrect: isCorrect ?? false,
-        aiFeedback: feedback
+        isCorrect: skipCheck ? false : (isCorrect ?? false),
+        aiFeedback: skipCheck ? 'Lösung ohne eigenen Versuch angezeigt.' : feedback
       };
       onTaskUpdated(updatedTask);
 
       setPhase('showing_solution');
     } catch (err: any) {
       setError(err.message || 'Fehler beim Erstellen der Lösung.');
-      setPhase(isCorrect === false ? 'result_wrong' : 'result_correct');
+      setPhase(skipCheck ? 'task_display' : (prevPhase === 'result_wrong' || isCorrect === false ? 'result_wrong' : 'result_correct'));
     }
   };
 
@@ -369,7 +380,15 @@ const PracticeSession: React.FC<PracticeSessionProps> = ({
                 </div>
               )}
 
-              <div className="flex justify-end">
+              <div className="flex flex-col sm:flex-row gap-2 justify-end">
+                <button
+                  onClick={() => handleShowSolution(true)}
+                  disabled={phase === 'checking'}
+                  className="flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-50 transition-colors"
+                >
+                  <Eye className="w-4 h-4" />
+                  Lösung anzeigen
+                </button>
                 <button
                   onClick={handleCheckSolution}
                   disabled={phase === 'checking' || (!solutionText.trim() && !solutionImage)}

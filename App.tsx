@@ -420,6 +420,11 @@ const App: React.FC = () => {
     updateRoom(updatedRoom);
   };
 
+  const handleResumeTask = (task: PracticeTask) => {
+    setCurrentPracticeTask(task);
+    setPracticeView('session');
+  };
+
   const handlePracticeBack = () => {
     if (practiceView === 'session') {
       setPracticeView(state.activePracticeRoom?.generatedTasks?.length ? 'detail' : 'setup');
@@ -509,7 +514,9 @@ const App: React.FC = () => {
         <PracticeRoomDetail
           room={state.activePracticeRoom}
           onContinue={handleRoomContinue}
+          onResumeTask={handleResumeTask}
           onUpdateExamples={handleUpdateExamples}
+          onTaskUpdated={handlePracticeTaskUpdated}
           onBack={handlePracticeBack}
           isLoading={isPracticeGenerating}
         />
