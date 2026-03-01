@@ -5,7 +5,6 @@ import MathRenderer from './components/MathRenderer';
 import { MathState, InputMode, HistoryItem, MathSolution } from './types';
 import { 
   Calculator, 
-  Camera, 
   X, 
   Loader2, 
   Send, 
@@ -113,7 +112,12 @@ const App: React.FC = () => {
   };
 
   const handleModeChange = (mode: InputMode) => {
-    setState(prev => ({ ...prev, inputMode: mode, error: null }));
+    setState(prev => ({
+      ...prev,
+      inputMode: mode,
+      error: null,
+      ...(mode === InputMode.TUTOR ? { imageFile: null, imagePreview: null } : {})
+    }));
   };
 
   const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -177,7 +181,6 @@ const App: React.FC = () => {
               ...prev,
               imageFile: file,
               imagePreview: reader.result as string,
-              inputMode: InputMode.IMAGE,
               error: null
             }));
           };
@@ -196,18 +199,19 @@ const App: React.FC = () => {
   const handleSubmit = useCallback(async () => {
     if (state.isLoading) return;
 
-    if ((state.inputMode === InputMode.TEXT || state.inputMode === InputMode.TUTOR) && !state.textInput.trim()) {
-      setState(prev => ({ 
-        ...prev, 
-        error: state.inputMode === InputMode.TUTOR
-          ? "Bitte beschreibe ein Thema oder Sachgebiet für den Tutor-Modus."
-          : "Bitte gib eine Matheaufgabe ein."
+    if (state.inputMode === InputMode.TUTOR && !state.textInput.trim()) {
+      setState(prev => ({
+        ...prev,
+        error: "Bitte beschreibe ein Thema oder Sachgebiet für den Tutor-Modus."
       }));
       return;
     }
 
-    if (state.inputMode === InputMode.IMAGE && !state.imageFile) {
-      setState(prev => ({ ...prev, error: "Bitte lade ein Foto der Aufgabe hoch." }));
+    if (state.inputMode === InputMode.TEXT && !state.textInput.trim() && !state.imageFile) {
+      setState(prev => ({
+        ...prev,
+        error: "Bitte gib eine Aufgabe ein oder lade ein Foto hoch."
+      }));
       return;
     }
 
@@ -231,12 +235,12 @@ const App: React.FC = () => {
         options
       );
 
-      // Create history item (for tutor, solution is complete when promise resolves)
+      const savedMode = state.inputMode === InputMode.TEXT && state.imageFile ? InputMode.IMAGE : state.inputMode;
       const historyItem: HistoryItem = {
         id: generateHistoryId(),
         timestamp: Date.now(),
-        mode: state.inputMode,
-        prompt: state.textInput || (state.inputMode === InputMode.IMAGE ? "Foto-Analyse" : state.inputMode === InputMode.TUTOR ? "Tutor-Modus" : "Aufgabe"),
+        mode: savedMode,
+        prompt: state.textInput || (state.imageFile ? "Foto-Analyse" : state.inputMode === InputMode.TUTOR ? "Tutor-Modus" : "Aufgabe"),
         preview: solution.finalAnswer || solution.steps[0]?.title || "Gelöste Aufgabe",
         solution: solution
       };
@@ -303,7 +307,7 @@ const App: React.FC = () => {
         <div className="p-4 sm:p-6 md:p-8 bg-white">
           
           {/* Tabs */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mb-6 bg-slate-100 p-1 rounded-xl w-full">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-6 bg-slate-100 p-1 rounded-xl w-full">
             <button
               onClick={() => handleModeChange(InputMode.TEXT)}
               className={`flex items-center justify-center space-x-2 px-3 sm:px-4 py-3 rounded-lg text-sm font-semibold transition-all duration-200 ${
@@ -313,18 +317,7 @@ const App: React.FC = () => {
               }`}
             >
               <Type className="w-4 h-4" />
-              <span>Text</span>
-            </button>
-            <button
-              onClick={() => handleModeChange(InputMode.IMAGE)}
-              className={`flex items-center justify-center space-x-2 px-3 sm:px-4 py-3 rounded-lg text-sm font-semibold transition-all duration-200 ${
-                state.inputMode === InputMode.IMAGE
-                  ? 'bg-white text-indigo-600 shadow-sm'
-                  : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200/50'
-              }`}
-            >
-              <Camera className="w-4 h-4" />
-              <span>Foto / Scan</span>
+              <span>Aufgabe Lösen</span>
             </button>
             <button
               onClick={() => handleModeChange(InputMode.TUTOR)}
@@ -339,15 +332,48 @@ const App: React.FC = () => {
             </button>
           </div>
 
-          {/* Text Input Mode */}
+          {/* Aufgabe (Text + optional Foto) */}
           {state.inputMode === InputMode.TEXT && (
-            <div className="relative">
+            <div className="space-y-4">
               <textarea
                 value={state.textInput}
                 onChange={handleTextChange}
                 onPaste={handlePaste}
-                placeholder="Gib hier deine Matheaufgabe ein (z.B. 'Löse die Gleichung x^2 - 4 = 0')... Tipp: Du kannst auch ein Bild mit Strg+V einfügen!"
+                placeholder="Gib hier deine Matheaufgabe ein (z.B. 'Löse die Gleichung x^2 - 4 = 0') oder lade ein Foto der Aufgabe hoch … Tipp: Bild mit Strg+V einfügen!"
                 className="w-full h-36 sm:h-32 p-4 bg-slate-50 rounded-2xl border border-slate-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 focus:bg-white transition-all resize-none text-slate-700 text-base sm:text-lg placeholder:text-slate-400"
+              />
+              {!state.imagePreview ? (
+                <div
+                  onClick={() => fileInputRef.current?.click()}
+                  className="w-full h-32 border-2 border-dashed border-slate-300 rounded-2xl flex flex-col items-center justify-center bg-slate-50 hover:bg-indigo-50 hover:border-indigo-400 transition-all cursor-pointer group"
+                >
+                  <ImageIcon className="w-6 h-6 text-indigo-500 mb-2 group-hover:scale-110 transition-transform" />
+                  <p className="text-slate-600 text-sm font-medium">Foto anhängen (optional)</p>
+                  <p className="text-xs text-slate-400 mt-0.5">Klicken oder Strg+V · JPG, PNG, WEBP</p>
+                </div>
+              ) : (
+                <div className="relative w-full rounded-2xl overflow-hidden border border-slate-200 bg-slate-900 group">
+                  <img
+                    src={state.imagePreview}
+                    alt="Upload Preview"
+                    className="w-full h-48 object-contain opacity-90"
+                  />
+                  <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                    <button
+                      onClick={removeImage}
+                      className="bg-white/20 backdrop-blur-md hover:bg-white/30 text-white p-3 rounded-full transition-colors"
+                    >
+                      <X className="w-6 h-6" />
+                    </button>
+                  </div>
+                </div>
+              )}
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={handleFileChange}
               />
             </div>
           )}
@@ -368,57 +394,6 @@ const App: React.FC = () => {
             </div>
           )}
 
-          {/* Image Input Mode */}
-          {state.inputMode === InputMode.IMAGE && (
-            <div className="flex flex-col items-center justify-center">
-              {!state.imagePreview ? (
-                <div 
-                  onClick={() => fileInputRef.current?.click()}
-                  className="w-full h-52 sm:h-48 border-2 border-dashed border-slate-300 rounded-2xl flex flex-col items-center justify-center bg-slate-50 hover:bg-indigo-50 hover:border-indigo-400 transition-all cursor-pointer group"
-                >
-                  <div className="bg-white p-4 rounded-full shadow-sm mb-3 group-hover:scale-110 transition-transform">
-                    <ImageIcon className="w-8 h-8 text-indigo-500" />
-                  </div>
-                  <p className="text-slate-600 font-medium">Klicken zum Hochladen</p>
-                  <p className="text-xs text-slate-400 mt-1">JPG, PNG, WEBP unterstützt (oder Strg+V)</p>
-                </div>
-              ) : (
-                <div className="relative w-full rounded-2xl overflow-hidden border border-slate-200 bg-slate-900 group">
-                  <img 
-                    src={state.imagePreview} 
-                    alt="Upload Preview" 
-                    className="w-full h-64 object-contain opacity-90" 
-                  />
-                  <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                    <button 
-                      onClick={removeImage}
-                      className="bg-white/20 backdrop-blur-md hover:bg-white/30 text-white p-3 rounded-full transition-colors"
-                    >
-                      <X className="w-6 h-6" />
-                    </button>
-                  </div>
-                </div>
-              )}
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/*"
-                className="hidden"
-                onChange={handleFileChange}
-              />
-              
-              <div className="w-full mt-4">
-                 <textarea
-                  value={state.textInput}
-                  onChange={handleTextChange}
-                  onPaste={handlePaste}
-                  placeholder="Zusätzliche Anweisungen (Optional, z.B. 'Nur Aufgabe 2b lösen')..."
-                  className="w-full p-3 bg-slate-50 rounded-xl border border-slate-200 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-200 text-sm text-slate-700"
-                />
-              </div>
-            </div>
-          )}
-
           {/* Error Message */}
           {state.error && (
             <div className="mt-4 p-3 bg-red-50 border border-red-100 rounded-lg flex items-center space-x-2 text-red-600 text-sm">
@@ -431,7 +406,7 @@ const App: React.FC = () => {
           <div className="mt-6 flex justify-end">
             <button
               onClick={handleSubmit}
-              disabled={state.isLoading || ((state.inputMode === InputMode.TEXT || state.inputMode === InputMode.TUTOR) && !state.textInput) || (state.inputMode === InputMode.IMAGE && !state.imageFile)}
+              disabled={state.isLoading || (state.inputMode === InputMode.TUTOR && !state.textInput.trim()) || (state.inputMode === InputMode.TEXT && !state.textInput.trim() && !state.imageFile)}
               className="w-full sm:w-auto justify-center bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed text-white px-6 sm:px-8 py-3.5 rounded-xl font-bold text-base sm:text-lg shadow-lg shadow-indigo-200 flex items-center space-x-2 transition-all active:scale-95"
             >
               {state.isLoading ? (
