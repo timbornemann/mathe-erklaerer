@@ -117,9 +117,16 @@ const App: React.FC = () => {
 
   const clearHistory = (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (window.confirm("Möchtest du den gesamten Verlauf wirklich löschen?")) {
-      localStorage.removeItem('mathGeniusHistory');
-      setState(prev => ({ ...prev, history: [] }));
+    if (window.confirm("Möchtest du den Verlauf wirklich löschen?")) {
+      setState(prev => {
+        const remaining = prev.history.filter(item =>
+          state.inputMode === InputMode.TUTOR
+            ? item.mode !== InputMode.TUTOR
+            : item.mode === InputMode.TUTOR
+        );
+        localStorage.setItem('mathGeniusHistory', JSON.stringify(remaining));
+        return { ...prev, history: remaining };
+      });
     }
   };
 
@@ -739,7 +746,13 @@ const App: React.FC = () => {
       )}
 
       {/* History Section */}
-      {state.inputMode !== InputMode.PRACTICE && history.length > 0 && !state.isLoading && (
+      {state.inputMode !== InputMode.PRACTICE && (() => {
+        const filteredHistory = history.filter(item =>
+          state.inputMode === InputMode.TUTOR
+            ? item.mode === InputMode.TUTOR
+            : item.mode === InputMode.TEXT || item.mode === InputMode.IMAGE
+        );
+        return filteredHistory.length > 0 && !state.isLoading && (
         <section className="w-full max-w-4xl animate-in slide-in-from-bottom-8 fade-in duration-500">
            <div className="flex items-center justify-between mb-4 px-1 sm:px-2 gap-2">
              <h3 className="text-xl font-bold text-slate-700 flex items-center gap-2">
@@ -756,7 +769,7 @@ const App: React.FC = () => {
            </div>
            
            <div className="grid gap-3 sm:gap-4 md:grid-cols-1">
-             {history.map((item) => (
+             {filteredHistory.map((item) => (
                <div 
                   key={item.id}
                   onClick={() => handleHistoryRestore(item)}
@@ -806,7 +819,7 @@ const App: React.FC = () => {
              ))}
            </div>
         </section>
-      )}
+      );})()}
       
       <footer className="mt-8 md:mt-12 text-slate-400 text-xs sm:text-sm text-center px-4">
         Powered by Google Gemini 3
