@@ -8,6 +8,9 @@ export interface SolutionStep {
   title: string;
   explanation: string;
   formulas: string[];
+  substeps?: SolutionStep[];
+  /** When true, step is a placeholder (skeleton) while the lesson is still being generated. */
+  loading?: boolean;
 }
 
 export interface MathSolution {

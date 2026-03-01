@@ -35,16 +35,22 @@ const TUTOR_SECTION_PROMPT = `
 Du bist ein Meister-Tutor und schreibst EINE ausführliche Lektion eines Lernpfads.
 
 PFLICHT:
-1. Vollständig anfängerverständlich erklären.
-2. Mehrere Erklärblöcke mit klaren Überschriften.
-3. Mindestens ein vollständig vorgerechnetes Beispiel.
-4. Mehrere Übungsaufgaben mit steigender Schwierigkeit.
-5. Direkt danach "Musterlösung" mit Schritt-für-Schritt-Lösung zu den Übungsaufgaben.
+1. Erkläre das Thema der Lektion vollständig anfängerverständlich.
+2. Unterteile die Lektion in 4–8 kurze Lernschritte (substeps).
+3. Jeder Lernschritt hat:
+   - eine kurze Überschrift (title),
+   - 1–3 Absätze Erklärung (explanation),
+   - die genau zu diesem Schritt passenden Formeln (formulas) als LaTeX ohne Dollarzeichen.
+4. Baue in die Lernschritte mindestens ein vollständig vorgerechnetes Beispiel ein.
+5. Füge mehrere Übungsaufgaben mit steigender Schwierigkeit und direkt danach Musterlösungen ein (ebenfalls in Lernschritten).
 6. In späteren Lektionen darf der Aufgabenanteil höher sein als der Erkläranteil.
 7. Nutze LaTeX:
-   - In title/explanation mathematische Ausdrücke als $...$.
+   - In allen Erklärungstexten mathematische Ausdrücke als $...$.
    - In formulas nur roher LaTeX ohne Dollarzeichen.
-8. Ausgabeformat ist striktes JSON.
+8. Das Ausgabeformat ist striktes JSON mit:
+   - title: string (Lektionstitel),
+   - substeps: Array von Objekten { title, explanation, formulas },
+   - takeaway: string (wichtigste Merksätze).
 `;
 
 interface TutorOutlineSection {
@@ -62,10 +68,15 @@ interface TutorOutline {
   masteryChecklist: string[];
 }
 
-interface TutorSectionContent {
+interface TutorSubstep {
   title: string;
   explanation: string;
   formulas: string[];
+}
+
+interface TutorSectionContent {
+  title: string;
+  substeps: TutorSubstep[];
   takeaway: string;
 }
 
@@ -236,11 +247,11 @@ Spezialfälle/Fallen: ${section.specialCases.join('; ') || 'Keine'}
 Bisherige Lernfortschritte:
 ${previousContext}
 
-Wichtig: Diese Lektion muss so ausgearbeitet sein, dass sie auch allein verständlich ist und folgende Abschnitte enthält:
-- Intuition & Erklärung
-- Beispiel(e) vorgerechnet
-- Übungsaufgaben (mind. 3, mit steigender Schwierigkeit)
-- Musterlösung Schritt für Schritt
+Wichtig:
+- Die Lektion muss so ausgearbeitet sein, dass sie auch allein verständlich ist.
+- Unterteile die Lektion in 4–8 kurze Lernschritte (substeps), die der tatsächlichen Lernreihenfolge folgen.
+- Jeder substep enthält eine klare Überschrift, eine kurze, gut lesbare Erklärung und genau die Formeln, die zu diesem Schritt gehören.
+- Baue in diese Lernschritte Beispiele, Übungsaufgaben und deren Musterlösungen ein.
 `
       }]
     },
@@ -255,11 +266,21 @@ Wichtig: Diese Lektion muss so ausgearbeitet sein, dass sie auch allein verstän
         type: Type.OBJECT,
         properties: {
           title: { type: Type.STRING },
-          explanation: { type: Type.STRING },
-          formulas: { type: Type.ARRAY, items: { type: Type.STRING } },
+          substeps: {
+            type: Type.ARRAY,
+            items: {
+              type: Type.OBJECT,
+              properties: {
+                title: { type: Type.STRING },
+                explanation: { type: Type.STRING },
+                formulas: { type: Type.ARRAY, items: { type: Type.STRING } }
+              },
+              required: ["title", "explanation", "formulas"]
+            }
+          },
           takeaway: { type: Type.STRING }
         },
-        required: ["title", "explanation", "formulas", "takeaway"]
+        required: ["title", "substeps", "takeaway"]
       }
     }
   });
@@ -299,10 +320,19 @@ const generateTutorLearningPath = async (
       takeaways.slice(-3)
     );
 
+    const lessonSubsteps: SolutionStep[] = Array.isArray(lesson.substeps)
+      ? lesson.substeps.map((substep) => ({
+          title: substep.title,
+          explanation: substep.explanation,
+          formulas: substep.formulas
+        }))
+      : [];
+
     steps.push({
       title: lesson.title,
-      explanation: lesson.explanation,
-      formulas: lesson.formulas
+      explanation: lesson.takeaway,
+      formulas: [],
+      substeps: lessonSubsteps
     });
 
     takeaways.push(lesson.takeaway);
@@ -327,24 +357,128 @@ Dieser Lernpfad wurde in deinem Verlauf gespeichert. Öffne ihn jederzeit erneut
   return { steps, finalAnswer };
 };
 
+export interface SolveMathOptions {
+  onTutorProgress?: (partialSolution: MathSolution) => void;
+}
+
+const generateTutorLearningPathProgressive = async (
+  ai: GoogleGenAI,
+  modelId: string,
+  topic: string,
+  onProgress: (partialSolution: MathSolution) => void
+): Promise<MathSolution> => {
+  const outline = await generateTutorOutline(ai, modelId, topic);
+  const limitedSections = outline.sections.slice(0, 10);
+
+  if (!limitedSections.length) {
+    throw new Error("Es konnten keine Lektionen für den Tutor-Lernpfad erstellt werden.");
+  }
+
+  const steps: SolutionStep[] = limitedSections.map((section) => ({
+    title: section.title,
+    explanation: '',
+    formulas: [],
+    substeps: [],
+    loading: true
+  }));
+
+  const initialSolution: MathSolution = {
+    steps,
+    finalAnswer: 'Lernpfad wird erstellt…'
+  };
+  onProgress(initialSolution);
+
+  const takeaways: string[] = [];
+
+  for (let i = 0; i < limitedSections.length; i++) {
+    const section = limitedSections[i];
+    const lesson = await generateTutorSection(
+      ai,
+      modelId,
+      topic,
+      outline,
+      section,
+      i,
+      limitedSections.length,
+      takeaways.slice(-3)
+    );
+
+    const lessonSubsteps: SolutionStep[] = Array.isArray(lesson.substeps)
+      ? lesson.substeps.map((substep) => ({
+          title: substep.title,
+          explanation: substep.explanation,
+          formulas: substep.formulas
+        }))
+      : [];
+
+    steps[i] = {
+      title: lesson.title,
+      explanation: lesson.takeaway,
+      formulas: [],
+      substeps: lessonSubsteps
+    };
+
+    takeaways.push(lesson.takeaway);
+    onProgress({ steps: [...steps], finalAnswer: initialSolution.finalAnswer });
+  }
+
+  const mastery = outline.masteryChecklist.length
+    ? outline.masteryChecklist.map((point, idx) => `${idx + 1}. ${point}`).join('\n')
+    : 'Arbeite die Lektionen erneut durch und löse zusätzliche Transferaufgaben.';
+
+  const finalAnswer = `
+**Lernpfad abgeschlossen: ${outline.courseTitle}**
+
+Du hast jetzt einen vollständigen Lernpfad von den Grundlagen bis zu Spezialfällen.
+
+**Mastery-Checkliste:**
+${mastery}
+
+**Wiederholen & später ansehen:**
+Dieser Lernpfad wurde in deinem Verlauf gespeichert. Öffne ihn jederzeit erneut und arbeite die Lektionen Schritt für Schritt durch.
+`;
+
+  const completeSolution: MathSolution = { steps, finalAnswer };
+  onProgress(completeSolution);
+  return completeSolution;
+};
+
 export const solveMathProblem = async (
   promptText: string,
   imageBase64?: string,
   mimeType: string = 'image/jpeg',
-  mode: InputMode = InputMode.TEXT
+  mode: InputMode = InputMode.TEXT,
+  options?: SolveMathOptions
 ): Promise<MathSolution> => {
   try {
     const ai = new GoogleGenAI({ apiKey: getApiKey() });
     const modelId = 'gemini-3-pro-preview';
 
     if (mode === InputMode.TUTOR) {
+      if (options?.onTutorProgress) {
+        return await generateTutorLearningPathProgressive(ai, modelId, promptText, options.onTutorProgress);
+      }
       return await generateTutorLearningPath(ai, modelId, promptText);
     }
 
     return await generateClassicSolution(ai, modelId, promptText, imageBase64, mimeType);
   } catch (error: any) {
     console.error("Gemini API Error:", error);
-    throw new Error(error.message || "Ein Fehler ist bei der Anfrage aufgetreten.");
+    const rawMessage: string = error?.message || "";
+    const isHighDemand =
+      error?.error?.code === 503 ||
+      error?.error?.status === "UNAVAILABLE" ||
+      rawMessage.includes("high demand") ||
+      rawMessage.includes("UNAVAILABLE") ||
+      rawMessage.includes("503");
+
+    if (isHighDemand) {
+      throw new Error(
+        "Das Gemini‑Modell ist gerade stark ausgelastet (503 / \"high demand\"). Bitte versuche es in ein paar Sekunden erneut – die Überlastung ist normalerweise nur vorübergehend."
+      );
+    }
+
+    throw new Error(rawMessage || "Ein Fehler ist bei der Anfrage aufgetreten.");
   }
 };
 

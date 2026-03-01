@@ -2,7 +2,7 @@ import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { solveMathProblem } from './services/gemini';
 import SolutionViewer from './components/SolutionViewer';
 import MathRenderer from './components/MathRenderer';
-import { MathState, InputMode, HistoryItem } from './types';
+import { MathState, InputMode, HistoryItem, MathSolution } from './types';
 import { 
   Calculator, 
   Camera, 
@@ -213,15 +213,25 @@ const App: React.FC = () => {
 
     setState(prev => ({ ...prev, isLoading: true, error: null, solution: null }));
 
+    const isTutor = state.inputMode === InputMode.TUTOR;
+    const options = isTutor
+      ? {
+          onTutorProgress: (partial: MathSolution) => {
+            setState(prev => ({ ...prev, solution: partial, isLoading: false }));
+          }
+        }
+      : undefined;
+
     try {
       const solution = await solveMathProblem(
-        state.textInput, 
+        state.textInput,
         state.imagePreview || undefined,
         state.imageFile?.type,
-        state.inputMode
+        state.inputMode,
+        options
       );
 
-      // Create history item
+      // Create history item (for tutor, solution is complete when promise resolves)
       const historyItem: HistoryItem = {
         id: generateHistoryId(),
         timestamp: Date.now(),
@@ -232,13 +242,13 @@ const App: React.FC = () => {
       };
 
       saveToHistory(historyItem);
-      
+
       setState(prev => ({ ...prev, solution, isLoading: false }));
     } catch (err: any) {
-      setState(prev => ({ 
-        ...prev, 
-        isLoading: false, 
-        error: err.message || "Es ist ein Fehler aufgetreten. Bitte versuche es erneut." 
+      setState(prev => ({
+        ...prev,
+        isLoading: false,
+        error: err.message || "Es ist ein Fehler aufgetreten. Bitte versuche es erneut."
       }));
     }
   }, [state.inputMode, state.textInput, state.imagePreview, state.imageFile, state.isLoading]);
