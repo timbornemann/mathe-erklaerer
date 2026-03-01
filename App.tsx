@@ -44,8 +44,7 @@ const App: React.FC = () => {
     imagePreview: null,
     solution: null,
     error: null,
-    history: [],
-    tutorLibrary: []
+    history: []
   });
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -62,30 +61,13 @@ const App: React.FC = () => {
       }
     }
 
-    const savedTutorLibrary = localStorage.getItem('mathGeniusTutorLibrary');
-    if (savedTutorLibrary) {
-      try {
-        const parsedTutorLibrary = JSON.parse(savedTutorLibrary);
-        setState(prev => ({ ...prev, tutorLibrary: parsedTutorLibrary }));
-      } catch (e) {
-        console.error("Failed to parse tutor library", e);
-      }
-    }
   }, []);
 
   const saveToHistory = (newItem: HistoryItem) => {
     setState(prev => {
-      const updatedHistory = [newItem, ...prev.history].slice(0, 50); // Keep last 50 items
+      const updatedHistory = [newItem, ...prev.history].slice(0, 50);
       localStorage.setItem('mathGeniusHistory', JSON.stringify(updatedHistory));
-
-      if (newItem.mode !== InputMode.TUTOR) {
-        return { ...prev, history: updatedHistory };
-      }
-
-      const updatedTutorLibrary = [newItem, ...prev.tutorLibrary].slice(0, 25);
-      localStorage.setItem('mathGeniusTutorLibrary', JSON.stringify(updatedTutorLibrary));
-
-      return { ...prev, history: updatedHistory, tutorLibrary: updatedTutorLibrary };
+      return { ...prev, history: updatedHistory };
     });
   };
 
@@ -93,8 +75,7 @@ const App: React.FC = () => {
     e.stopPropagation();
     if (window.confirm("Möchtest du den gesamten Verlauf wirklich löschen?")) {
       localStorage.removeItem('mathGeniusHistory');
-      localStorage.removeItem('mathGeniusTutorLibrary');
-      setState(prev => ({ ...prev, history: [], tutorLibrary: [] }));
+      setState(prev => ({ ...prev, history: [] }));
     }
   };
 
@@ -103,11 +84,7 @@ const App: React.FC = () => {
     setState(prev => {
       const updatedHistory = prev.history.filter(item => item.id !== id);
       localStorage.setItem('mathGeniusHistory', JSON.stringify(updatedHistory));
-
-      const updatedTutorLibrary = prev.tutorLibrary.filter(item => item.id !== id);
-      localStorage.setItem('mathGeniusTutorLibrary', JSON.stringify(updatedTutorLibrary));
-
-      return { ...prev, history: updatedHistory, tutorLibrary: updatedTutorLibrary };
+      return { ...prev, history: updatedHistory };
     });
   };
 
@@ -511,28 +488,6 @@ const App: React.FC = () => {
         </section>
       )}
       
-      {state.tutorLibrary.length > 0 && !state.isLoading && (
-        <section className="w-full max-w-4xl mb-8">
-          <div className="flex items-center justify-between mb-4 px-2">
-            <h3 className="text-xl font-bold text-slate-700">Tutor-Bibliothek</h3>
-            <span className="text-xs text-slate-400">Gespeicherte Lernpfade</span>
-          </div>
-          <div className="grid gap-3">
-            {state.tutorLibrary.map((item) => (
-              <button
-                key={`tutor-${item.id}`}
-                onClick={() => handleHistoryRestore(item)}
-                className="text-left bg-emerald-50 border border-emerald-100 hover:border-emerald-300 rounded-2xl p-4 transition-all"
-              >
-                <p className="text-xs text-emerald-700 font-bold uppercase tracking-wide mb-1">Tutor-Lernpfad</p>
-                <p className="text-slate-800 font-semibold line-clamp-1">{item.prompt}</p>
-                <p className="text-slate-500 text-sm line-clamp-2">{item.preview}</p>
-              </button>
-            ))}
-          </div>
-        </section>
-      )}
-
       <footer className="mt-8 md:mt-12 text-slate-400 text-xs sm:text-sm text-center px-4">
         Powered by Google Gemini 3
       </footer>

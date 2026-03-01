@@ -36,5 +36,4 @@ export interface MathState {
   solution: MathSolution | null;
   error: string | null;
   history: HistoryItem[];
-  tutorLibrary: HistoryItem[];
 }
