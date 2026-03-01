@@ -1,5 +1,5 @@
 import { GoogleGenAI, Type } from "@google/genai";
-import { InputMode, MathSolution, SolutionStep } from "../types";
+import { InputMode, MathSolution, SolutionStep, PracticeTask } from "../types";
 
 const SYSTEM_PROMPT = `
 Du bist ein exzellenter Mathe-Tutor. Deine Aufgabe ist es, Aufgaben extrem detailliert in kleinen, logischen Einzelschritten zu lösen.
@@ -90,6 +90,49 @@ const getApiKey = () => {
   }
 
   return import.meta.env.VITE_GEMINI_API_KEY || '';
+};
+
+/**
+ * Extracts JSON from a Gemini response, handling cases where the model
+ * wraps JSON in markdown code fences or returns it inside candidates.
+ */
+const extractJson = (response: any): any => {
+  // Try response.text first (standard accessor)
+  let raw = '';
+  try {
+    raw = response.text ?? '';
+  } catch {
+    // response.text can throw if all candidates are filtered
+  }
+
+  // If empty, try digging into candidates directly
+  if (!raw && response.candidates?.[0]?.content?.parts) {
+    for (const part of response.candidates[0].content.parts) {
+      if (part.text) {
+        raw = part.text;
+        break;
+      }
+    }
+  }
+
+  raw = raw.trim();
+
+  if (!raw) {
+    throw new Error("Keine Antwort vom Modell erhalten. Bitte versuche es erneut.");
+  }
+
+  // Strip markdown code fences if present
+  const fenceMatch = raw.match(/```(?:json)?\s*\n?([\s\S]*?)\n?\s*```/);
+  if (fenceMatch) {
+    raw = fenceMatch[1].trim();
+  }
+
+  try {
+    return JSON.parse(raw);
+  } catch {
+    console.error("Failed to parse model response as JSON:", raw.slice(0, 500));
+    throw new Error("Die KI-Antwort konnte nicht verarbeitet werden. Bitte versuche es erneut.");
+  }
 };
 
 const buildMathSchema = () => ({
@@ -355,6 +398,163 @@ Dieser Lernpfad wurde in deinem Verlauf gespeichert. Öffne ihn jederzeit erneut
 `;
 
   return { steps, finalAnswer };
+};
+
+const PRACTICE_GENERATE_PROMPT = `
+Du bist ein Mathe-Aufgaben-Generator. Deine Aufgabe ist es, eine einzelne Übungsaufgabe zu erstellen.
+
+REGELN:
+1. Erstelle GENAU EINE Aufgabe passend zum angegebenen Thema und Schwierigkeitsgrad.
+2. Die Aufgabe soll KURZ und PRÄGNANT formuliert sein – maximal 3–5 Sätze. Keine Teilaufgaben (a, b, c …), keine langen Textaufgaben mit mehreren Absätzen. Eine einzige, klare Fragestellung.
+3. Die Aufgabe muss eine eindeutige Lösung haben.
+4. Orientiere dich an den Beispielaufgaben des Nutzers bezüglich Stil, Umfang und Schwierigkeit.
+5. Wiederhole KEINE der bereits gestellten Aufgaben – variiere Zahlen, Kontext und Struktur.
+6. Nutze LaTeX für mathematische Ausdrücke: umschließe sie mit $...$ im Text.
+7. Gib auch eine kurze Beschreibung des Aufgabentyps (max. 10 Wörter) für die Übersicht.
+8. Das Ausgabeformat muss striktes JSON sein.
+`;
+
+const PRACTICE_CHECK_PROMPT = `
+Du bist ein Mathe-Korrektor. Deine Aufgabe ist es, die Lösung eines Schülers zu überprüfen.
+
+REGELN:
+1. Vergleiche die Schülerlösung mit der korrekten Lösung der Aufgabe.
+2. Bewerte ob die Lösung korrekt ist (isCorrect: true/false).
+3. Gib konstruktives Feedback:
+   - Bei korrekter Lösung: Kurze Bestätigung und ggf. Lob.
+   - Bei falscher Lösung: Erkläre WAS falsch ist, aber verrate NICHT die vollständige Lösung. Gib einen Hinweis, wo der Fehler liegt.
+4. Nutze LaTeX für mathematische Ausdrücke: $...$ im Feedback-Text.
+5. Sei ermutigend und pädagogisch wertvoll.
+6. Das Ausgabeformat muss striktes JSON sein.
+`;
+
+export const generatePracticeTask = async (
+  topic: string,
+  difficulty: string,
+  exampleTasks: string[],
+  previousTasks: PracticeTask[],
+  additionalPrompt?: string
+): Promise<{ taskText: string; description: string }> => {
+  try {
+    const ai = new GoogleGenAI({ apiKey: getApiKey() });
+    const modelId = 'gemini-3-pro-preview';
+
+    const examplesSection = exampleTasks.length
+      ? `\nBeispielaufgaben des Nutzers (orientiere dich an Stil und Umfang):\n${exampleTasks.map((t, i) => `${i + 1}. ${t}`).join('\n')}`
+      : '';
+
+    const previousSection = previousTasks.length
+      ? `\nBereits gestellte Aufgaben (NICHT wiederholen):\n${previousTasks.map((t, i) => `${i + 1}. ${t.taskText}${t.isCorrect === true ? ' ✓' : t.isCorrect === false ? ' ✗' : ''}`).join('\n')}`
+      : '';
+
+    const additionalSection = additionalPrompt
+      ? `\nZusätzliche Anweisungen des Nutzers: ${additionalPrompt}`
+      : '';
+
+    const userPrompt = `Thema: ${topic}
+Schwierigkeit: ${difficulty}${examplesSection}${previousSection}${additionalSection}
+
+Erstelle eine passende Übungsaufgabe.`;
+
+    const response = await ai.models.generateContent({
+      model: modelId,
+      contents: {
+        role: 'user',
+        parts: [{ text: userPrompt }]
+      },
+      config: {
+        systemInstruction: PRACTICE_GENERATE_PROMPT,
+        thinkingConfig: { thinkingBudget: 2048 },
+        maxOutputTokens: 4096,
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            taskText: { type: Type.STRING },
+            description: { type: Type.STRING }
+          },
+          required: ["taskText", "description"]
+        }
+      }
+    });
+
+    const parsed = extractJson(response);
+
+    return {
+      taskText: parsed.taskText || "Aufgabe konnte nicht gelesen werden.",
+      description: parsed.description || ""
+    };
+  } catch (error: any) {
+    console.error("Practice Generate Error:", error);
+    throw new Error(error?.message || "Aufgabe konnte nicht erstellt werden.");
+  }
+};
+
+export const checkPracticeSolution = async (
+  taskText: string,
+  userSolution?: string,
+  userSolutionImage?: string,
+  imageMimeType: string = 'image/jpeg'
+): Promise<{ isCorrect: boolean; feedback: string }> => {
+  try {
+    const ai = new GoogleGenAI({ apiKey: getApiKey() });
+    const modelId = 'gemini-3-pro-preview';
+
+    const parts: any[] = [];
+
+    if (userSolutionImage) {
+      const data = userSolutionImage.split(',')[1] || userSolutionImage;
+      parts.push({ inlineData: { data, mimeType: imageMimeType } });
+    }
+
+    const solutionText = userSolution?.trim()
+      ? `\nLösung des Schülers: ${userSolution}`
+      : (userSolutionImage ? '\nDer Schüler hat seine Lösung als Bild eingereicht (siehe oben).' : '\nKeine Lösung eingereicht.');
+
+    parts.push({ text: `Aufgabe: ${taskText}${solutionText}` });
+
+    const response = await ai.models.generateContent({
+      model: modelId,
+      contents: { role: 'user', parts },
+      config: {
+        systemInstruction: PRACTICE_CHECK_PROMPT,
+        thinkingConfig: { thinkingBudget: 4096 },
+        maxOutputTokens: 4096,
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            isCorrect: { type: Type.BOOLEAN },
+            feedback: { type: Type.STRING }
+          },
+          required: ["isCorrect", "feedback"]
+        }
+      }
+    });
+
+    const parsed = extractJson(response);
+
+    return {
+      isCorrect: !!parsed.isCorrect,
+      feedback: parsed.feedback || "Keine Details verfügbar."
+    };
+  } catch (error: any) {
+    console.error("Practice Check Error:", error);
+    throw new Error(error?.message || "Lösung konnte nicht überprüft werden.");
+  }
+};
+
+export const solvePracticeTask = async (
+  taskText: string
+): Promise<MathSolution> => {
+  try {
+    const ai = new GoogleGenAI({ apiKey: getApiKey() });
+    const modelId = 'gemini-3-pro-preview';
+    return await generateClassicSolution(ai, modelId, `Löse folgende Aufgabe Schritt für Schritt:\n\n${taskText}`);
+  } catch (error: any) {
+    console.error("Practice Solve Error:", error);
+    throw new Error(error?.message || "Lösung konnte nicht erstellt werden.");
+  }
 };
 
 export interface SolveMathOptions {

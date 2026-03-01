@@ -1,7 +1,8 @@
 export enum InputMode {
   TEXT = 'TEXT',
   IMAGE = 'IMAGE',
-  TUTOR = 'TUTOR'
+  TUTOR = 'TUTOR',
+  PRACTICE = 'PRACTICE'
 }
 
 export interface SolutionStep {
@@ -27,6 +28,29 @@ export interface HistoryItem {
   mode: InputMode;
 }
 
+export interface PracticeTask {
+  id: string;
+  taskText: string;
+  userSolution?: string;
+  userSolutionImage?: string;
+  isCorrect?: boolean;
+  aiFeedback?: string;
+  fullSolution?: MathSolution;
+  additionalPrompt?: string;
+  timestamp: number;
+}
+
+export interface PracticeRoom {
+  id: string;
+  topic: string;
+  description: string;
+  difficulty: string;
+  exampleTasks: string[];
+  generatedTasks: PracticeTask[];
+  createdAt: number;
+  updatedAt: number;
+}
+
 export interface MathState {
   isLoading: boolean;
   inputMode: InputMode;
@@ -36,4 +60,6 @@ export interface MathState {
   solution: MathSolution | null;
   error: string | null;
   history: HistoryItem[];
+  practiceRooms: PracticeRoom[];
+  activePracticeRoom: PracticeRoom | null;
 }

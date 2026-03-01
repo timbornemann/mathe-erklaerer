@@ -1,8 +1,13 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { solveMathProblem } from './services/gemini';
+import { generatePracticeTask } from './services/gemini';
 import SolutionViewer from './components/SolutionViewer';
 import MathRenderer from './components/MathRenderer';
-import { MathState, InputMode, HistoryItem, MathSolution } from './types';
+import PracticeSetup from './components/PracticeSetup';
+import PracticeSession from './components/PracticeSession';
+import PracticeRoomCard from './components/PracticeRoomCard';
+import PracticeRoomDetail from './components/PracticeRoomDetail';
+import { MathState, InputMode, HistoryItem, MathSolution, PracticeRoom, PracticeTask } from './types';
 import { 
   Calculator, 
   X, 
@@ -13,11 +18,15 @@ import {
   Clock,
   Trash2,
   ChevronRight,
-  GraduationCap
+  GraduationCap,
+  Dumbbell,
+  BookOpen
 } from 'lucide-react';
 import ApiKeyManager from './components/ApiKeyManager';
 
-const generateHistoryId = (): string => {
+const PRACTICE_ROOMS_KEY = 'mathPracticeRooms';
+
+const generateId = (): string => {
   if (typeof globalThis.crypto?.randomUUID === 'function') {
     return globalThis.crypto.randomUUID();
   }
@@ -32,8 +41,10 @@ const generateHistoryId = (): string => {
     return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
   }
 
-  return `history-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  return `id-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 };
+
+type PracticeView = 'setup' | 'detail' | 'session';
 
 const App: React.FC = () => {
   const [state, setState] = useState<MathState>({
@@ -44,24 +55,57 @@ const App: React.FC = () => {
     imagePreview: null,
     solution: null,
     error: null,
-    history: []
+    history: [],
+    practiceRooms: [],
+    activePracticeRoom: null
   });
+
+  const [practiceView, setPracticeView] = useState<PracticeView>('setup');
+  const [currentPracticeTask, setCurrentPracticeTask] = useState<PracticeTask | null>(null);
+  const [isPracticeGenerating, setIsPracticeGenerating] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Load history from Local Storage on mount
+  const history = state.history ?? [];
+  const practiceRooms = state.practiceRooms ?? [];
+
   useEffect(() => {
+    const updates: Partial<MathState> = {};
+
     const savedHistory = localStorage.getItem('mathGeniusHistory');
     if (savedHistory) {
       try {
-        const parsedHistory = JSON.parse(savedHistory);
-        setState(prev => ({ ...prev, history: parsedHistory }));
+        updates.history = JSON.parse(savedHistory);
       } catch (e) {
         console.error("Failed to parse history", e);
       }
     }
 
+    const savedRooms = localStorage.getItem(PRACTICE_ROOMS_KEY);
+    if (savedRooms) {
+      try {
+        updates.practiceRooms = JSON.parse(savedRooms);
+      } catch (e) {
+        console.error("Failed to parse practice rooms", e);
+      }
+    }
+
+    if (Object.keys(updates).length) {
+      setState(prev => ({ ...prev, ...updates }));
+    }
   }, []);
+
+  const savePracticeRooms = useCallback((rooms: PracticeRoom[]) => {
+    localStorage.setItem(PRACTICE_ROOMS_KEY, JSON.stringify(rooms));
+  }, []);
+
+  const updateRoom = useCallback((updatedRoom: PracticeRoom) => {
+    setState(prev => {
+      const rooms = prev.practiceRooms.map(r => r.id === updatedRoom.id ? updatedRoom : r);
+      savePracticeRooms(rooms);
+      return { ...prev, practiceRooms: rooms, activePracticeRoom: updatedRoom };
+    });
+  }, [savePracticeRooms]);
 
   const saveToHistory = (newItem: HistoryItem) => {
     setState(prev => {
@@ -93,8 +137,13 @@ const App: React.FC = () => {
       ...prev,
       inputMode: mode,
       error: null,
-      ...(mode === InputMode.TUTOR ? { imageFile: null, imagePreview: null } : {})
+      ...(mode === InputMode.TUTOR ? { imageFile: null, imagePreview: null } : {}),
+      ...(mode === InputMode.PRACTICE ? { activePracticeRoom: null } : {})
     }));
+    if (mode === InputMode.PRACTICE) {
+      setPracticeView('setup');
+      setCurrentPracticeTask(null);
+    }
   };
 
   const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -111,7 +160,10 @@ const App: React.FC = () => {
       imagePreview: null,
       solution: null,
       error: null,
+      activePracticeRoom: null
     }));
+    setPracticeView('setup');
+    setCurrentPracticeTask(null);
   };
 
   const handleHistoryRestore = (item: HistoryItem) => {
@@ -214,7 +266,7 @@ const App: React.FC = () => {
 
       const savedMode = state.inputMode === InputMode.TEXT && state.imageFile ? InputMode.IMAGE : state.inputMode;
       const historyItem: HistoryItem = {
-        id: generateHistoryId(),
+        id: generateId(),
         timestamp: Date.now(),
         mode: savedMode,
         prompt: state.textInput || (state.imageFile ? "Foto-Analyse" : state.inputMode === InputMode.TUTOR ? "Tutor-Modus" : "Aufgabe"),
@@ -234,8 +286,152 @@ const App: React.FC = () => {
     }
   }, [state.inputMode, state.textInput, state.imagePreview, state.imageFile, state.isLoading]);
 
-  // If we have a solution, render the viewer instead of the input form
-  if (state.solution) {
+  // ── Practice Mode handlers ──
+
+  const handlePracticeStart = async (topic: string, difficulty: string, exampleTasks: string[]) => {
+    setIsPracticeGenerating(true);
+    setState(prev => ({ ...prev, error: null }));
+
+    try {
+      const result = await generatePracticeTask(topic, difficulty, exampleTasks, []);
+
+      const newTask: PracticeTask = {
+        id: generateId(),
+        taskText: result.taskText,
+        timestamp: Date.now()
+      };
+
+      const newRoom: PracticeRoom = {
+        id: generateId(),
+        topic,
+        description: result.description,
+        difficulty,
+        exampleTasks,
+        generatedTasks: [newTask],
+        createdAt: Date.now(),
+        updatedAt: Date.now()
+      };
+
+      setState(prev => {
+        const rooms = [newRoom, ...prev.practiceRooms];
+        savePracticeRooms(rooms);
+        return { ...prev, practiceRooms: rooms, activePracticeRoom: newRoom };
+      });
+
+      setCurrentPracticeTask(newTask);
+      setPracticeView('session');
+    } catch (err: any) {
+      setState(prev => ({
+        ...prev,
+        error: err.message || "Aufgabe konnte nicht erstellt werden."
+      }));
+    } finally {
+      setIsPracticeGenerating(false);
+    }
+  };
+
+  const handlePracticeTaskUpdated = (updatedTask: PracticeTask) => {
+    if (!state.activePracticeRoom) return;
+
+    const updatedRoom: PracticeRoom = {
+      ...state.activePracticeRoom,
+      generatedTasks: state.activePracticeRoom.generatedTasks.map(
+        t => t.id === updatedTask.id ? updatedTask : t
+      ),
+      updatedAt: Date.now()
+    };
+
+    setCurrentPracticeTask(updatedTask);
+    updateRoom(updatedRoom);
+  };
+
+  const handlePracticeNextTask = async (additionalPrompt?: string) => {
+    if (!state.activePracticeRoom) return;
+
+    setIsPracticeGenerating(true);
+
+    try {
+      const result = await generatePracticeTask(
+        state.activePracticeRoom.topic,
+        state.activePracticeRoom.difficulty,
+        state.activePracticeRoom.exampleTasks,
+        state.activePracticeRoom.generatedTasks,
+        additionalPrompt
+      );
+
+      const newTask: PracticeTask = {
+        id: generateId(),
+        taskText: result.taskText,
+        additionalPrompt,
+        timestamp: Date.now()
+      };
+
+      const updatedRoom: PracticeRoom = {
+        ...state.activePracticeRoom,
+        generatedTasks: [...state.activePracticeRoom.generatedTasks, newTask],
+        updatedAt: Date.now()
+      };
+
+      updateRoom(updatedRoom);
+      setCurrentPracticeTask(newTask);
+      setPracticeView('session');
+    } catch (err: any) {
+      setState(prev => ({
+        ...prev,
+        error: err.message || "Nächste Aufgabe konnte nicht erstellt werden."
+      }));
+    } finally {
+      setIsPracticeGenerating(false);
+    }
+  };
+
+  const handleOpenRoom = (room: PracticeRoom) => {
+    setState(prev => ({ ...prev, activePracticeRoom: room, inputMode: InputMode.PRACTICE }));
+    setPracticeView('detail');
+    setCurrentPracticeTask(null);
+  };
+
+  const handleDeleteRoom = (e: React.MouseEvent, roomId: string) => {
+    e.stopPropagation();
+    if (window.confirm("Möchtest du diesen Lernraum wirklich löschen?")) {
+      setState(prev => {
+        const rooms = prev.practiceRooms.filter(r => r.id !== roomId);
+        savePracticeRooms(rooms);
+        return {
+          ...prev,
+          practiceRooms: rooms,
+          activePracticeRoom: prev.activePracticeRoom?.id === roomId ? null : prev.activePracticeRoom
+        };
+      });
+    }
+  };
+
+  const handleRoomContinue = async (additionalPrompt?: string) => {
+    await handlePracticeNextTask(additionalPrompt);
+  };
+
+  const handleUpdateExamples = (examples: string[]) => {
+    if (!state.activePracticeRoom) return;
+    const updatedRoom: PracticeRoom = {
+      ...state.activePracticeRoom,
+      exampleTasks: examples,
+      updatedAt: Date.now()
+    };
+    updateRoom(updatedRoom);
+  };
+
+  const handlePracticeBack = () => {
+    if (practiceView === 'session') {
+      setPracticeView(state.activePracticeRoom?.generatedTasks?.length ? 'detail' : 'setup');
+      setCurrentPracticeTask(null);
+    } else if (practiceView === 'detail') {
+      setState(prev => ({ ...prev, activePracticeRoom: null }));
+      setPracticeView('setup');
+    }
+  };
+
+  // ── Render: Solution view ──
+  if (state.solution && state.inputMode !== InputMode.PRACTICE) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-purple-50 flex flex-col items-center p-3 sm:p-4 md:p-8">
         <header className="w-full max-w-4xl mb-6 md:mb-8 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -260,6 +456,72 @@ const App: React.FC = () => {
     );
   }
 
+  // ── Render: Practice session ──
+  if (state.inputMode === InputMode.PRACTICE && practiceView === 'session' && state.activePracticeRoom && currentPracticeTask) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-purple-50 flex flex-col items-center p-3 sm:p-4 md:p-8">
+        <header className="w-full max-w-4xl mb-6 md:mb-8 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center space-x-3 cursor-pointer group" onClick={handleReset}>
+            <div className="bg-indigo-600 p-2.5 sm:p-3 rounded-xl shadow-lg shadow-indigo-200 group-hover:bg-indigo-700 transition-colors">
+              <Calculator className="w-6 h-6 sm:w-8 sm:h-8 text-white" />
+            </div>
+            <div>
+              <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-800 tracking-tight">Mathe Erklaerer</h1>
+              <p className="text-sm text-slate-500">Zurück zur Übersicht</p>
+            </div>
+          </div>
+          <ApiKeyManager />
+        </header>
+
+        <PracticeSession
+          room={state.activePracticeRoom}
+          currentTask={currentPracticeTask}
+          onTaskUpdated={handlePracticeTaskUpdated}
+          onNextTask={handlePracticeNextTask}
+          onBack={handlePracticeBack}
+          isGenerating={isPracticeGenerating}
+        />
+
+        <footer className="mt-8 md:mt-12 text-slate-400 text-xs sm:text-sm text-center px-4">
+          Powered by Google Gemini 3
+        </footer>
+      </div>
+    );
+  }
+
+  // ── Render: Practice room detail ──
+  if (state.inputMode === InputMode.PRACTICE && practiceView === 'detail' && state.activePracticeRoom) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-purple-50 flex flex-col items-center p-3 sm:p-4 md:p-8">
+        <header className="w-full max-w-4xl mb-6 md:mb-8 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center space-x-3 cursor-pointer group" onClick={handleReset}>
+            <div className="bg-indigo-600 p-2.5 sm:p-3 rounded-xl shadow-lg shadow-indigo-200 group-hover:bg-indigo-700 transition-colors">
+              <Calculator className="w-6 h-6 sm:w-8 sm:h-8 text-white" />
+            </div>
+            <div>
+              <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-800 tracking-tight">Mathe Erklaerer</h1>
+              <p className="text-sm text-slate-500">Zurück zur Übersicht</p>
+            </div>
+          </div>
+          <ApiKeyManager />
+        </header>
+
+        <PracticeRoomDetail
+          room={state.activePracticeRoom}
+          onContinue={handleRoomContinue}
+          onUpdateExamples={handleUpdateExamples}
+          onBack={handlePracticeBack}
+          isLoading={isPracticeGenerating}
+        />
+
+        <footer className="mt-8 md:mt-12 text-slate-400 text-xs sm:text-sm text-center px-4">
+          Powered by Google Gemini 3
+        </footer>
+      </div>
+    );
+  }
+
+  // ── Render: Main input form ──
   return (
     <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-purple-50 flex flex-col items-center p-3 sm:p-4 md:p-8">
       
@@ -284,7 +546,7 @@ const App: React.FC = () => {
         <div className="p-4 sm:p-6 md:p-8 bg-white">
           
           {/* Tabs */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-6 bg-slate-100 p-1 rounded-xl w-full">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mb-6 bg-slate-100 p-1 rounded-xl w-full">
             <button
               onClick={() => handleModeChange(InputMode.TEXT)}
               className={`flex items-center justify-center space-x-2 px-3 sm:px-4 py-3 rounded-lg text-sm font-semibold transition-all duration-200 ${
@@ -306,6 +568,17 @@ const App: React.FC = () => {
             >
               <GraduationCap className="w-4 h-4" />
               <span>Tutor-Modus</span>
+            </button>
+            <button
+              onClick={() => handleModeChange(InputMode.PRACTICE)}
+              className={`flex items-center justify-center space-x-2 px-3 sm:px-4 py-3 rounded-lg text-sm font-semibold transition-all duration-200 ${
+                state.inputMode === InputMode.PRACTICE
+                  ? 'bg-white text-indigo-600 shadow-sm'
+                  : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200/50'
+              }`}
+            >
+              <Dumbbell className="w-4 h-4" />
+              <span>Aufgaben üben</span>
             </button>
           </div>
 
@@ -371,38 +644,56 @@ const App: React.FC = () => {
             </div>
           )}
 
+          {/* Practice Input Mode */}
+          {state.inputMode === InputMode.PRACTICE && (
+            <PracticeSetup
+              onStart={handlePracticeStart}
+              isLoading={isPracticeGenerating}
+            />
+          )}
+
           {/* Error Message */}
-          {state.error && (
+          {state.error && state.inputMode !== InputMode.PRACTICE && (
             <div className="mt-4 p-3 bg-red-50 border border-red-100 rounded-lg flex items-center space-x-2 text-red-600 text-sm">
               <X className="w-4 h-4" />
               <span>{state.error}</span>
             </div>
           )}
 
-          {/* Submit Button */}
-          <div className="mt-6 flex justify-end">
-            <button
-              onClick={handleSubmit}
-              disabled={state.isLoading || (state.inputMode === InputMode.TUTOR && !state.textInput.trim()) || (state.inputMode === InputMode.TEXT && !state.textInput.trim() && !state.imageFile)}
-              className="w-full sm:w-auto justify-center bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed text-white px-6 sm:px-8 py-3.5 rounded-xl font-bold text-base sm:text-lg shadow-lg shadow-indigo-200 flex items-center space-x-2 transition-all active:scale-95"
-            >
-              {state.isLoading ? (
-                <>
-                  <Loader2 className="w-5 h-5 animate-spin" />
-                  <span>{state.inputMode === InputMode.TUTOR ? 'Erstelle Tutor-Lektion...' : 'Löse Aufgabe...'}</span>
-                </>
-              ) : (
-                <>
-                  <Send className="w-5 h-5" />
-                  <span>{state.inputMode === InputMode.TUTOR ? 'Tutor starten' : 'Aufgabe Lösen'}</span>
-                </>
-              )}
-            </button>
-          </div>
+          {/* Submit Button (only for TEXT and TUTOR) */}
+          {state.inputMode !== InputMode.PRACTICE && (
+            <div className="mt-6 flex justify-end">
+              <button
+                onClick={handleSubmit}
+                disabled={state.isLoading || (state.inputMode === InputMode.TUTOR && !state.textInput.trim()) || (state.inputMode === InputMode.TEXT && !state.textInput.trim() && !state.imageFile)}
+                className="w-full sm:w-auto justify-center bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed text-white px-6 sm:px-8 py-3.5 rounded-xl font-bold text-base sm:text-lg shadow-lg shadow-indigo-200 flex items-center space-x-2 transition-all active:scale-95"
+              >
+                {state.isLoading ? (
+                  <>
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                    <span>{state.inputMode === InputMode.TUTOR ? 'Erstelle Tutor-Lektion...' : 'Löse Aufgabe...'}</span>
+                  </>
+                ) : (
+                  <>
+                    <Send className="w-5 h-5" />
+                    <span>{state.inputMode === InputMode.TUTOR ? 'Tutor starten' : 'Aufgabe Lösen'}</span>
+                  </>
+                )}
+              </button>
+            </div>
+          )}
+
+          {/* Practice error (shown inside PracticeSetup area) */}
+          {state.error && state.inputMode === InputMode.PRACTICE && (
+            <div className="mt-4 p-3 bg-red-50 border border-red-100 rounded-lg flex items-center space-x-2 text-red-600 text-sm">
+              <X className="w-4 h-4" />
+              <span>{state.error}</span>
+            </div>
+          )}
         </div>
         
         {/* Loading State Visualization */}
-        {state.isLoading && (
+        {state.isLoading && state.inputMode !== InputMode.PRACTICE && (
           <div className="p-8 sm:p-12 text-center bg-slate-50/50 border-t border-slate-100">
              <div className="inline-block relative w-20 h-20">
                <div className="absolute top-0 left-0 w-full h-full border-4 border-indigo-100 rounded-full animate-pulse"></div>
@@ -418,8 +709,30 @@ const App: React.FC = () => {
 
       </main>
 
+      {/* Practice Rooms Section */}
+      {state.inputMode === InputMode.PRACTICE && practiceRooms.length > 0 && !isPracticeGenerating && (
+        <section className="w-full max-w-4xl animate-in slide-in-from-bottom-8 fade-in duration-500 mb-8">
+          <div className="flex items-center justify-between mb-4 px-1 sm:px-2 gap-2">
+            <h3 className="text-xl font-bold text-slate-700 flex items-center gap-2">
+              <BookOpen className="w-5 h-5 text-amber-500" />
+              Deine Lernräume
+            </h3>
+          </div>
+          <div className="grid gap-3 sm:gap-4 md:grid-cols-1">
+            {practiceRooms.map(room => (
+              <PracticeRoomCard
+                key={room.id}
+                room={room}
+                onClick={() => handleOpenRoom(room)}
+                onDelete={(e) => handleDeleteRoom(e, room.id)}
+              />
+            ))}
+          </div>
+        </section>
+      )}
+
       {/* History Section */}
-      {state.history.length > 0 && !state.isLoading && (
+      {state.inputMode !== InputMode.PRACTICE && history.length > 0 && !state.isLoading && (
         <section className="w-full max-w-4xl animate-in slide-in-from-bottom-8 fade-in duration-500">
            <div className="flex items-center justify-between mb-4 px-1 sm:px-2 gap-2">
              <h3 className="text-xl font-bold text-slate-700 flex items-center gap-2">
@@ -436,7 +749,7 @@ const App: React.FC = () => {
            </div>
            
            <div className="grid gap-3 sm:gap-4 md:grid-cols-1">
-             {state.history.map((item) => (
+             {history.map((item) => (
                <div 
                   key={item.id}
                   onClick={() => handleHistoryRestore(item)}
