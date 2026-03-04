@@ -2,7 +2,8 @@ export enum InputMode {
   TEXT = 'TEXT',
   IMAGE = 'IMAGE',
   TUTOR = 'TUTOR',
-  PRACTICE = 'PRACTICE'
+  PRACTICE = 'PRACTICE',
+  EXAM = 'EXAM'
 }
 
 export interface SolutionStep {
@@ -51,6 +52,42 @@ export interface PracticeRoom {
   updatedAt: number;
 }
 
+export interface ExamTask {
+  id: string;
+  order: number;
+  taskText: string;
+  userSolution?: string;
+  userSolutionImage?: string;
+  isCorrect?: boolean;
+  aiFeedback?: string;
+  fullSolution?: MathSolution;
+  evaluationError?: string;
+  timestamp: number;
+}
+
+export type ExamSessionStatus = 'configuring' | 'running' | 'submitted' | 'evaluating' | 'completed';
+
+export interface ExamSession {
+  id: string;
+  topic: string;
+  difficulty: string;
+  taskCount: number;
+  durationMinutes: number;
+  createdAt: number;
+  startedAt: number;
+  endsAt: number;
+  submittedAt?: number;
+  completedAt?: number;
+  remainingSeconds?: number;
+  submitReason?: 'manual' | 'timeout';
+  status: ExamSessionStatus;
+  tasks: ExamTask[];
+  scorePercent?: number;
+  correctCount?: number;
+  wrongCount?: number;
+  feedbackSummary?: string;
+}
+
 export interface MathState {
   isLoading: boolean;
   inputMode: InputMode;
@@ -62,4 +99,23 @@ export interface MathState {
   history: HistoryItem[];
   practiceRooms: PracticeRoom[];
   activePracticeRoom: PracticeRoom | null;
+  examSessions: ExamSession[];
+  activeExamSession: ExamSession | null;
+}
+
+export interface ExportStatistics {
+  historyCount: number;
+  practiceRoomsCount: number;
+  totalTasksCompleted: number;
+  examSessionsCount: number;
+  examTasksCompleted: number;
+}
+
+export interface ExportData {
+  version: number;
+  exportedAt: number;
+  history: HistoryItem[];
+  practiceRooms: PracticeRoom[];
+  examSessions: ExamSession[];
+  statistics: ExportStatistics;
 }

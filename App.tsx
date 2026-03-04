@@ -1,13 +1,18 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { solveMathProblem } from './services/gemini';
 import { generatePracticeTask } from './services/gemini';
+import { checkPracticeSolution, solvePracticeTask } from './services/gemini';
 import SolutionViewer from './components/SolutionViewer';
 import MathRenderer from './components/MathRenderer';
 import PracticeSetup from './components/PracticeSetup';
 import PracticeSession from './components/PracticeSession';
 import PracticeRoomCard from './components/PracticeRoomCard';
 import PracticeRoomDetail from './components/PracticeRoomDetail';
-import { MathState, InputMode, HistoryItem, MathSolution, PracticeRoom, PracticeTask } from './types';
+import ExamSetup, { ExamConfig } from './components/ExamSetup';
+import ExamSession from './components/ExamSession';
+import ExamResultView from './components/ExamResultView';
+import { MathState, InputMode, HistoryItem, MathSolution, PracticeRoom, PracticeTask, ExamSession as ExamSessionType, ExamTask } from './types';
+import { buildExportData, serializeExportData, parseAndValidateExport, applyImportData, ImportStrategy } from './services/exportImport';
 import { 
   Calculator, 
   X, 
@@ -20,11 +25,14 @@ import {
   ChevronRight,
   GraduationCap,
   Dumbbell,
-  BookOpen
+  BookOpen,
+  Settings,
+  ClipboardCheck
 } from 'lucide-react';
-import ApiKeyManager from './components/ApiKeyManager';
+import SettingsModal from './components/SettingsModal';
 
 const PRACTICE_ROOMS_KEY = 'mathPracticeRooms';
+const EXAM_SESSIONS_KEY = 'mathExamSessions';
 
 const generateId = (): string => {
   if (typeof globalThis.crypto?.randomUUID === 'function') {
@@ -45,6 +53,7 @@ const generateId = (): string => {
 };
 
 type PracticeView = 'setup' | 'detail' | 'session';
+type ExamView = 'setup' | 'session' | 'result';
 
 const App: React.FC = () => {
   const [state, setState] = useState<MathState>({
@@ -57,14 +66,21 @@ const App: React.FC = () => {
     error: null,
     history: [],
     practiceRooms: [],
-    activePracticeRoom: null
+    activePracticeRoom: null,
+    examSessions: [],
+    activeExamSession: null
   });
 
   const [practiceView, setPracticeView] = useState<PracticeView>('setup');
   const [currentPracticeTask, setCurrentPracticeTask] = useState<PracticeTask | null>(null);
   const [isPracticeGenerating, setIsPracticeGenerating] = useState(false);
+  const [examView, setExamView] = useState<ExamView>('setup');
+  const [isExamGenerating, setIsExamGenerating] = useState(false);
+  const [isExamSubmitting, setIsExamSubmitting] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const importFileInputRef = useRef<HTMLInputElement>(null);
 
   const history = state.history ?? [];
   const practiceRooms = state.practiceRooms ?? [];
@@ -90,6 +106,15 @@ const App: React.FC = () => {
       }
     }
 
+    const savedExamSessions = localStorage.getItem(EXAM_SESSIONS_KEY);
+    if (savedExamSessions) {
+      try {
+        updates.examSessions = JSON.parse(savedExamSessions);
+      } catch (e) {
+        console.error("Failed to parse exam sessions", e);
+      }
+    }
+
     if (Object.keys(updates).length) {
       setState(prev => ({ ...prev, ...updates }));
     }
@@ -99,6 +124,10 @@ const App: React.FC = () => {
     localStorage.setItem(PRACTICE_ROOMS_KEY, JSON.stringify(rooms));
   }, []);
 
+  const saveExamSessions = useCallback((sessions: ExamSessionType[]) => {
+    localStorage.setItem(EXAM_SESSIONS_KEY, JSON.stringify(sessions));
+  }, []);
+
   const updateRoom = useCallback((updatedRoom: PracticeRoom) => {
     setState(prev => {
       const rooms = prev.practiceRooms.map(r => r.id === updatedRoom.id ? updatedRoom : r);
@@ -106,6 +135,14 @@ const App: React.FC = () => {
       return { ...prev, practiceRooms: rooms, activePracticeRoom: updatedRoom };
     });
   }, [savePracticeRooms]);
+
+  const updateExamSession = useCallback((updatedSession: ExamSessionType) => {
+    setState(prev => {
+      const sessions = prev.examSessions.map(s => s.id === updatedSession.id ? updatedSession : s);
+      saveExamSessions(sessions);
+      return { ...prev, examSessions: sessions, activeExamSession: updatedSession };
+    });
+  }, [saveExamSessions]);
 
   const saveToHistory = (newItem: HistoryItem) => {
     setState(prev => {
@@ -145,11 +182,15 @@ const App: React.FC = () => {
       inputMode: mode,
       error: null,
       ...(mode === InputMode.TUTOR ? { imageFile: null, imagePreview: null } : {}),
-      ...(mode === InputMode.PRACTICE ? { activePracticeRoom: null } : {})
+      ...(mode === InputMode.PRACTICE ? { activePracticeRoom: null } : {}),
+      ...(mode === InputMode.EXAM ? { activeExamSession: null } : {})
     }));
     if (mode === InputMode.PRACTICE) {
       setPracticeView('setup');
       setCurrentPracticeTask(null);
+    }
+    if (mode === InputMode.EXAM) {
+      setExamView('setup');
     }
   };
 
@@ -167,10 +208,12 @@ const App: React.FC = () => {
       imagePreview: null,
       solution: null,
       error: null,
-      activePracticeRoom: null
+      activePracticeRoom: null,
+      activeExamSession: null
     }));
     setPracticeView('setup');
     setCurrentPracticeTask(null);
+    setExamView('setup');
   };
 
   const handleHistoryRestore = (item: HistoryItem) => {
@@ -230,6 +273,110 @@ const App: React.FC = () => {
   const removeImage = () => {
     setState(prev => ({ ...prev, imageFile: null, imagePreview: null }));
     if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const handleExportData = () => {
+    const exportData = buildExportData(history, practiceRooms, state.examSessions ?? []);
+    const json = serializeExportData(exportData);
+    const blob = new Blob([json], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    const date = new Date().toISOString().slice(0, 10);
+
+    link.href = url;
+    link.download = `mathe-erklaerer-backup-${date}.json`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  const handleImportClick = () => {
+    importFileInputRef.current?.click();
+  };
+
+  const handleImportFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const text = reader.result as string;
+        const validation = parseAndValidateExport(text);
+
+        if (!validation.success) {
+          const errors = 'errors' in validation ? validation.errors : [];
+          window.alert(`Import fehlgeschlagen:\n${errors.join('\n')}`);
+          return;
+        }
+
+        const imported = validation.data;
+
+        const hasHistoryConflicts = (state.history ?? []).some(existing =>
+          imported.history.some(item => item.id === existing.id)
+        );
+        const hasRoomConflicts = (state.practiceRooms ?? []).some(existing =>
+          imported.practiceRooms.some(room => room.id === existing.id)
+        );
+        const hasExamConflicts = (state.examSessions ?? []).some(existing =>
+          imported.examSessions.some(session => session.id === existing.id)
+        );
+        const hasConflicts = hasHistoryConflicts || hasRoomConflicts || hasExamConflicts;
+
+        const message = hasConflicts
+          ? 'Beim Import wurden Konflikte mit bestehenden Daten gefunden.\n\nOK = vorhandene Daten ERSETZEN.\nAbbrechen = Importierte Daten mit bestehenden ZUSAMMENFÜHREN (Konflikte erhalten neue IDs).'
+          : 'Möchtest du deine aktuellen Daten durch den Import vollständig ersetzen?\n\nOK = Ersetzen.\nAbbrechen = Zusammenführen (Import wird an bestehende Daten angehängt).';
+
+        const replace = window.confirm(message);
+        const strategy: ImportStrategy = replace ? 'replace' : 'merge';
+
+        setState(prev => {
+          const { history: newHistory, practiceRooms: newPracticeRooms, examSessions: newExamSessions } = applyImportData(
+            prev.history ?? [],
+            prev.practiceRooms ?? [],
+            prev.examSessions ?? [],
+            imported,
+            strategy
+          );
+
+          localStorage.setItem('mathGeniusHistory', JSON.stringify(newHistory));
+          localStorage.setItem(PRACTICE_ROOMS_KEY, JSON.stringify(newPracticeRooms));
+          localStorage.setItem(EXAM_SESSIONS_KEY, JSON.stringify(newExamSessions));
+
+          let newActivePracticeRoom = prev.activePracticeRoom;
+          if (newActivePracticeRoom) {
+            const stillExists = newPracticeRooms.find(r => r.id === newActivePracticeRoom!.id);
+            if (!stillExists) {
+              newActivePracticeRoom = null;
+            }
+          }
+
+          return {
+            ...prev,
+            history: newHistory,
+            practiceRooms: newPracticeRooms,
+            examSessions: newExamSessions,
+            activePracticeRoom: newActivePracticeRoom
+          };
+        });
+
+        window.alert('Daten wurden erfolgreich importiert.');
+      } catch (error) {
+        console.error(error);
+        window.alert('Beim Import ist ein unerwarteter Fehler aufgetreten.');
+      } finally {
+        if (importFileInputRef.current) {
+          importFileInputRef.current.value = '';
+        }
+      }
+    };
+
+    reader.onerror = () => {
+      window.alert('Die Import-Datei konnte nicht gelesen werden.');
+    };
+
+    reader.readAsText(file, 'utf-8');
   };
 
   const handleSubmit = useCallback(async () => {
@@ -442,6 +589,194 @@ const App: React.FC = () => {
     }
   };
 
+  // ── Exam Mode handlers ──
+
+  const buildExamSummary = (scorePercent: number, correctCount: number, total: number): string => {
+    if (scorePercent >= 90) return `Starke Leistung: $${correctCount}$ von $${total}$ Aufgaben korrekt.`;
+    if (scorePercent >= 75) return `Gute Leistung: $${correctCount}$ von $${total}$ Aufgaben korrekt.`;
+    if (scorePercent >= 60) return `Solide Basis: $${correctCount}$ von $${total}$ Aufgaben korrekt.`;
+    return `Ausbaufähig: $${correctCount}$ von $${total}$ Aufgaben korrekt. Wiederhole die schwachen Themen gezielt.`;
+  };
+
+  const handleExamStart = async (config: ExamConfig) => {
+    setIsExamGenerating(true);
+    setState(prev => ({ ...prev, error: null }));
+
+    try {
+      const generatedTasks: ExamTask[] = [];
+      const previousTasks: PracticeTask[] = [];
+
+      for (let i = 0; i < config.taskCount; i++) {
+        const result = await generatePracticeTask(
+          config.topic,
+          config.difficulty,
+          config.exampleTasks,
+          previousTasks,
+          `Erstelle Aufgabe ${i + 1} von ${config.taskCount} für eine Prüfung.`
+        );
+
+        const task: ExamTask = {
+          id: generateId(),
+          order: i + 1,
+          taskText: result.taskText,
+          timestamp: Date.now()
+        };
+
+        generatedTasks.push(task);
+        previousTasks.push({
+          id: task.id,
+          taskText: task.taskText,
+          timestamp: task.timestamp
+        });
+      }
+
+      const startedAt = Date.now();
+      const newSession: ExamSessionType = {
+        id: generateId(),
+        topic: config.topic,
+        difficulty: config.difficulty,
+        taskCount: config.taskCount,
+        durationMinutes: config.durationMinutes,
+        createdAt: startedAt,
+        startedAt,
+        endsAt: startedAt + config.durationMinutes * 60 * 1000,
+        status: 'running',
+        tasks: generatedTasks
+      };
+
+      setState(prev => {
+        const sessions = [newSession, ...prev.examSessions].slice(0, 30);
+        saveExamSessions(sessions);
+        return {
+          ...prev,
+          examSessions: sessions,
+          activeExamSession: newSession
+        };
+      });
+
+      setExamView('session');
+    } catch (err: any) {
+      setState(prev => ({
+        ...prev,
+        error: err.message || "Prüfungsaufgaben konnten nicht erstellt werden."
+      }));
+    } finally {
+      setIsExamGenerating(false);
+    }
+  };
+
+  const handleExamTaskUpdated = (updatedTask: ExamTask) => {
+    if (!state.activeExamSession) return;
+
+    const updatedSession: ExamSessionType = {
+      ...state.activeExamSession,
+      tasks: state.activeExamSession.tasks.map(task => task.id === updatedTask.id ? updatedTask : task),
+      remainingSeconds: Math.max(0, Math.floor((state.activeExamSession.endsAt - Date.now()) / 1000))
+    };
+
+    updateExamSession(updatedSession);
+  };
+
+  const handleExamSubmit = async (reason: 'manual' | 'timeout') => {
+    if (!state.activeExamSession || isExamSubmitting) return;
+    if (state.activeExamSession.status === 'evaluating' || state.activeExamSession.status === 'completed') return;
+
+    setIsExamSubmitting(true);
+    const submittedAt = Date.now();
+
+    const submittedSession: ExamSessionType = {
+      ...state.activeExamSession,
+      status: 'evaluating',
+      submittedAt,
+      submitReason: reason,
+      remainingSeconds: Math.max(0, Math.floor((state.activeExamSession.endsAt - submittedAt) / 1000))
+    };
+    updateExamSession(submittedSession);
+
+    try {
+      const evaluatedTasks: ExamTask[] = await Promise.all(
+        submittedSession.tasks.map(async (task) => {
+          const hasAnswer = !!((task.userSolution ?? '').trim() || task.userSolutionImage);
+          if (!hasAnswer) {
+            const solution = await solvePracticeTask(task.taskText);
+            return {
+              ...task,
+              isCorrect: false,
+              aiFeedback: 'Keine Antwort eingereicht.',
+              fullSolution: solution
+            };
+          }
+
+          try {
+            const check = await checkPracticeSolution(
+              task.taskText,
+              task.userSolution,
+              task.userSolutionImage
+            );
+
+            let fullSolution: MathSolution | undefined = task.fullSolution;
+            if (!check.isCorrect) {
+              fullSolution = await solvePracticeTask(task.taskText);
+            }
+
+            return {
+              ...task,
+              isCorrect: check.isCorrect,
+              aiFeedback: check.feedback,
+              fullSolution
+            };
+          } catch (error: any) {
+            return {
+              ...task,
+              isCorrect: false,
+              aiFeedback: 'Aufgabe konnte nicht vollständig bewertet werden.',
+              evaluationError: error?.message || 'Unbekannter Fehler'
+            };
+          }
+        })
+      );
+
+      const correctCount = evaluatedTasks.filter(task => task.isCorrect).length;
+      const wrongCount = evaluatedTasks.length - correctCount;
+      const scorePercent = Math.round((correctCount / Math.max(1, evaluatedTasks.length)) * 100);
+
+      const completedSession: ExamSessionType = {
+        ...submittedSession,
+        tasks: evaluatedTasks,
+        status: 'completed',
+        completedAt: Date.now(),
+        correctCount,
+        wrongCount,
+        scorePercent,
+        feedbackSummary: buildExamSummary(scorePercent, correctCount, evaluatedTasks.length)
+      };
+
+      updateExamSession(completedSession);
+      setExamView('result');
+    } catch (err: any) {
+      setState(prev => ({
+        ...prev,
+        error: err.message || 'Prüfung konnte nicht vollständig ausgewertet werden.'
+      }));
+
+      updateExamSession({
+        ...submittedSession,
+        status: 'submitted'
+      });
+    } finally {
+      setIsExamSubmitting(false);
+    }
+  };
+
+  const handleOpenExamSession = (session: ExamSessionType) => {
+    setState(prev => ({ ...prev, inputMode: InputMode.EXAM, activeExamSession: session }));
+    if (session.status === 'completed') {
+      setExamView('result');
+      return;
+    }
+    setExamView('session');
+  };
+
   // ── Render: Solution view ──
   if (state.solution && state.inputMode !== InputMode.PRACTICE) {
     return (
@@ -456,8 +791,28 @@ const App: React.FC = () => {
               <p className="text-sm text-slate-500">Zurück zur Übersicht</p>
             </div>
           </div>
-          <ApiKeyManager />
+          <button
+            onClick={() => setSettingsOpen(true)}
+            className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-full transition-all"
+            title="Einstellungen"
+          >
+            <Settings className="w-5 h-5" />
+          </button>
         </header>
+
+        <SettingsModal
+          isOpen={settingsOpen}
+          onClose={() => setSettingsOpen(false)}
+          onExport={handleExportData}
+          onImportClick={handleImportClick}
+        />
+        <input
+          ref={importFileInputRef}
+          type="file"
+          accept="application/json"
+          className="hidden"
+          onChange={handleImportFileChange}
+        />
 
         <SolutionViewer 
           solution={state.solution} 
@@ -482,8 +837,28 @@ const App: React.FC = () => {
               <p className="text-sm text-slate-500">Zurück zur Übersicht</p>
             </div>
           </div>
-          <ApiKeyManager />
+          <button
+            onClick={() => setSettingsOpen(true)}
+            className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-full transition-all"
+            title="Einstellungen"
+          >
+            <Settings className="w-5 h-5" />
+          </button>
         </header>
+
+        <SettingsModal
+          isOpen={settingsOpen}
+          onClose={() => setSettingsOpen(false)}
+          onExport={handleExportData}
+          onImportClick={handleImportClick}
+        />
+        <input
+          ref={importFileInputRef}
+          type="file"
+          accept="application/json"
+          className="hidden"
+          onChange={handleImportFileChange}
+        />
 
         <PracticeSession
           room={state.activePracticeRoom}
@@ -515,8 +890,28 @@ const App: React.FC = () => {
               <p className="text-sm text-slate-500">Zurück zur Übersicht</p>
             </div>
           </div>
-          <ApiKeyManager />
+          <button
+            onClick={() => setSettingsOpen(true)}
+            className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-full transition-all"
+            title="Einstellungen"
+          >
+            <Settings className="w-5 h-5" />
+          </button>
         </header>
+
+        <SettingsModal
+          isOpen={settingsOpen}
+          onClose={() => setSettingsOpen(false)}
+          onExport={handleExportData}
+          onImportClick={handleImportClick}
+        />
+        <input
+          ref={importFileInputRef}
+          type="file"
+          accept="application/json"
+          className="hidden"
+          onChange={handleImportFileChange}
+        />
 
         <PracticeRoomDetail
           room={state.activePracticeRoom}
@@ -526,6 +921,110 @@ const App: React.FC = () => {
           onTaskUpdated={handlePracticeTaskUpdated}
           onBack={handlePracticeBack}
           isLoading={isPracticeGenerating}
+        />
+
+        <footer className="mt-8 md:mt-12 text-slate-400 text-xs sm:text-sm text-center px-4">
+          Powered by Google Gemini 3
+        </footer>
+      </div>
+    );
+  }
+
+  // ── Render: Exam session ──
+  if (state.inputMode === InputMode.EXAM && examView === 'session' && state.activeExamSession) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-purple-50 flex flex-col items-center p-3 sm:p-4 md:p-8">
+        <header className="w-full max-w-4xl mb-6 md:mb-8 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center space-x-3 cursor-pointer group" onClick={handleReset}>
+            <div className="bg-indigo-600 p-2.5 sm:p-3 rounded-xl shadow-lg shadow-indigo-200 group-hover:bg-indigo-700 transition-colors">
+              <Calculator className="w-6 h-6 sm:w-8 sm:h-8 text-white" />
+            </div>
+            <div>
+              <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-800 tracking-tight">Mathe Erklaerer</h1>
+              <p className="text-sm text-slate-500">Zurück zur Übersicht</p>
+            </div>
+          </div>
+          <button
+            onClick={() => setSettingsOpen(true)}
+            className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-full transition-all"
+            title="Einstellungen"
+          >
+            <Settings className="w-5 h-5" />
+          </button>
+        </header>
+
+        <SettingsModal
+          isOpen={settingsOpen}
+          onClose={() => setSettingsOpen(false)}
+          onExport={handleExportData}
+          onImportClick={handleImportClick}
+        />
+        <input
+          ref={importFileInputRef}
+          type="file"
+          accept="application/json"
+          className="hidden"
+          onChange={handleImportFileChange}
+        />
+
+        <ExamSession
+          session={state.activeExamSession}
+          isSubmitting={isExamSubmitting}
+          onTaskUpdated={handleExamTaskUpdated}
+          onSubmit={handleExamSubmit}
+          onBack={() => setExamView('setup')}
+        />
+
+        <footer className="mt-8 md:mt-12 text-slate-400 text-xs sm:text-sm text-center px-4">
+          Powered by Google Gemini 3
+        </footer>
+      </div>
+    );
+  }
+
+  // ── Render: Exam result ──
+  if (state.inputMode === InputMode.EXAM && examView === 'result' && state.activeExamSession) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-purple-50 flex flex-col items-center p-3 sm:p-4 md:p-8">
+        <header className="w-full max-w-4xl mb-6 md:mb-8 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center space-x-3 cursor-pointer group" onClick={handleReset}>
+            <div className="bg-indigo-600 p-2.5 sm:p-3 rounded-xl shadow-lg shadow-indigo-200 group-hover:bg-indigo-700 transition-colors">
+              <Calculator className="w-6 h-6 sm:w-8 sm:h-8 text-white" />
+            </div>
+            <div>
+              <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-800 tracking-tight">Mathe Erklaerer</h1>
+              <p className="text-sm text-slate-500">Zurück zur Übersicht</p>
+            </div>
+          </div>
+          <button
+            onClick={() => setSettingsOpen(true)}
+            className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-full transition-all"
+            title="Einstellungen"
+          >
+            <Settings className="w-5 h-5" />
+          </button>
+        </header>
+
+        <SettingsModal
+          isOpen={settingsOpen}
+          onClose={() => setSettingsOpen(false)}
+          onExport={handleExportData}
+          onImportClick={handleImportClick}
+        />
+        <input
+          ref={importFileInputRef}
+          type="file"
+          accept="application/json"
+          className="hidden"
+          onChange={handleImportFileChange}
+        />
+
+        <ExamResultView
+          session={state.activeExamSession}
+          onBackToSetup={() => {
+            setState(prev => ({ ...prev, activeExamSession: null }));
+            setExamView('setup');
+          }}
         />
 
         <footer className="mt-8 md:mt-12 text-slate-400 text-xs sm:text-sm text-center px-4">
@@ -550,8 +1049,28 @@ const App: React.FC = () => {
             <p className="text-xs sm:text-sm text-slate-500">Dein persönlicher Schritt-für-Schritt Tutor</p>
           </div>
         </div>
-        <ApiKeyManager />
+        <button
+          onClick={() => setSettingsOpen(true)}
+          className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-full transition-all"
+          title="Einstellungen"
+        >
+          <Settings className="w-5 h-5" />
+        </button>
       </header>
+
+      <SettingsModal
+        isOpen={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        onExport={handleExportData}
+        onImportClick={handleImportClick}
+      />
+      <input
+        ref={importFileInputRef}
+        type="file"
+        accept="application/json"
+        className="hidden"
+        onChange={handleImportFileChange}
+      />
 
       {/* Main Card */}
       <main className="w-full max-w-4xl bg-white rounded-2xl sm:rounded-3xl shadow-xl overflow-hidden border border-slate-100 transition-all mb-8 md:mb-12">
@@ -560,7 +1079,7 @@ const App: React.FC = () => {
         <div className="p-4 sm:p-6 md:p-8 bg-white">
           
           {/* Tabs */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mb-6 bg-slate-100 p-1 rounded-xl w-full">
+          <div className="grid grid-cols-1 sm:grid-cols-4 gap-2 mb-6 bg-slate-100 p-1 rounded-xl w-full">
             <button
               onClick={() => handleModeChange(InputMode.TEXT)}
               className={`flex items-center justify-center space-x-2 px-3 sm:px-4 py-3 rounded-lg text-sm font-semibold transition-all duration-200 ${
@@ -593,6 +1112,17 @@ const App: React.FC = () => {
             >
               <Dumbbell className="w-4 h-4" />
               <span>Aufgaben üben</span>
+            </button>
+            <button
+              onClick={() => handleModeChange(InputMode.EXAM)}
+              className={`flex items-center justify-center space-x-2 px-3 sm:px-4 py-3 rounded-lg text-sm font-semibold transition-all duration-200 ${
+                state.inputMode === InputMode.EXAM
+                  ? 'bg-white text-indigo-600 shadow-sm'
+                  : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200/50'
+              }`}
+            >
+              <ClipboardCheck className="w-4 h-4" />
+              <span>Prüfungsmodus</span>
             </button>
           </div>
 
@@ -666,8 +1196,15 @@ const App: React.FC = () => {
             />
           )}
 
+          {state.inputMode === InputMode.EXAM && (
+            <ExamSetup
+              onStart={handleExamStart}
+              isLoading={isExamGenerating}
+            />
+          )}
+
           {/* Error Message */}
-          {state.error && state.inputMode !== InputMode.PRACTICE && (
+          {state.error && state.inputMode !== InputMode.PRACTICE && state.inputMode !== InputMode.EXAM && (
             <div className="mt-4 p-3 bg-red-50 border border-red-100 rounded-lg flex items-center space-x-2 text-red-600 text-sm">
               <X className="w-4 h-4" />
               <span>{state.error}</span>
@@ -675,7 +1212,7 @@ const App: React.FC = () => {
           )}
 
           {/* Submit Button (only for TEXT and TUTOR) */}
-          {state.inputMode !== InputMode.PRACTICE && (
+          {state.inputMode !== InputMode.PRACTICE && state.inputMode !== InputMode.EXAM && (
             <div className="mt-6 flex justify-end">
               <button
                 onClick={handleSubmit}
@@ -698,7 +1235,7 @@ const App: React.FC = () => {
           )}
 
           {/* Practice error (shown inside PracticeSetup area) */}
-          {state.error && state.inputMode === InputMode.PRACTICE && (
+          {state.error && (state.inputMode === InputMode.PRACTICE || state.inputMode === InputMode.EXAM) && (
             <div className="mt-4 p-3 bg-red-50 border border-red-100 rounded-lg flex items-center space-x-2 text-red-600 text-sm">
               <X className="w-4 h-4" />
               <span>{state.error}</span>
@@ -707,7 +1244,7 @@ const App: React.FC = () => {
         </div>
         
         {/* Loading State Visualization */}
-        {state.isLoading && state.inputMode !== InputMode.PRACTICE && (
+        {state.isLoading && state.inputMode !== InputMode.PRACTICE && state.inputMode !== InputMode.EXAM && (
           <div className="p-8 sm:p-12 text-center bg-slate-50/50 border-t border-slate-100">
              <div className="inline-block relative w-20 h-20">
                <div className="absolute top-0 left-0 w-full h-full border-4 border-indigo-100 rounded-full animate-pulse"></div>
@@ -745,8 +1282,46 @@ const App: React.FC = () => {
         </section>
       )}
 
+      {state.inputMode === InputMode.EXAM && state.examSessions.length > 0 && !isExamGenerating && (
+        <section className="w-full max-w-4xl animate-in slide-in-from-bottom-8 fade-in duration-500 mb-8">
+          <div className="flex items-center justify-between mb-4 px-1 sm:px-2 gap-2">
+            <h3 className="text-xl font-bold text-slate-700 flex items-center gap-2">
+              <ClipboardCheck className="w-5 h-5 text-rose-500" />
+              Letzte Prüfungen
+            </h3>
+          </div>
+          <div className="grid gap-3 sm:gap-4 md:grid-cols-1">
+            {state.examSessions.slice(0, 8).map(session => (
+              <button
+                key={session.id}
+                onClick={() => handleOpenExamSession(session)}
+                className="w-full text-left bg-white p-4 sm:p-5 rounded-2xl shadow-sm border border-slate-100 hover:shadow-md hover:border-indigo-200 transition-all"
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="font-semibold text-slate-800">{session.topic}</p>
+                    <p className="text-sm text-slate-500 mt-0.5">
+                      {session.taskCount} Aufgaben · {session.durationMinutes} Min · {session.difficulty}
+                    </p>
+                  </div>
+                  {session.status === 'completed' ? (
+                    <span className="text-xs font-semibold px-2 py-1 rounded-full bg-emerald-50 text-emerald-700">
+                      {session.scorePercent ?? 0}%
+                    </span>
+                  ) : (
+                    <span className="text-xs font-semibold px-2 py-1 rounded-full bg-amber-50 text-amber-700">
+                      Offen
+                    </span>
+                  )}
+                </div>
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
+
       {/* History Section */}
-      {state.inputMode !== InputMode.PRACTICE && (() => {
+      {state.inputMode !== InputMode.PRACTICE && state.inputMode !== InputMode.EXAM && (() => {
         const filteredHistory = history.filter(item =>
           state.inputMode === InputMode.TUTOR
             ? item.mode === InputMode.TUTOR
