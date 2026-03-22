@@ -25,8 +25,11 @@ WORKDIR /app
 RUN npm install -g serve
 
 # Kopiere den Build-Output vom Builder
-COPY --from=builder /app/dist ./dist
-COPY docker-entrypoint.sh ./docker-entrypoint.sh
+COPY --from=builder --chown=node:node /app/dist ./dist
+COPY --chown=node:node docker-entrypoint.sh ./docker-entrypoint.sh
+
+# Stelle sicher, dass der non-root User schreiben und das Entrypoint-Script ausführen kann
+RUN chmod +x /app/docker-entrypoint.sh
 
 # Exponiere Port 3012
 EXPOSE 3012
