@@ -35,7 +35,7 @@ const SidePanel: React.FC<SidePanelProps> = ({
   ]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [isSoundEnabled, setIsSoundEnabled] = useState(true);
+  const [isSoundEnabled, setIsSoundEnabled] = useState(false);
   const [ttsError, setTtsError] = useState<string | null>(null);
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -61,7 +61,7 @@ const SidePanel: React.FC<SidePanelProps> = ({
       }, 500);
       return () => clearTimeout(timer);
     }
-  }, [messages, isOpen, ttsError]); 
+  }, [messages, isOpen, ttsError, isSoundEnabled]); 
 
   // Stop audio on unmount or close
   useEffect(() => {
