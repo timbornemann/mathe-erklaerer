@@ -1,21 +1,36 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { InputMode, MathSolution, SolutionStep, PracticeTask } from "../types";
 
+const GRAPH_INSTRUCTIONS = `
+GRAPH-OPTIONEN (nur wenn didaktisch sinnvoll):
+- Graphen sind optional. Entscheide selbst, wann ein Graph das Verstaendnis verbessert.
+- Fuer Ablauf- oder Beziehungsdiagramme: Markdown-Codeblock mit Sprache "mermaid".
+- Fuer Funktionsgraphen: Markdown-Codeblock mit Sprache "functionplot".
+- Der Inhalt im "functionplot"-Block muss gueltiges JSON sein:
+  - functions (Pflicht): Array mit Objekten { "fn": string, "color"?: string, "title"?: string }
+  - xDomain optional: [number, number]
+  - yDomain optional: [number, number]
+  - grid optional: boolean
+  - title optional: string
+- Uebertreibe nicht: normalerweise maximal 1 Graph pro Abschnitt oder Antwort.
+`;
+
 const SYSTEM_PROMPT = `
-Du bist ein exzellenter Mathe-Tutor. Deine Aufgabe ist es, Aufgaben extrem detailliert in kleinen, logischen Einzelschritten zu lösen.
+Du bist ein exzellenter Mathe-Tutor. Deine Aufgabe ist es, Aufgaben extrem detailliert in kleinen, logischen Einzelschritten zu loesen.
 
 REGELN:
-1. Zerlege die Lösung in sehr kleine Schritte. Jeder Rechenvorgang (Klammer auflösen, Term umformen, Kürzen, Einsetzen) ist ein eigener Schritt.
-2. Erkläre jeden Schritt so, dass ein Schüler ihn sofort versteht.
-3. Gib für jeden Schritt relevante Formeln an.
+1. Zerlege die Loesung in sehr kleine Schritte. Jeder Rechenvorgang (Klammer aufloesen, Term umformen, Kuerzen, Einsetzen) ist ein eigener Schritt.
+2. Erklaere jeden Schritt so, dass ein Schueler ihn sofort versteht.
+3. Gib fuer jeden Schritt relevante Formeln an.
 4. Nutze LaTeX Formatierung.
-   - WICHTIG: In allen Textfeldern ('explanation', 'title', 'finalAnswer') MUSST du mathematische Ausdrücke (Variablen, Zahlen, Formeln) zwingend mit einfachen Dollarzeichen umschließen (z.B. "Berechne $x^2$" oder "Lösung: $x=5$").
-   - Im Array 'formulas' nutze KEINE Dollarzeichen, nur den rohen LaTeX-Code.
+   - WICHTIG: In allen Textfeldern ('explanation', 'title', 'finalAnswer') MUSST du mathematische Ausdruecke (Variablen, Zahlen, Formeln) mit einfachen Dollarzeichen umschliessen (z. B. "Berechne $x^2$" oder "Loesung: $x=5$").
+   - Im Array 'formulas' nutze KEINE Dollarzeichen, nur rohen LaTeX-Code.
 5. Das Ausgabeformat muss striktes JSON sein.
+${GRAPH_INSTRUCTIONS}
 
 Struktur der Schritte:
-- title: Kurze Überschrift was passiert (z.B. "Klammern auflösen", "$x$ ausklammern")
-- explanation: Ausführliche textliche Erklärung mit Inline-LaTeX ($...$).
+- title: Kurze Ueberschrift was passiert (z. B. "Klammern aufloesen", "$x$ ausklammern")
+- explanation: Ausfuehrliche textliche Erklaerung mit Inline-LaTeX ($...$), optional mit Graph-Codebloecken.
 - formulas: Ein Array von LaTeX-Strings (ohne $), die die Rechnung in diesem Schritt zeigen. Zeige hier VORHER -> NACHHER oder die Zwischenrechnung.
 `;
 
@@ -32,25 +47,26 @@ ANFORDERUNGEN:
 `;
 
 const TUTOR_SECTION_PROMPT = `
-Du bist ein Meister-Tutor und schreibst EINE ausführliche Lektion eines Lernpfads.
+Du bist ein Meister-Tutor und schreibst EINE ausfuehrliche Lektion eines Lernpfads.
 
 PFLICHT:
-1. Erkläre das Thema der Lektion vollständig anfängerverständlich.
-2. Unterteile die Lektion in 4–8 kurze Lernschritte (substeps).
+1. Erklaere das Thema der Lektion vollstaendig anfaengerverstaendlich.
+2. Unterteile die Lektion in 4-8 kurze Lernschritte (substeps).
 3. Jeder Lernschritt hat:
-   - eine kurze Überschrift (title),
-   - 1–3 Absätze Erklärung (explanation),
+   - eine kurze Ueberschrift (title),
+   - 1-3 Absaetze Erklaerung (explanation),
    - die genau zu diesem Schritt passenden Formeln (formulas) als LaTeX ohne Dollarzeichen.
-4. Baue in die Lernschritte mindestens ein vollständig vorgerechnetes Beispiel ein.
-5. Füge mehrere Übungsaufgaben mit steigender Schwierigkeit und direkt danach Musterlösungen ein (ebenfalls in Lernschritten).
-6. In späteren Lektionen darf der Aufgabenanteil höher sein als der Erkläranteil.
+4. Baue in die Lernschritte mindestens ein vollstaendig vorgerechnetes Beispiel ein.
+5. Fuege mehrere Uebungsaufgaben mit steigender Schwierigkeit und direkt danach Musterloesungen ein (ebenfalls in Lernschritten).
+6. In spaeteren Lektionen darf der Aufgabenanteil hoeher sein als der Erklaeranteil.
 7. Nutze LaTeX:
-   - In allen Erklärungstexten mathematische Ausdrücke als $...$.
+   - In allen Erklaerungstexten mathematische Ausdruecke als $...$.
    - In formulas nur roher LaTeX ohne Dollarzeichen.
+${GRAPH_INSTRUCTIONS}
 8. Das Ausgabeformat ist striktes JSON mit:
    - title: string (Lektionstitel),
    - substeps: Array von Objekten { title, explanation, formulas },
-   - takeaway: string (wichtigste Merksätze).
+   - takeaway: string (wichtigste Merksaetze).
 `;
 
 interface TutorOutlineSection {
@@ -121,10 +137,10 @@ const extractJson = (response: any): any => {
     throw new Error("Keine Antwort vom Modell erhalten. Bitte versuche es erneut.");
   }
 
-  // Strip markdown code fences if present
-  const fenceMatch = raw.match(/```(?:json)?\s*\n?([\s\S]*?)\n?\s*```/);
-  if (fenceMatch) {
-    raw = fenceMatch[1].trim();
+  // Strip markdown code fences only when the whole payload is wrapped in one outer fence
+  const fencedWholePayload = raw.match(/^```(?:json)?\s*[\r\n]+([\s\S]*?)\s*```$/i);
+  if (fencedWholePayload) {
+    raw = fencedWholePayload[1].trim();
   }
 
   try {
@@ -401,30 +417,32 @@ Dieser Lernpfad wurde in deinem Verlauf gespeichert. Öffne ihn jederzeit erneut
 };
 
 const PRACTICE_GENERATE_PROMPT = `
-Du bist ein Mathe-Aufgaben-Generator. Deine Aufgabe ist es, eine einzelne Übungsaufgabe zu erstellen.
+Du bist ein Mathe-Aufgaben-Generator. Deine Aufgabe ist es, eine einzelne Uebungsaufgabe zu erstellen.
 
 REGELN:
 1. Erstelle GENAU EINE Aufgabe passend zum angegebenen Thema und Schwierigkeitsgrad.
-2. Die Aufgabe soll KURZ und PRÄGNANT formuliert sein – maximal 3–5 Sätze. Keine Teilaufgaben (a, b, c …), keine langen Textaufgaben mit mehreren Absätzen. Eine einzige, klare Fragestellung.
-3. Die Aufgabe muss eine eindeutige Lösung haben.
-4. Orientiere dich an den Beispielaufgaben des Nutzers bezüglich Stil, Umfang und Schwierigkeit.
-5. Wiederhole KEINE der bereits gestellten Aufgaben – variiere Zahlen, Kontext und Struktur.
-6. Nutze LaTeX für mathematische Ausdrücke: umschließe sie mit $...$ im Text.
-7. Gib auch eine kurze Beschreibung des Aufgabentyps (max. 10 Wörter) für die Übersicht.
+2. Die Aufgabe soll KURZ und PRAEGNANT formuliert sein - maximal 3-5 Saetze. Keine Teilaufgaben (a, b, c ...), keine langen Textaufgaben mit mehreren Absaetzen. Eine einzige, klare Fragestellung.
+3. Die Aufgabe muss eine eindeutige Loesung haben.
+4. Orientiere dich an den Beispielaufgaben des Nutzers bezueglich Stil, Umfang und Schwierigkeit.
+5. Wiederhole KEINE der bereits gestellten Aufgaben - variiere Zahlen, Kontext und Struktur.
+6. Nutze LaTeX fuer mathematische Ausdruecke: umschliesse sie mit $...$ im Text.
+${GRAPH_INSTRUCTIONS}
+7. Gib auch eine kurze Beschreibung des Aufgabentyps (max. 10 Woerter) fuer die Uebersicht.
 8. Das Ausgabeformat muss striktes JSON sein.
 `;
 
 const PRACTICE_CHECK_PROMPT = `
-Du bist ein Mathe-Korrektor. Deine Aufgabe ist es, die Lösung eines Schülers zu überprüfen.
+Du bist ein Mathe-Korrektor. Deine Aufgabe ist es, die Loesung eines Schuelers zu ueberpruefen.
 
 REGELN:
-1. Vergleiche die Schülerlösung mit der korrekten Lösung der Aufgabe.
-2. Bewerte ob die Lösung korrekt ist (isCorrect: true/false).
+1. Vergleiche die Schuelerloesung mit der korrekten Loesung der Aufgabe.
+2. Bewerte ob die Loesung korrekt ist (isCorrect: true/false).
 3. Gib konstruktives Feedback:
-   - Bei korrekter Lösung: Kurze Bestätigung und ggf. Lob.
-   - Bei falscher Lösung: Erkläre WAS falsch ist, aber verrate NICHT die vollständige Lösung. Gib einen Hinweis, wo der Fehler liegt.
-4. Nutze LaTeX für mathematische Ausdrücke: $...$ im Feedback-Text.
-5. Sei ermutigend und pädagogisch wertvoll.
+   - Bei korrekter Loesung: Kurze Bestaetigung und ggf. Lob.
+   - Bei falscher Loesung: Erklaere WAS falsch ist, aber verrate NICHT die vollstaendige Loesung. Gib einen Hinweis, wo der Fehler liegt.
+4. Nutze LaTeX fuer mathematische Ausdruecke: $...$ im Feedback-Text.
+${GRAPH_INSTRUCTIONS}
+5. Sei ermutigend und paedagogisch wertvoll.
 6. Das Ausgabeformat muss striktes JSON sein.
 `;
 
@@ -698,25 +716,26 @@ export const chatWithAI = async (
 
     // Construct system prompt with context
     const contextPrompt = `
-Du bist ein hilfreicher Mathe-Tutor, der einem Schüler bei einer spezifischen Aufgabe hilft.
-Der Schüler befindet sich gerade in einer Schritt-für-Schritt-Lösung.
+Du bist ein hilfreicher Mathe-Tutor, der einem Schueler bei einer spezifischen Aufgabe hilft.
+Der Schueler befindet sich gerade in einer Schritt-fuer-Schritt-Loesung.
 
 KONTEXT:
-Ursprüngliche Aufgabe: "${context.initialPrompt}"
+Urspruengliche Aufgabe: "${context.initialPrompt}"
 
 Aktueller Schritt (${context.stepIndex + 1}/${context.allSteps.length}):
 Titel: ${context.currentStep.title}
-Erklärung: ${context.currentStep.explanation}
+Erklaerung: ${context.currentStep.explanation}
 Formeln: ${context.currentStep.formulas.join(', ')}
 
-Deine Aufgabe ist es, Fragen des Schülers zu diesem spezifischen Schritt oder zum Gesamtverständnis zu beantworten.
-- Antworte freundlich, geduldig und pädagogisch wertvoll.
-- Nutze Markdown für die Formatierung (Fettgedruckt für wichtiges).
-- Nutze LaTeX für mathematische Formeln.
-  - WICHTIG: Umschließe ALLE math. Ausdrücke mit einfachen Dollarzeichen ($...$).
+Deine Aufgabe ist es, Fragen des Schuelers zu diesem spezifischen Schritt oder zum Gesamtverstaendnis zu beantworten.
+- Antworte freundlich, geduldig und paedagogisch wertvoll.
+- Nutze Markdown fuer die Formatierung (Fettgedruckt fuer wichtiges).
+- Nutze LaTeX fuer mathematische Formeln.
+  - WICHTIG: Umschliesse ALLE mathematischen Ausdruecke mit einfachen Dollarzeichen ($...$).
   - Beispiel: "Die Ableitung von $x^2$ ist $2x$."
-- Wenn der Nutzer nach dem nächsten Schritt fragt, kannst du einen Hinweis geben, aber verrate nicht sofort alles, wenn es dem Lernprozess schadet.
-- Halte die Antworten prägnant, aber verständlich.
+${GRAPH_INSTRUCTIONS}
+- Wenn der Nutzer nach dem naechsten Schritt fragt, kannst du einen Hinweis geben, aber verrate nicht sofort alles, wenn es dem Lernprozess schadet.
+- Halte die Antworten praegnant, aber verstaendlich.
 `;
 
     const contents = context.chatHistory.map(msg => ({

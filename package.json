@@ -10,8 +10,10 @@
   },
   "dependencies": {
     "@google/genai": "^1.39.0",
+    "function-plot": "^1.25.3",
     "katex": "^0.16.28",
     "lucide-react": "^0.563.0",
+    "mermaid": "^11.14.0",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "react-markdown": "^10.1.0",

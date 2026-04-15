@@ -21,6 +21,8 @@ export const speakText = async (text: string): Promise<HTMLAudioElement> => {
   // Clean Markdown for speech
   // Remove **bold**, *italic*, $latex$, headers, etc.
   const cleanText = text
+    .replace(/```(?:mermaid|functionplot)\s*[\s\S]*?```/gi, ' Graph ')
+    .replace(/```[\s\S]*?```/g, ' ')
     .replace(/\$\$(.*?)\$\$/g, 'Formel') // Replace complex display math with "Formel"
     .replace(/\$(.*?)\$/g, '$1') // Inline math might be readable if simple variables
     .replace(/\*\*(.*?)\*\*/g, '$1') // Bold
