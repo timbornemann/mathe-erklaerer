@@ -8,6 +8,21 @@ interface MathRendererProps {
   content: string;
 }
 
+const GRAPH_START_KEYWORDS = [
+  'graph',
+  'flowchart',
+  'sequenceDiagram',
+  'classDiagram',
+  'stateDiagram',
+  'erDiagram',
+  'journey',
+  'gantt',
+  'pie',
+  'mindmap',
+  'timeline',
+  'xychart'
+];
+
 interface FunctionPlotLine {
   fn: string;
   color?: string;
@@ -30,6 +45,65 @@ let mermaidInitialized = false;
 let functionPlotPromise: Promise<FunctionPlotFn> | null = null;
 
 const GRAPH_DEFAULT_DOMAIN: [number, number] = [-10, 10];
+
+const normalizeEscapedNewlines = (raw: string): string => {
+  let text = raw;
+
+  // Convert common double-escaped line breaks that appear in model JSON strings.
+  // This deliberately avoids blanket replacement to not corrupt LaTeX commands like \neq.
+  text = text
+    .replace(/\\n(?=mermaid\b|functionplot\b)/gi, '\n')
+    .replace(/(mermaid|functionplot)\\n/gi, '$1\n')
+    .replace(/\\n(?=\d+\.)/g, '\n')
+    .replace(/\\n(?=\{)/g, '\n')
+    .replace(/\\n(?=\s)/g, '\n')
+    .replace(/\\n(?=[A-ZÄÖÜ])/g, '\n');
+
+  for (const keyword of GRAPH_START_KEYWORDS) {
+    const escapedStarter = new RegExp(`\\\\n(?=${keyword}\\b)`, 'gi');
+    text = text.replace(escapedStarter, '\n');
+  }
+
+  return text;
+};
+
+const wrapLooseGraphBlocks = (content: string): string => {
+  const lines = content.split('\n');
+  const output: string[] = [];
+
+  let i = 0;
+  while (i < lines.length) {
+    const marker = lines[i].trim().toLowerCase();
+    const isGraphMarker = marker === 'mermaid' || marker === 'functionplot';
+
+    if (!isGraphMarker) {
+      output.push(lines[i]);
+      i += 1;
+      continue;
+    }
+
+    const blockLines: string[] = [];
+    i += 1;
+
+    while (i < lines.length) {
+      const line = lines[i];
+      if (line.trim() === '') break;
+      blockLines.push(line);
+      i += 1;
+    }
+
+    if (blockLines.length === 0) {
+      output.push(lines[i - 1] ?? marker);
+      continue;
+    }
+
+    output.push(`\`\`\`${marker}`);
+    output.push(...blockLines);
+    output.push('```');
+  }
+
+  return output.join('\n');
+};
 
 const loadMermaid = async (): Promise<MermaidApi> => {
   if (!mermaidPromise) {
@@ -298,6 +372,11 @@ const FunctionPlotBlock: React.FC<{ source: string }> = ({ source }) => {
 };
 
 const MathRenderer: React.FC<MathRendererProps> = ({ content }) => {
+  const normalizedContent = useMemo(() => {
+    const withNormalizedEscapes = normalizeEscapedNewlines(content);
+    return wrapLooseGraphBlocks(withNormalizedEscapes);
+  }, [content]);
+
   return (
     <div className="math-renderer text-slate-800 leading-relaxed text-lg [&>p]:mb-4 last:[&>p]:mb-0">
       <ReactMarkdown
@@ -340,7 +419,7 @@ const MathRenderer: React.FC<MathRendererProps> = ({ content }) => {
           }
         }}
       >
-        {content}
+        {normalizedContent}
       </ReactMarkdown>
     </div>
   );

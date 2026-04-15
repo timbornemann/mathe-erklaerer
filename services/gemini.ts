@@ -4,14 +4,15 @@ import { InputMode, MathSolution, SolutionStep, PracticeTask } from "../types";
 const GRAPH_INSTRUCTIONS = `
 GRAPH-OPTIONEN (nur wenn didaktisch sinnvoll):
 - Graphen sind optional. Entscheide selbst, wann ein Graph das Verstaendnis verbessert.
-- Fuer Ablauf- oder Beziehungsdiagramme: Markdown-Codeblock mit Sprache "mermaid".
-- Fuer Funktionsgraphen: Markdown-Codeblock mit Sprache "functionplot".
+- Fuer Ablauf- oder Beziehungsdiagramme: immer als Markdown-Codeblock mit Sprache "mermaid" (mit dreifachen Backticks).
+- Fuer Funktionsgraphen: immer als Markdown-Codeblock mit Sprache "functionplot" (mit dreifachen Backticks).
 - Der Inhalt im "functionplot"-Block muss gueltiges JSON sein:
   - functions (Pflicht): Array mit Objekten { "fn": string, "color"?: string, "title"?: string }
   - xDomain optional: [number, number]
   - yDomain optional: [number, number]
   - grid optional: boolean
   - title optional: string
+- Nutze echte Zeilenumbrueche in den Codebloecken (kein "\\n" als sichtbarer Text).
 - Uebertreibe nicht: normalerweise maximal 1 Graph pro Abschnitt oder Antwort.
 `;
 
