@@ -11,7 +11,7 @@ import PracticeRoomDetail from './components/PracticeRoomDetail';
 import ExamSetup, { ExamConfig } from './components/ExamSetup';
 import ExamSession from './components/ExamSession';
 import ExamResultView from './components/ExamResultView';
-import { MathState, InputMode, HistoryItem, MathSolution, PracticeRoom, PracticeTask, ExamSession as ExamSessionType, ExamTask } from './types';
+import { MathState, InputMode, HistoryItem, MathSolution, PracticeRoom, PracticeTask, ExamSession as ExamSessionType, ExamTask, HistoryStatus } from './types';
 import { buildExportData, serializeExportData, parseAndValidateExport, applyImportData, ImportStrategy } from './services/exportImport';
 import { 
   Calculator, 
@@ -33,6 +33,7 @@ import SettingsModal from './components/SettingsModal';
 
 const PRACTICE_ROOMS_KEY = 'mathPracticeRooms';
 const EXAM_SESSIONS_KEY = 'mathExamSessions';
+const HISTORY_STORAGE_KEY = 'mathGeniusHistory';
 
 const generateId = (): string => {
   if (typeof globalThis.crypto?.randomUUID === 'function') {
@@ -54,6 +55,42 @@ const generateId = (): string => {
 
 type PracticeView = 'setup' | 'detail' | 'session';
 type ExamView = 'setup' | 'session' | 'result';
+
+const clampPercent = (value: number): number => {
+  if (!Number.isFinite(value)) return 0;
+  return Math.max(0, Math.min(100, Math.round(value)));
+};
+
+const computeTutorProgress = (solution: MathSolution): number => {
+  const total = solution.steps.length;
+  if (total === 0) return 0;
+  const completed = solution.steps.filter(step => step.loading !== true).length;
+  return clampPercent((completed / total) * 100);
+};
+
+const buildTutorPreview = (status: HistoryStatus, progress: number, solution?: MathSolution, error?: string): string => {
+  if (status === 'failed') {
+    return error || 'Tutor-Lektion konnte nicht erstellt werden.';
+  }
+
+  if (status === 'completed' && solution) {
+    return solution.finalAnswer || solution.steps[0]?.title || 'Tutor-Lektion erstellt.';
+  }
+
+  return `Tutor-Lektion wird erstellt (${progress}%).`;
+};
+
+const createTutorPlaceholderSolution = (topic: string): MathSolution => ({
+  steps: [
+    {
+      title: topic || 'Tutor-Lektion',
+      explanation: 'Die KI erstellt gerade den Lernpfad und die ersten Lektionen.',
+      formulas: [],
+      loading: true
+    }
+  ],
+  finalAnswer: 'Lernpfad wird erstellt...'
+});
 
 const App: React.FC = () => {
   const [state, setState] = useState<MathState>({
@@ -78,17 +115,24 @@ const App: React.FC = () => {
   const [isExamGenerating, setIsExamGenerating] = useState(false);
   const [isExamSubmitting, setIsExamSubmitting] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [, setActiveSolutionHistoryId] = useState<string | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const importFileInputRef = useRef<HTMLInputElement>(null);
+  const activeSolutionHistoryIdRef = useRef<string | null>(null);
 
   const history = state.history ?? [];
   const practiceRooms = state.practiceRooms ?? [];
 
+  const setActiveHistoryId = useCallback((id: string | null) => {
+    activeSolutionHistoryIdRef.current = id;
+    setActiveSolutionHistoryId(id);
+  }, []);
+
   useEffect(() => {
     const updates: Partial<MathState> = {};
 
-    const savedHistory = localStorage.getItem('mathGeniusHistory');
+    const savedHistory = localStorage.getItem(HISTORY_STORAGE_KEY);
     if (savedHistory) {
       try {
         updates.history = JSON.parse(savedHistory);
@@ -144,39 +188,77 @@ const App: React.FC = () => {
     });
   }, [saveExamSessions]);
 
-  const saveToHistory = (newItem: HistoryItem) => {
+  const persistHistory = useCallback((items: HistoryItem[]) => {
+    localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(items));
+  }, []);
+
+  const saveToHistory = useCallback((newItem: HistoryItem) => {
     setState(prev => {
       const updatedHistory = [newItem, ...prev.history].slice(0, 50);
-      localStorage.setItem('mathGeniusHistory', JSON.stringify(updatedHistory));
+      persistHistory(updatedHistory);
       return { ...prev, history: updatedHistory };
     });
-  };
+  }, [persistHistory]);
+
+  const updateHistoryItem = useCallback((historyId: string, updater: (item: HistoryItem) => HistoryItem) => {
+    setState(prev => {
+      let found = false;
+      const updatedHistory = prev.history.map(item => {
+        if (item.id !== historyId) return item;
+        found = true;
+        return updater(item);
+      });
+
+      if (!found) {
+        return prev;
+      }
+
+      persistHistory(updatedHistory);
+      return { ...prev, history: updatedHistory };
+    });
+  }, [persistHistory]);
 
   const clearHistory = (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (window.confirm("Möchtest du den Verlauf wirklich löschen?")) {
-      setState(prev => {
-        const remaining = prev.history.filter(item =>
-          state.inputMode === InputMode.TUTOR
-            ? item.mode !== InputMode.TUTOR
-            : item.mode === InputMode.TUTOR
-        );
-        localStorage.setItem('mathGeniusHistory', JSON.stringify(remaining));
-        return { ...prev, history: remaining };
-      });
-    }
+    if (!window.confirm("Moechtest du den Verlauf wirklich loeschen?")) return;
+
+    const clearTutorHistory = state.inputMode === InputMode.TUTOR;
+    setState(prev => {
+      const remaining = prev.history.filter(item =>
+        clearTutorHistory
+          ? item.mode !== InputMode.TUTOR
+          : item.mode === InputMode.TUTOR
+      );
+      persistHistory(remaining);
+      return {
+        ...prev,
+        history: remaining,
+        solution: null
+      };
+    });
+    setActiveHistoryId(null);
   };
 
   const deleteHistoryItem = (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
     setState(prev => {
       const updatedHistory = prev.history.filter(item => item.id !== id);
-      localStorage.setItem('mathGeniusHistory', JSON.stringify(updatedHistory));
-      return { ...prev, history: updatedHistory };
+      persistHistory(updatedHistory);
+      const activeRemoved = activeSolutionHistoryIdRef.current === id;
+      return {
+        ...prev,
+        history: updatedHistory,
+        ...(activeRemoved ? { solution: null } : {})
+      };
     });
+
+    if (activeSolutionHistoryIdRef.current === id) {
+      setActiveHistoryId(null);
+    }
   };
 
   const handleModeChange = (mode: InputMode) => {
+    setActiveHistoryId(null);
     setState(prev => ({
       ...prev,
       inputMode: mode,
@@ -199,10 +281,14 @@ const App: React.FC = () => {
   };
 
   const handleReset = () => {
+    const activeId = activeSolutionHistoryIdRef.current;
+    const activeItem = activeId ? history.find(item => item.id === activeId) : null;
+    const nextMode = activeItem?.mode === InputMode.TUTOR ? InputMode.TUTOR : InputMode.TEXT;
+
     setState(prev => ({
       ...prev,
       isLoading: false,
-      inputMode: InputMode.TEXT,
+      inputMode: nextMode,
       textInput: '',
       imageFile: null,
       imagePreview: null,
@@ -214,9 +300,11 @@ const App: React.FC = () => {
     setPracticeView('setup');
     setCurrentPracticeTask(null);
     setExamView('setup');
+    setActiveHistoryId(null);
   };
 
   const handleHistoryRestore = (item: HistoryItem) => {
+    setActiveHistoryId(item.id);
     setState(prev => ({
       ...prev,
       solution: item.solution,
@@ -340,7 +428,7 @@ const App: React.FC = () => {
             strategy
           );
 
-          localStorage.setItem('mathGeniusHistory', JSON.stringify(newHistory));
+          localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(newHistory));
           localStorage.setItem(PRACTICE_ROOMS_KEY, JSON.stringify(newPracticeRooms));
           localStorage.setItem(EXAM_SESSIONS_KEY, JSON.stringify(newExamSessions));
 
@@ -360,6 +448,7 @@ const App: React.FC = () => {
             activePracticeRoom: newActivePracticeRoom
           };
         });
+        setActiveHistoryId(null);
 
         window.alert('Daten wurden erfolgreich importiert.');
       } catch (error) {
@@ -380,13 +469,111 @@ const App: React.FC = () => {
   };
 
   const handleSubmit = useCallback(async () => {
-    if (state.isLoading) return;
+    if (state.isLoading && state.inputMode !== InputMode.TUTOR) return;
 
-    if (state.inputMode === InputMode.TUTOR && !state.textInput.trim()) {
+    if (state.inputMode === InputMode.TUTOR) {
+      const tutorTopic = state.textInput.trim();
+      if (!tutorTopic) {
+        setState(prev => ({
+          ...prev,
+          error: "Bitte beschreibe ein Thema oder Sachgebiet fuer den Tutor-Modus."
+        }));
+        return;
+      }
+
+      const historyId = generateId();
+      const placeholderSolution = createTutorPlaceholderSolution(tutorTopic);
+      const initialProgress = computeTutorProgress(placeholderSolution);
+
+      const pendingItem: HistoryItem = {
+        id: historyId,
+        timestamp: Date.now(),
+        mode: InputMode.TUTOR,
+        prompt: tutorTopic,
+        preview: buildTutorPreview('processing', initialProgress, placeholderSolution),
+        solution: placeholderSolution,
+        status: 'processing',
+        progress: initialProgress
+      };
+
+      saveToHistory(pendingItem);
+      setActiveHistoryId(historyId);
       setState(prev => ({
         ...prev,
-        error: "Bitte beschreibe ein Thema oder Sachgebiet für den Tutor-Modus."
+        isLoading: false,
+        error: null,
+        inputMode: InputMode.TUTOR,
+        solution: placeholderSolution
       }));
+
+      void solveMathProblem(
+        tutorTopic,
+        undefined,
+        'image/jpeg',
+        InputMode.TUTOR,
+        {
+          onTutorProgress: (partial: MathSolution) => {
+            const progress = computeTutorProgress(partial);
+            updateHistoryItem(historyId, (item) => ({
+              ...item,
+              solution: partial,
+              status: 'processing',
+              progress,
+              error: undefined,
+              preview: buildTutorPreview('processing', progress, partial)
+            }));
+
+            if (activeSolutionHistoryIdRef.current === historyId) {
+              setState(prev => ({
+                ...prev,
+                solution: partial,
+                error: null,
+                inputMode: InputMode.TUTOR
+              }));
+            }
+          }
+        }
+      )
+        .then((solution) => {
+          updateHistoryItem(historyId, (item) => ({
+            ...item,
+            solution,
+            status: 'completed',
+            progress: 100,
+            error: undefined,
+            preview: buildTutorPreview('completed', 100, solution)
+          }));
+
+          if (activeSolutionHistoryIdRef.current === historyId) {
+            setState(prev => ({
+              ...prev,
+              solution,
+              error: null,
+              inputMode: InputMode.TUTOR
+            }));
+          }
+        })
+        .catch((err: any) => {
+          const message = err?.message || "Tutor-Lektion konnte nicht erstellt werden.";
+          updateHistoryItem(historyId, (item) => {
+            const keptProgress = clampPercent(item.progress ?? 0);
+            return {
+              ...item,
+              status: 'failed',
+              progress: keptProgress,
+              error: message,
+              preview: buildTutorPreview('failed', keptProgress, item.solution, message)
+            };
+          });
+
+          if (activeSolutionHistoryIdRef.current === historyId) {
+            setState(prev => ({
+              ...prev,
+              error: message
+            }));
+          }
+        });
+
       return;
     }
 
@@ -400,22 +587,12 @@ const App: React.FC = () => {
 
     setState(prev => ({ ...prev, isLoading: true, error: null, solution: null }));
 
-    const isTutor = state.inputMode === InputMode.TUTOR;
-    const options = isTutor
-      ? {
-          onTutorProgress: (partial: MathSolution) => {
-            setState(prev => ({ ...prev, solution: partial, isLoading: false }));
-          }
-        }
-      : undefined;
-
     try {
       const solution = await solveMathProblem(
         state.textInput,
         state.imagePreview || undefined,
         state.imageFile?.type,
-        state.inputMode,
-        options
+        state.inputMode
       );
 
       const savedMode = state.inputMode === InputMode.TEXT && state.imageFile ? InputMode.IMAGE : state.inputMode;
@@ -423,12 +600,15 @@ const App: React.FC = () => {
         id: generateId(),
         timestamp: Date.now(),
         mode: savedMode,
-        prompt: state.textInput || (state.imageFile ? "Foto-Analyse" : state.inputMode === InputMode.TUTOR ? "Tutor-Modus" : "Aufgabe"),
-        preview: solution.finalAnswer || solution.steps[0]?.title || "Gelöste Aufgabe",
-        solution: solution
+        prompt: state.textInput || (state.imageFile ? "Foto-Analyse" : "Aufgabe"),
+        preview: solution.finalAnswer || solution.steps[0]?.title || "Geloeste Aufgabe",
+        solution,
+        status: 'completed',
+        progress: 100
       };
 
       saveToHistory(historyItem);
+      setActiveHistoryId(historyItem.id);
 
       setState(prev => ({ ...prev, solution, isLoading: false }));
     } catch (err: any) {
@@ -438,7 +618,7 @@ const App: React.FC = () => {
         error: err.message || "Es ist ein Fehler aufgetreten. Bitte versuche es erneut."
       }));
     }
-  }, [state.inputMode, state.textInput, state.imagePreview, state.imageFile, state.isLoading]);
+  }, [state.isLoading, state.inputMode, state.textInput, state.imagePreview, state.imageFile, saveToHistory, setActiveHistoryId, updateHistoryItem]);
 
   // ── Practice Mode handlers ──
 
@@ -1216,7 +1396,10 @@ const App: React.FC = () => {
             <div className="mt-6 flex justify-end">
               <button
                 onClick={handleSubmit}
-                disabled={state.isLoading || (state.inputMode === InputMode.TUTOR && !state.textInput.trim()) || (state.inputMode === InputMode.TEXT && !state.textInput.trim() && !state.imageFile)}
+                disabled={
+                  (state.inputMode === InputMode.TUTOR && !state.textInput.trim()) ||
+                  (state.inputMode === InputMode.TEXT && (state.isLoading || (!state.textInput.trim() && !state.imageFile)))
+                }
                 className="w-full sm:w-auto justify-center bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed text-white px-6 sm:px-8 py-3.5 rounded-xl font-bold text-base sm:text-lg shadow-lg shadow-indigo-200 flex items-center space-x-2 transition-all active:scale-95"
               >
                 {state.isLoading ? (
@@ -1244,16 +1427,14 @@ const App: React.FC = () => {
         </div>
         
         {/* Loading State Visualization */}
-        {state.isLoading && state.inputMode !== InputMode.PRACTICE && state.inputMode !== InputMode.EXAM && (
+        {state.isLoading && state.inputMode === InputMode.TEXT && (
           <div className="p-8 sm:p-12 text-center bg-slate-50/50 border-t border-slate-100">
              <div className="inline-block relative w-20 h-20">
                <div className="absolute top-0 left-0 w-full h-full border-4 border-indigo-100 rounded-full animate-pulse"></div>
                <div className="absolute top-0 left-0 w-full h-full border-t-4 border-indigo-600 rounded-full animate-spin"></div>
              </div>
              <p className="mt-6 text-indigo-900 font-medium animate-pulse">
-               {state.inputMode === InputMode.TUTOR
-                ? 'Die KI erstellt deine Lernsequenz mit Erklärungen und Übungen...'
-                : 'Die KI analysiert deine Aufgabe und berechnet die Schritte...'}
+               Die KI analysiert deine Aufgabe und berechnet die Schritte...
              </p>
           </div>
         )}
@@ -1327,7 +1508,7 @@ const App: React.FC = () => {
             ? item.mode === InputMode.TUTOR
             : item.mode === InputMode.TEXT || item.mode === InputMode.IMAGE
         );
-        return filteredHistory.length > 0 && !state.isLoading && (
+        return filteredHistory.length > 0 && (
         <section className="w-full max-w-4xl animate-in slide-in-from-bottom-8 fade-in duration-500">
            <div className="flex items-center justify-between mb-4 px-1 sm:px-2 gap-2">
              <h3 className="text-xl font-bold text-slate-700 flex items-center gap-2">
@@ -1361,6 +1542,16 @@ const App: React.FC = () => {
                       }`}>
                         {item.mode === InputMode.IMAGE ? 'Foto' : item.mode === InputMode.TUTOR ? 'Tutor' : 'Text'}
                       </span>
+                      {item.mode === InputMode.TUTOR && item.status === 'processing' && (
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider bg-amber-100 text-amber-700">
+                          {clampPercent(item.progress ?? 0)}%
+                        </span>
+                      )}
+                      {item.mode === InputMode.TUTOR && item.status === 'failed' && (
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider bg-red-100 text-red-700">
+                          Fehler
+                        </span>
+                      )}
                       <span className="text-xs text-slate-400">
                         {new Date(item.timestamp).toLocaleDateString()} • {new Date(item.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
                       </span>

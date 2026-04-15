@@ -20,6 +20,8 @@ export interface MathSolution {
   finalAnswer: string;
 }
 
+export type HistoryStatus = 'processing' | 'completed' | 'failed';
+
 export interface HistoryItem {
   id: string;
   timestamp: number;
@@ -27,6 +29,12 @@ export interface HistoryItem {
   preview: string; // Kurze Beschreibung oder erste Formel
   solution: MathSolution;
   mode: InputMode;
+  /** Optional status for long-running generations (e.g. Tutor mode). */
+  status?: HistoryStatus;
+  /** Progress percentage for in-flight generations. */
+  progress?: number;
+  /** Optional error message when generation failed. */
+  error?: string;
 }
 
 export interface PracticeTask {
