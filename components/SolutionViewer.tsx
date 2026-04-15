@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { MathSolution } from '../types';
 import MathRenderer from './MathRenderer';
 import SidePanel from './SidePanel';
-import { ChevronLeft, ChevronRight, List, CheckCircle2, RotateCcw, Loader2 } from 'lucide-react';
+import { ChevronLeft, ChevronRight, List, CheckCircle2, RotateCcw, Loader2, X } from 'lucide-react';
 
 interface SolutionViewerProps {
   solution: MathSolution;
@@ -15,11 +15,12 @@ const SolutionViewer: React.FC<SolutionViewerProps> = ({ solution, initialPrompt
   const [currentSubstepIndex, setCurrentSubstepIndex] = useState(0);
   const [showSummary, setShowSummary] = useState(false);
   const [isSidePanelOpen, setIsSidePanelOpen] = useState(false);
+  const [isTocOpenMobile, setIsTocOpenMobile] = useState(false);
 
   const totalSteps = solution.steps.length;
-  const currentLesson = solution.steps[currentStep];
-  const isCurrentStepLoading = currentLesson.loading === true;
-  const hasSubsteps = Array.isArray(currentLesson.substeps) && currentLesson.substeps.length > 0;
+  const currentLesson = solution.steps[currentStep] ?? solution.steps[0];
+  const isCurrentStepLoading = currentLesson?.loading === true;
+  const hasSubsteps = Array.isArray(currentLesson?.substeps) && currentLesson.substeps.length > 0;
   const totalSubstepsInLesson = hasSubsteps ? currentLesson.substeps!.length : 0;
   const activeStep = hasSubsteps && currentSubstepIndex < totalSubstepsInLesson
     ? currentLesson.substeps![currentSubstepIndex]
@@ -43,43 +44,33 @@ const SolutionViewer: React.FC<SolutionViewerProps> = ({ solution, initialPrompt
 
   const currentUnitIndex = unitsBeforeCurrentLesson + (hasSubsteps ? currentSubstepIndex : 0);
 
-  // Scroll to top when Schritt oder Zusammenfassung wechseln
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }, [currentStep, currentSubstepIndex, showSummary]);
 
-  // Substep zurücksetzen, wenn die Lektion wechselt
   useEffect(() => {
-    setCurrentSubstepIndex(0);
-  }, [currentStep]);
+    if (totalSteps === 0) return;
+    if (currentStep >= totalSteps) {
+      setCurrentStep(totalSteps - 1);
+    }
+  }, [currentStep, totalSteps]);
 
-  // Pfeiltasten: vor/zurück durch Schritte (nur wenn nicht in Input/Textarea)
   useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
-      const target = e.target as HTMLElement;
-      const isInput = /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName) || target.isContentEditable;
-      if (isInput) return;
-
-      if (e.key === 'ArrowLeft') {
-        e.preventDefault();
-        if (showSummary) {
-          setShowSummary(false);
-        } else if (!isFirstUnit) {
-          handlePrev();
-        }
-      } else if (e.key === 'ArrowRight') {
-        e.preventDefault();
-        if (showSummary) return;
-        if (!isLastUnit) handleNext();
-        else setShowSummary(true);
-      }
-    };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [currentStep, currentSubstepIndex, showSummary, isFirstUnit, isLastUnit, totalSteps]);
+    if (!currentLesson) return;
+    const substeps = currentLesson.substeps ?? [];
+    if (substeps.length === 0 && currentSubstepIndex !== 0) {
+      setCurrentSubstepIndex(0);
+      return;
+    }
+    if (substeps.length > 0 && currentSubstepIndex >= substeps.length) {
+      setCurrentSubstepIndex(substeps.length - 1);
+    }
+  }, [currentLesson, currentSubstepIndex]);
 
   const handleNext = () => {
     const step = solution.steps[currentStep];
+    if (!step) return;
+
     const substeps = step.substeps ?? [];
 
     if (substeps.length > 0 && currentSubstepIndex < substeps.length - 1) {
@@ -99,6 +90,8 @@ const SolutionViewer: React.FC<SolutionViewerProps> = ({ solution, initialPrompt
     }
 
     const step = solution.steps[currentStep];
+    if (!step) return;
+
     const substeps = step.substeps ?? [];
 
     if (substeps.length > 0 && currentSubstepIndex > 0) {
@@ -106,236 +99,439 @@ const SolutionViewer: React.FC<SolutionViewerProps> = ({ solution, initialPrompt
     } else if (currentStep > 0) {
       const prevStepIndex = currentStep - 1;
       const prevStep = solution.steps[prevStepIndex];
-      const prevSubsteps = prevStep.substeps ?? [];
+      const prevSubsteps = prevStep?.substeps ?? [];
 
       setCurrentStep(prevStepIndex);
       setCurrentSubstepIndex(prevSubsteps.length > 0 ? prevSubsteps.length - 1 : 0);
     }
   };
 
-  // Adjust container width when side panel is open
-  const containerClass = isSidePanelOpen 
-    ? "bg-white rounded-2xl md:rounded-3xl shadow-xl overflow-hidden border border-slate-100 min-h-[400px] flex flex-col transition-all duration-300 lg:mr-[400px]"
-    : "bg-white rounded-2xl md:rounded-3xl shadow-xl overflow-hidden border border-slate-100 min-h-[400px] flex flex-col transition-all duration-300";
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      const isInput = /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName) || target.isContentEditable;
+      if (isInput) return;
 
-  if (showSummary) {
-    return (
-      <div className="relative w-full max-w-6xl mx-auto flex items-start gap-4 md:gap-6">
-        <div className="bg-white rounded-3xl shadow-xl overflow-hidden border border-slate-100 flex-1 w-full relative z-10">
-          <div className="bg-slate-50 p-4 sm:p-6 border-b border-slate-100 flex flex-col sm:flex-row gap-3 sm:justify-between sm:items-center">
-            <h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
-              <List className="w-6 h-6 text-indigo-600" />
-              Zusammenfassung
-            </h2>
-            <button 
-              onClick={() => setShowSummary(false)}
-              className="text-sm font-medium text-indigo-600 hover:text-indigo-800"
+      if (e.key === 'ArrowLeft') {
+        e.preventDefault();
+        if (showSummary) {
+          setShowSummary(false);
+        } else if (!isFirstUnit) {
+          handlePrev();
+        }
+      } else if (e.key === 'ArrowRight') {
+        e.preventDefault();
+        if (showSummary) return;
+        if (!isLastUnit) {
+          handleNext();
+        } else {
+          setShowSummary(true);
+        }
+      }
+    };
+
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [showSummary, isFirstUnit, isLastUnit, currentStep, currentSubstepIndex, totalSteps]);
+
+  const navigateToLesson = (lessonIndex: number, substepIndex = 0) => {
+    if (lessonIndex < 0 || lessonIndex >= totalSteps) return;
+
+    const lesson = solution.steps[lessonIndex];
+    const substeps = lesson.substeps ?? [];
+    const targetSubstep = substeps.length > 0
+      ? Math.max(0, Math.min(substepIndex, substeps.length - 1))
+      : 0;
+
+    setShowSummary(false);
+    setCurrentStep(lessonIndex);
+    setCurrentSubstepIndex(targetSubstep);
+  };
+
+  const renderTocEntries = (closeAfterNavigate = false) => (
+    <>
+      {solution.steps.map((lesson, lessonIndex) => {
+        const substeps = lesson.substeps ?? [];
+        const lessonHasSubsteps = substeps.length > 0;
+        const isLessonActive = !showSummary && currentStep === lessonIndex;
+        const isCompletedLesson = lesson.loading !== true && lessonIndex < currentStep;
+
+        return (
+          <div key={`${lessonIndex}-${lesson.title}`} className="mb-2">
+            <button
+              onClick={() => {
+                navigateToLesson(lessonIndex, 0);
+                if (closeAfterNavigate) setIsTocOpenMobile(false);
+              }}
+              className={`w-full rounded-xl border px-3 py-2.5 text-left transition-colors ${
+                isLessonActive
+                  ? 'border-indigo-200 bg-indigo-50'
+                  : 'border-slate-200 bg-white hover:bg-slate-50'
+              }`}
             >
-              Zurück zu den Karten
+              <div className="flex items-start gap-2.5">
+                <span className={`mt-0.5 inline-flex h-6 w-6 items-center justify-center rounded-full text-[11px] font-bold ${
+                  isLessonActive ? 'bg-indigo-600 text-white' : 'bg-slate-200 text-slate-700'
+                }`}>
+                  {lessonIndex + 1}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-semibold text-slate-800">
+                    {lesson.title || `Lektion ${lessonIndex + 1}`}
+                  </p>
+                  <p className="text-[11px] text-slate-500">
+                    {lesson.loading
+                      ? 'wird erstellt'
+                      : lessonHasSubsteps
+                      ? `${substeps.length} Schritte`
+                      : '1 Schritt'}
+                  </p>
+                </div>
+                {lesson.loading ? (
+                  <Loader2 className="h-4 w-4 animate-spin text-amber-500" />
+                ) : isCompletedLesson ? (
+                  <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+                ) : null}
+              </div>
+            </button>
+
+            {lessonHasSubsteps && (
+              <div className="ml-9 mt-1.5 space-y-1">
+                {substeps.map((substep, substepIndex) => {
+                  const isSubstepActive = !showSummary && currentStep === lessonIndex && currentSubstepIndex === substepIndex;
+                  return (
+                    <button
+                      key={`${lessonIndex}-${substepIndex}`}
+                      onClick={() => {
+                        navigateToLesson(lessonIndex, substepIndex);
+                        if (closeAfterNavigate) setIsTocOpenMobile(false);
+                      }}
+                      className={`w-full rounded-lg px-2.5 py-1.5 text-left text-xs transition-colors ${
+                        isSubstepActive
+                          ? 'bg-indigo-100 text-indigo-700'
+                          : 'text-slate-600 hover:bg-slate-100'
+                      }`}
+                    >
+                      {substepIndex + 1}. {substep.title || `Schritt ${substepIndex + 1}`}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        );
+      })}
+
+      <button
+        onClick={() => {
+          setShowSummary(true);
+          if (closeAfterNavigate) setIsTocOpenMobile(false);
+        }}
+        className={`mt-3 w-full rounded-xl border px-3 py-2.5 text-left text-sm font-semibold transition-colors ${
+          showSummary
+            ? 'border-indigo-200 bg-indigo-50 text-indigo-700'
+            : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+        }`}
+      >
+        Zusammenfassung & Endergebnis
+      </button>
+    </>
+  );
+
+  const renderDesktopToc = () => (
+    <aside className="hidden lg:block fixed left-0 top-0 z-30 h-full w-[320px] border-r border-slate-200 bg-white/95 backdrop-blur-sm">
+      <div className="h-full flex flex-col pt-20">
+        <div className="border-b border-slate-100 px-4 py-3">
+          <p className="text-sm font-bold text-slate-800">Inhaltsverzeichnis</p>
+          <p className="text-xs text-slate-500">{totalSteps} Lektionen</p>
+        </div>
+        <div className="flex-1 overflow-y-auto p-2 pb-6">
+          {renderTocEntries()}
+        </div>
+      </div>
+    </aside>
+  );
+
+  const renderMobileToc = () => (
+    isTocOpenMobile ? (
+      <div className="fixed inset-0 z-50 lg:hidden">
+        <button
+          className="absolute inset-0 bg-slate-900/35"
+          onClick={() => setIsTocOpenMobile(false)}
+          aria-label="Inhaltsverzeichnis schliessen"
+        />
+        <div className="absolute left-0 top-0 h-full w-[88vw] max-w-sm bg-white shadow-2xl border-r border-slate-200 flex flex-col">
+          <div className="border-b border-slate-100 px-4 py-3 flex items-center justify-between">
+            <div>
+              <p className="text-sm font-bold text-slate-800">Inhaltsverzeichnis</p>
+              <p className="text-xs text-slate-500">{totalSteps} Lektionen</p>
+            </div>
+            <button
+              onClick={() => setIsTocOpenMobile(false)}
+              className="p-2 rounded-lg hover:bg-slate-100 text-slate-500"
+              aria-label="Schliessen"
+            >
+              <X className="w-4 h-4" />
             </button>
           </div>
-          
-          <div className="p-4 sm:p-6 md:p-8 space-y-6 sm:space-y-8">
-            {solution.steps.map((step, idx) => (
-              <div key={idx} className="relative pl-8 border-l-2 border-indigo-100 last:border-0">
-                <div className="absolute -left-[9px] top-0 w-4 h-4 rounded-full bg-indigo-500 ring-4 ring-indigo-50" />
-                <h3 className="text-lg font-bold text-slate-900 mb-2">{step.title}</h3>
-                {step.loading ? (
-                  <p className="text-sm text-slate-500 italic flex items-center gap-2">
-                    <Loader2 className="w-4 h-4 animate-spin flex-shrink-0" />
-                    Wird geladen…
-                  </p>
-                ) : Array.isArray(step.substeps) && step.substeps.length > 0 ? (
-                  <div className="space-y-4">
-                    {step.substeps.map((substep, sIdx) => (
-                      <div key={sIdx} className="mb-4">
-                        <h4 className="text-sm font-semibold text-slate-800 mb-1">
-                          {sIdx + 1}. {substep.title}
-                        </h4>
-                        <div className="text-slate-600 mb-2">
-                          <MathRenderer content={substep.explanation} />
-                        </div>
-                        {substep.formulas.length > 0 && (
-                          <div className="bg-slate-50 p-3 rounded-xl border border-slate-200">
-                            {substep.formulas.map((formula, fIdx) => (
-                              <MathRenderer key={fIdx} content={`$$ ${formula} $$`} />
-                            ))}
+          <div className="flex-1 overflow-y-auto p-2">
+            {renderTocEntries(true)}
+          </div>
+        </div>
+      </div>
+    ) : null
+  );
+
+  const renderMobileTocButton = () => (
+    <div className="mb-4 lg:hidden">
+      <button
+        onClick={() => setIsTocOpenMobile(true)}
+        className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm"
+      >
+        <List className="w-4 h-4 text-indigo-600" />
+        Inhaltsverzeichnis
+      </button>
+    </div>
+  );
+
+  if (totalSteps === 0 || !currentLesson || !activeStep) {
+    return (
+      <div className="w-full max-w-4xl mx-auto bg-white rounded-3xl shadow-xl border border-slate-100 p-8 text-center">
+        <p className="text-slate-500">Keine Lektionen verfuegbar.</p>
+      </div>
+    );
+  }
+
+  if (showSummary) {
+    const desktopLayoutClass = isSidePanelOpen ? 'lg:pl-[320px] md:pr-[400px]' : 'lg:pl-[320px]';
+    return (
+      <div className={`w-full relative px-0 sm:px-2 md:px-0 ${desktopLayoutClass}`}>
+        {renderMobileTocButton()}
+
+        {renderDesktopToc()}
+
+        <div className="w-full min-w-0 max-w-[1320px] mx-auto">
+          <div className="bg-white rounded-3xl shadow-xl overflow-hidden border border-slate-100 w-full relative z-10">
+            <div className="bg-slate-50 p-4 sm:p-6 border-b border-slate-100 flex flex-col sm:flex-row gap-3 sm:justify-between sm:items-center">
+              <h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
+                <List className="w-6 h-6 text-indigo-600" />
+                Zusammenfassung
+              </h2>
+              <button
+                onClick={() => setShowSummary(false)}
+                className="text-sm font-medium text-indigo-600 hover:text-indigo-800"
+              >
+                Zurueck zu den Karten
+              </button>
+            </div>
+
+            <div className="p-4 sm:p-6 md:p-8 space-y-6 sm:space-y-8">
+              {solution.steps.map((step, idx) => (
+                <div key={idx} className="relative pl-8 border-l-2 border-indigo-100 last:border-0">
+                  <div className="absolute -left-[9px] top-0 w-4 h-4 rounded-full bg-indigo-500 ring-4 ring-indigo-50" />
+                  <h3 className="text-lg font-bold text-slate-900 mb-2">{step.title}</h3>
+                  {step.loading ? (
+                    <p className="text-sm text-slate-500 italic flex items-center gap-2">
+                      <Loader2 className="w-4 h-4 animate-spin flex-shrink-0" />
+                      Wird geladen...
+                    </p>
+                  ) : Array.isArray(step.substeps) && step.substeps.length > 0 ? (
+                    <div className="space-y-4">
+                      {step.substeps.map((substep, sIdx) => (
+                        <div key={sIdx} className="mb-4">
+                          <h4 className="text-sm font-semibold text-slate-800 mb-1">
+                            {sIdx + 1}. {substep.title}
+                          </h4>
+                          <div className="text-slate-600 mb-2">
+                            <MathRenderer content={substep.explanation} />
                           </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <>
-                    <div className="text-slate-600 mb-4">
-                       <MathRenderer content={step.explanation} />
-                    </div>
-                    <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
-                      {step.formulas.map((formula, fIdx) => (
-                         <MathRenderer key={fIdx} content={`$$ ${formula} $$`} />
+                          {substep.formulas.length > 0 && (
+                            <div className="bg-slate-50 p-3 rounded-xl border border-slate-200">
+                              {substep.formulas.map((formula, fIdx) => (
+                                <MathRenderer key={fIdx} content={`$$ ${formula} $$`} />
+                              ))}
+                            </div>
+                          )}
+                        </div>
                       ))}
                     </div>
-                  </>
-                )}
-              </div>
-            ))}
-            
-            <div className="mt-12 bg-green-50 p-6 rounded-2xl border border-green-100">
-               <h3 className="text-lg font-bold text-green-900 mb-2 flex items-center gap-2">
-                 <CheckCircle2 className="w-5 h-5" />
-                 Endergebnis
-               </h3>
-               <div className="text-green-800">
-                  <MathRenderer content={solution.finalAnswer || "Lösung gefunden."} />
-               </div>
-            </div>
-          </div>
+                  ) : (
+                    <>
+                      <div className="text-slate-600 mb-4">
+                        <MathRenderer content={step.explanation} />
+                      </div>
+                      <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
+                        {step.formulas.map((formula, fIdx) => (
+                          <MathRenderer key={fIdx} content={`$$ ${formula} $$`} />
+                        ))}
+                      </div>
+                    </>
+                  )}
+                </div>
+              ))}
 
-          <div className="bg-slate-50 p-4 sm:p-6 border-t border-slate-100 flex justify-center">
+              <div className="mt-12 bg-green-50 p-6 rounded-2xl border border-green-100">
+                <h3 className="text-lg font-bold text-green-900 mb-2 flex items-center gap-2">
+                  <CheckCircle2 className="w-5 h-5" />
+                  Endergebnis
+                </h3>
+                <div className="text-green-800">
+                  <MathRenderer content={solution.finalAnswer || 'Loesung gefunden.'} />
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-slate-50 p-4 sm:p-6 border-t border-slate-100 flex justify-center">
               <button
                 onClick={onReset}
                 className="flex items-center space-x-2 px-6 py-3 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 text-slate-600 font-semibold transition-all"
               >
                 <RotateCcw className="w-4 h-4" />
-                <span>Neue Aufgabe lösen</span>
+                <span>Neue Aufgabe loesen</span>
               </button>
+            </div>
           </div>
         </div>
-        
-        {/* Helper is hidden in summary view for now, or could show general help */}
+
+        {renderMobileToc()}
       </div>
     );
   }
 
-  const progress = ((currentUnitIndex + 1) / totalUnits) * 100;
+  const progress = ((currentUnitIndex + 1) / Math.max(1, totalUnits)) * 100;
+  const progressContainerClass = 'mb-4 sm:mb-6 w-full bg-slate-200 rounded-full h-2.5 overflow-hidden';
+
+  const containerClass = 'bg-white rounded-2xl md:rounded-3xl shadow-xl overflow-hidden border border-slate-100 min-h-[400px] flex flex-col transition-all duration-300';
+  const desktopLayoutClass = isSidePanelOpen ? 'lg:pl-[320px] md:pr-[400px]' : 'lg:pl-[320px]';
 
   return (
-    <div className="w-full max-w-6xl mx-auto relative px-0 sm:px-2 md:px-0">
-      {/* Progress Bar */}
-      <div className="mb-4 sm:mb-6 w-full bg-slate-200 rounded-full h-2.5 overflow-hidden lg:mr-[400px]">
-        <div 
-          className="bg-indigo-600 h-2.5 rounded-full transition-all duration-500 ease-out" 
-          style={{ width: `${progress}%` }}
-        ></div>
-      </div>
+    <div className={`w-full relative px-0 sm:px-2 md:px-0 ${desktopLayoutClass}`}>
+      {renderMobileTocButton()}
 
-      <div className={containerClass}>
-        {/* Card Header */}
-        <div className="bg-slate-50/80 p-3 sm:p-4 md:p-6 border-b border-slate-100 flex flex-col sm:flex-row justify-between sm:items-center backdrop-blur-sm gap-3 sm:gap-4">
-          <div className="flex items-center justify-between sm:justify-start gap-2 md:gap-3 flex-shrink-0 w-full sm:w-auto">
-             <button
-               onClick={onReset}
-               className="flex items-center gap-2 px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-slate-600 hover:text-indigo-600 hover:border-indigo-200 transition-all text-xs font-bold shadow-sm"
-               title="Neue Aufgabe beginnen"
-             >
-               <RotateCcw className="w-3.5 h-3.5" />
-               <span className="hidden md:inline">Neu</span>
-             </button>
-             <span className="bg-indigo-100 text-indigo-700 px-3 py-1.5 rounded-full text-[11px] sm:text-xs font-bold tracking-wide uppercase">
-              Lektion {currentStep + 1} / {totalSteps}
-              {hasLoadingSteps && (
-                <span className="ml-1 font-normal text-indigo-600">(wird geladen)</span>
+      {renderDesktopToc()}
+
+      <div className="w-full min-w-0 max-w-[1320px] mx-auto">
+        <div className={progressContainerClass}>
+          <div
+            className="bg-indigo-600 h-2.5 rounded-full transition-all duration-500 ease-out"
+            style={{ width: `${progress}%` }}
+          />
+        </div>
+
+        <div className={containerClass}>
+          <div className="bg-slate-50/80 p-3 sm:p-4 md:p-6 border-b border-slate-100 flex flex-col sm:flex-row justify-between sm:items-center backdrop-blur-sm gap-3 sm:gap-4">
+            <div className="flex items-center justify-between sm:justify-start gap-2 md:gap-3 flex-shrink-0 w-full sm:w-auto">
+              <button
+                onClick={onReset}
+                className="flex items-center gap-2 px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-slate-600 hover:text-indigo-600 hover:border-indigo-200 transition-all text-xs font-bold shadow-sm"
+                title="Neue Aufgabe beginnen"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                <span className="hidden md:inline">Neu</span>
+              </button>
+              <span className="bg-indigo-100 text-indigo-700 px-3 py-1.5 rounded-full text-[11px] sm:text-xs font-bold tracking-wide uppercase">
+                Lektion {currentStep + 1} / {totalSteps}
+                {hasLoadingSteps && (
+                  <span className="ml-1 font-normal text-indigo-600">(wird geladen)</span>
+                )}
+              </span>
+              {hasSubsteps && (
+                <span className="bg-emerald-50 text-emerald-700 px-3 py-1.5 rounded-full text-[11px] sm:text-xs font-bold tracking-wide uppercase">
+                  Schritt {currentSubstepIndex + 1} / {totalSubstepsInLesson}
+                </span>
               )}
-             </span>
-             {hasSubsteps && (
-               <span className="bg-emerald-50 text-emerald-700 px-3 py-1.5 rounded-full text-[11px] sm:text-xs font-bold tracking-wide uppercase">
-                 Schritt {currentSubstepIndex + 1} / {totalSubstepsInLesson}
-               </span>
-             )}
+            </div>
+            <h2 className="text-base sm:text-lg md:text-xl font-bold text-slate-800 line-clamp-2 sm:truncate text-left sm:text-right w-full">
+              {currentLesson.title}
+            </h2>
           </div>
-          <h2 className="text-base sm:text-lg md:text-xl font-bold text-slate-800 line-clamp-2 sm:truncate text-left sm:text-right w-full">
-            {currentLesson.title}
-          </h2>
-        </div>
 
-        {/* Card Content */}
-        <div className="p-4 sm:p-6 md:p-8 flex-1 flex flex-col">
-          {isCurrentStepLoading ? (
-            <>
-              <div className="space-y-3 mb-6 sm:mb-8" aria-hidden>
-                <div className="h-4 rounded bg-slate-200 animate-pulse w-full" />
-                <div className="h-4 rounded bg-slate-200 animate-pulse w-5/6" />
-                <div className="h-4 rounded bg-slate-200 animate-pulse w-4/5" />
-                <div className="h-4 rounded bg-slate-200 animate-pulse w-full" />
-              </div>
-              <div className="bg-indigo-50/50 rounded-2xl p-4 sm:p-6 border border-indigo-100 flex-1 flex flex-col justify-center items-center space-y-3 sm:space-y-4 shadow-inner">
-                <div className="flex flex-col items-center gap-2 text-slate-500">
-                  <Loader2 className="w-8 h-8 animate-spin text-indigo-400" />
-                  <span className="text-sm font-medium">Lektion wird geladen…</span>
+          <div className="p-4 sm:p-6 md:p-8 flex-1 flex flex-col">
+            {isCurrentStepLoading ? (
+              <>
+                <div className="space-y-3 mb-6 sm:mb-8" aria-hidden>
+                  <div className="h-4 rounded bg-slate-200 animate-pulse w-full" />
+                  <div className="h-4 rounded bg-slate-200 animate-pulse w-5/6" />
+                  <div className="h-4 rounded bg-slate-200 animate-pulse w-4/5" />
+                  <div className="h-4 rounded bg-slate-200 animate-pulse w-full" />
                 </div>
-              </div>
-            </>
-          ) : (
-            <>
-              {/* Explanation */}
-              <div className="text-base sm:text-lg text-slate-600 leading-relaxed mb-6 sm:mb-8">
-                <MathRenderer content={activeStep.explanation} />
-              </div>
-
-              {/* Formulas */}
-              <div className="bg-indigo-50/50 rounded-2xl p-4 sm:p-6 border border-indigo-100 flex-1 flex flex-col justify-center items-center space-y-3 sm:space-y-4 shadow-inner overflow-x-auto">
-                {activeStep.formulas.map((formula, idx) => (
-                  <div key={idx} className="w-full transition-all duration-500 animate-in fade-in slide-in-from-bottom-4">
-                    <MathRenderer content={`$$ ${formula} $$`} />
+                <div className="bg-indigo-50/50 rounded-2xl p-4 sm:p-6 border border-indigo-100 flex-1 flex flex-col justify-center items-center space-y-3 sm:space-y-4 shadow-inner">
+                  <div className="flex flex-col items-center gap-2 text-slate-500">
+                    <Loader2 className="w-8 h-8 animate-spin text-indigo-400" />
+                    <span className="text-sm font-medium">Lektion wird geladen...</span>
                   </div>
-                ))}
-              </div>
-            </>
-          )}
-        </div>
-
-        {/* Navigation Footer */}
-        <div className="p-3 sm:p-4 md:p-6 border-t border-slate-100 bg-white flex justify-between items-center gap-2 sm:gap-4">
-          <button
-            onClick={handlePrev}
-          disabled={isFirstUnit}
-            className={`flex items-center space-x-1 sm:space-x-2 px-3 sm:px-6 py-2.5 sm:py-3 rounded-xl font-semibold transition-all text-sm sm:text-base ${
-            isFirstUnit 
-                ? 'text-slate-300 cursor-not-allowed' 
-                : 'text-slate-600 hover:bg-slate-50 hover:text-indigo-600'
-            }`}
-          >
-            <ChevronLeft className="w-5 h-5" />
-            <span>Zurück</span>
-          </button>
-
-          <span className="text-xs text-slate-400 hidden md:inline" title="Pfeiltasten zur Navigation">← →</span>
-
-          <div className="flex space-x-2">
-          {isLastUnit ? (
-              <button
-                onClick={handleNext}
-                className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 sm:px-8 py-2.5 sm:py-3 rounded-xl font-bold text-sm sm:text-base shadow-lg shadow-indigo-200 flex items-center space-x-2 transition-all active:scale-95"
-              >
-                <span>Alle Schritte ansehen</span>
-                <List className="w-5 h-5" />
-              </button>
+                </div>
+              </>
             ) : (
-              <button
-                onClick={handleNext}
-                className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 sm:px-8 py-2.5 sm:py-3 rounded-xl font-bold text-sm sm:text-base shadow-lg shadow-indigo-200 flex items-center space-x-2 transition-all active:scale-95"
-              >
-                <span>Nächster Schritt</span>
-                <ChevronRight className="w-5 h-5" />
-              </button>
+              <>
+                <div className="text-base sm:text-lg text-slate-600 leading-relaxed mb-6 sm:mb-8">
+                  <MathRenderer content={activeStep.explanation} />
+                </div>
+
+                <div className="bg-indigo-50/50 rounded-2xl p-4 sm:p-6 border border-indigo-100 flex-1 flex flex-col justify-center items-center space-y-3 sm:space-y-4 shadow-inner overflow-x-auto">
+                  {activeStep.formulas.map((formula, idx) => (
+                    <div key={idx} className="w-full transition-all duration-500 animate-in fade-in slide-in-from-bottom-4">
+                      <MathRenderer content={`$$ ${formula} $$`} />
+                    </div>
+                  ))}
+                </div>
+              </>
             )}
           </div>
+
+          <div className="p-3 sm:p-4 md:p-6 border-t border-slate-100 bg-white flex justify-between items-center gap-2 sm:gap-4">
+            <button
+              onClick={handlePrev}
+              disabled={isFirstUnit}
+              className={`flex items-center space-x-1 sm:space-x-2 px-3 sm:px-6 py-2.5 sm:py-3 rounded-xl font-semibold transition-all text-sm sm:text-base ${
+                isFirstUnit
+                  ? 'text-slate-300 cursor-not-allowed'
+                  : 'text-slate-600 hover:bg-slate-50 hover:text-indigo-600'
+              }`}
+            >
+              <ChevronLeft className="w-5 h-5" />
+              <span>Zurueck</span>
+            </button>
+
+            <span className="text-xs text-slate-400 hidden md:inline" title="Pfeiltasten zur Navigation">&larr; &rarr;</span>
+
+            <div className="flex space-x-2">
+              {isLastUnit ? (
+                <button
+                  onClick={handleNext}
+                  className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 sm:px-8 py-2.5 sm:py-3 rounded-xl font-bold text-sm sm:text-base shadow-lg shadow-indigo-200 flex items-center space-x-2 transition-all active:scale-95"
+                >
+                  <span>Alle Schritte ansehen</span>
+                  <List className="w-5 h-5" />
+                </button>
+              ) : (
+                <button
+                  onClick={handleNext}
+                  className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 sm:px-8 py-2.5 sm:py-3 rounded-xl font-bold text-sm sm:text-base shadow-lg shadow-indigo-200 flex items-center space-x-2 transition-all active:scale-95"
+                >
+                  <span>Naechster Schritt</span>
+                  <ChevronRight className="w-5 h-5" />
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-5 sm:mt-6 flex justify-center">
+          <button
+            onClick={onReset}
+            className="flex items-center gap-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 px-4 py-2 rounded-full transition-all text-sm font-medium"
+          >
+            <RotateCcw className="w-4 h-4" />
+            <span>Abbrechen & Neue Aufgabe</span>
+          </button>
         </div>
       </div>
-      
-      <div className="mt-5 sm:mt-6 flex justify-center lg:mr-[400px]">
-        <button 
-          onClick={onReset} 
-          className="flex items-center gap-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 px-4 py-2 rounded-full transition-all text-sm font-medium"
-        >
-          <RotateCcw className="w-4 h-4" />
-          <span>Abbrechen & Neue Aufgabe</span>
-        </button>
-      </div>
 
-      {/* Side Panel */}
-      <SidePanel 
-        isOpen={isSidePanelOpen} 
+      {renderMobileToc()}
+
+      <SidePanel
+        isOpen={isSidePanelOpen}
         onToggle={() => setIsSidePanelOpen(!isSidePanelOpen)}
         currentStep={activeStep}
         allSteps={solution.steps}
