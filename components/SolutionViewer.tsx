@@ -8,12 +8,13 @@ interface SolutionViewerProps {
   solution: MathSolution;
   initialPrompt: string;
   onReset: () => void;
+  initialView?: 'start' | 'summary';
 }
 
-const SolutionViewer: React.FC<SolutionViewerProps> = ({ solution, initialPrompt, onReset }) => {
+const SolutionViewer: React.FC<SolutionViewerProps> = ({ solution, initialPrompt, onReset, initialView = 'start' }) => {
   const [currentStep, setCurrentStep] = useState(0);
   const [currentSubstepIndex, setCurrentSubstepIndex] = useState(0);
-  const [showSummary, setShowSummary] = useState(false);
+  const [showSummary, setShowSummary] = useState(initialView === 'summary');
   const [isSidePanelOpen, setIsSidePanelOpen] = useState(false);
   const [isTocOpenMobile, setIsTocOpenMobile] = useState(false);
 
