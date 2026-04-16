@@ -970,19 +970,19 @@ const App: React.FC = () => {
   if (state.solution && state.inputMode !== InputMode.PRACTICE) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-purple-50 flex flex-col items-center p-3 sm:p-4 md:p-8">
-        <header className="w-full max-w-4xl mb-6 md:mb-8 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex items-center space-x-3 cursor-pointer group" onClick={handleReset}>
+        <header className="w-full max-w-4xl mb-6 md:mb-8 flex items-start justify-between gap-3 sm:items-center">
+          <div className="flex min-w-0 flex-1 items-center gap-3 cursor-pointer group" onClick={handleReset}>
             <div className="bg-indigo-600 p-2.5 sm:p-3 rounded-xl shadow-lg shadow-indigo-200 group-hover:bg-indigo-700 transition-colors">
               <Calculator className="w-6 h-6 sm:w-8 sm:h-8 text-white" />
             </div>
-            <div>
-              <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-800 tracking-tight">Mathe Erklaerer</h1>
+            <div className="min-w-0">
+              <h1 className="text-xl sm:text-3xl font-extrabold text-slate-800 tracking-tight leading-tight">Mathe Erklaerer</h1>
               <p className="text-sm text-slate-500">Zurück zur Übersicht</p>
             </div>
           </div>
           <button
             onClick={() => setSettingsOpen(true)}
-            className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-full transition-all"
+            className="self-start sm:self-auto shrink-0 p-2.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 bg-white/90 border border-slate-200 rounded-full shadow-sm transition-all"
             title="Einstellungen"
           >
             <Settings className="w-5 h-5" />
@@ -1018,19 +1018,19 @@ const App: React.FC = () => {
   if (state.inputMode === InputMode.PRACTICE && practiceView === 'session' && state.activePracticeRoom && currentPracticeTask) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-purple-50 flex flex-col items-center p-3 sm:p-4 md:p-8">
-        <header className="w-full max-w-4xl mb-6 md:mb-8 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex items-center space-x-3 cursor-pointer group" onClick={handleReset}>
+        <header className="w-full max-w-4xl mb-6 md:mb-8 flex items-start justify-between gap-3 sm:items-center">
+          <div className="flex min-w-0 flex-1 items-center gap-3 cursor-pointer group" onClick={handleReset}>
             <div className="bg-indigo-600 p-2.5 sm:p-3 rounded-xl shadow-lg shadow-indigo-200 group-hover:bg-indigo-700 transition-colors">
               <Calculator className="w-6 h-6 sm:w-8 sm:h-8 text-white" />
             </div>
-            <div>
-              <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-800 tracking-tight">Mathe Erklaerer</h1>
+            <div className="min-w-0">
+              <h1 className="text-xl sm:text-3xl font-extrabold text-slate-800 tracking-tight leading-tight">Mathe Erklaerer</h1>
               <p className="text-sm text-slate-500">Zurück zur Übersicht</p>
             </div>
           </div>
           <button
             onClick={() => setSettingsOpen(true)}
-            className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-full transition-all"
+            className="self-start sm:self-auto shrink-0 p-2.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 bg-white/90 border border-slate-200 rounded-full shadow-sm transition-all"
             title="Einstellungen"
           >
             <Settings className="w-5 h-5" />
@@ -1071,19 +1071,19 @@ const App: React.FC = () => {
   if (state.inputMode === InputMode.PRACTICE && practiceView === 'detail' && state.activePracticeRoom) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-purple-50 flex flex-col items-center p-3 sm:p-4 md:p-8">
-        <header className="w-full max-w-4xl mb-6 md:mb-8 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex items-center space-x-3 cursor-pointer group" onClick={handleReset}>
+        <header className="w-full max-w-4xl mb-6 md:mb-8 flex items-start justify-between gap-3 sm:items-center">
+          <div className="flex min-w-0 flex-1 items-center gap-3 cursor-pointer group" onClick={handleReset}>
             <div className="bg-indigo-600 p-2.5 sm:p-3 rounded-xl shadow-lg shadow-indigo-200 group-hover:bg-indigo-700 transition-colors">
               <Calculator className="w-6 h-6 sm:w-8 sm:h-8 text-white" />
             </div>
-            <div>
-              <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-800 tracking-tight">Mathe Erklaerer</h1>
+            <div className="min-w-0">
+              <h1 className="text-xl sm:text-3xl font-extrabold text-slate-800 tracking-tight leading-tight">Mathe Erklaerer</h1>
               <p className="text-sm text-slate-500">Zurück zur Übersicht</p>
             </div>
           </div>
           <button
             onClick={() => setSettingsOpen(true)}
-            className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-full transition-all"
+            className="self-start sm:self-auto shrink-0 p-2.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 bg-white/90 border border-slate-200 rounded-full shadow-sm transition-all"
             title="Einstellungen"
           >
             <Settings className="w-5 h-5" />
@@ -1125,19 +1125,19 @@ const App: React.FC = () => {
   if (state.inputMode === InputMode.EXAM && examView === 'session' && state.activeExamSession) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-purple-50 flex flex-col items-center p-3 sm:p-4 md:p-8">
-        <header className="w-full max-w-4xl mb-6 md:mb-8 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex items-center space-x-3 cursor-pointer group" onClick={handleReset}>
+        <header className="w-full max-w-4xl mb-6 md:mb-8 flex items-start justify-between gap-3 sm:items-center">
+          <div className="flex min-w-0 flex-1 items-center gap-3 cursor-pointer group" onClick={handleReset}>
             <div className="bg-indigo-600 p-2.5 sm:p-3 rounded-xl shadow-lg shadow-indigo-200 group-hover:bg-indigo-700 transition-colors">
               <Calculator className="w-6 h-6 sm:w-8 sm:h-8 text-white" />
             </div>
-            <div>
-              <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-800 tracking-tight">Mathe Erklaerer</h1>
+            <div className="min-w-0">
+              <h1 className="text-xl sm:text-3xl font-extrabold text-slate-800 tracking-tight leading-tight">Mathe Erklaerer</h1>
               <p className="text-sm text-slate-500">Zurück zur Übersicht</p>
             </div>
           </div>
           <button
             onClick={() => setSettingsOpen(true)}
-            className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-full transition-all"
+            className="self-start sm:self-auto shrink-0 p-2.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 bg-white/90 border border-slate-200 rounded-full shadow-sm transition-all"
             title="Einstellungen"
           >
             <Settings className="w-5 h-5" />
@@ -1177,19 +1177,19 @@ const App: React.FC = () => {
   if (state.inputMode === InputMode.EXAM && examView === 'result' && state.activeExamSession) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-purple-50 flex flex-col items-center p-3 sm:p-4 md:p-8">
-        <header className="w-full max-w-4xl mb-6 md:mb-8 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex items-center space-x-3 cursor-pointer group" onClick={handleReset}>
+        <header className="w-full max-w-4xl mb-6 md:mb-8 flex items-start justify-between gap-3 sm:items-center">
+          <div className="flex min-w-0 flex-1 items-center gap-3 cursor-pointer group" onClick={handleReset}>
             <div className="bg-indigo-600 p-2.5 sm:p-3 rounded-xl shadow-lg shadow-indigo-200 group-hover:bg-indigo-700 transition-colors">
               <Calculator className="w-6 h-6 sm:w-8 sm:h-8 text-white" />
             </div>
-            <div>
-              <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-800 tracking-tight">Mathe Erklaerer</h1>
+            <div className="min-w-0">
+              <h1 className="text-xl sm:text-3xl font-extrabold text-slate-800 tracking-tight leading-tight">Mathe Erklaerer</h1>
               <p className="text-sm text-slate-500">Zurück zur Übersicht</p>
             </div>
           </div>
           <button
             onClick={() => setSettingsOpen(true)}
-            className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-full transition-all"
+            className="self-start sm:self-auto shrink-0 p-2.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 bg-white/90 border border-slate-200 rounded-full shadow-sm transition-all"
             title="Einstellungen"
           >
             <Settings className="w-5 h-5" />
@@ -1230,19 +1230,19 @@ const App: React.FC = () => {
     <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-purple-50 flex flex-col items-center p-3 sm:p-4 md:p-8">
       
       {/* Header */}
-      <header className="w-full max-w-4xl mb-6 md:mb-8 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-center space-x-3">
+      <header className="w-full max-w-4xl mb-6 md:mb-8 flex items-start justify-between gap-3 sm:items-center">
+        <div className="flex min-w-0 flex-1 items-center gap-3">
           <div className="bg-indigo-600 p-2.5 sm:p-3 rounded-xl shadow-lg shadow-indigo-200">
             <Calculator className="w-6 h-6 sm:w-8 sm:h-8 text-white" />
           </div>
-          <div>
-            <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-800 tracking-tight">Mathe Erklaerer</h1>
+          <div className="min-w-0">
+            <h1 className="text-xl sm:text-3xl font-extrabold text-slate-800 tracking-tight leading-tight">Mathe Erklaerer</h1>
             <p className="text-xs sm:text-sm text-slate-500">Dein persönlicher Schritt-für-Schritt Tutor</p>
           </div>
         </div>
         <button
           onClick={() => setSettingsOpen(true)}
-          className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-full transition-all"
+          className="self-start sm:self-auto shrink-0 p-2.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 bg-white/90 border border-slate-200 rounded-full shadow-sm transition-all"
           title="Einstellungen"
         >
           <Settings className="w-5 h-5" />
@@ -1270,50 +1270,54 @@ const App: React.FC = () => {
         <div className="p-4 sm:p-6 md:p-8 bg-white">
           
           {/* Tabs */}
-          <div className="grid grid-cols-1 sm:grid-cols-4 gap-2 mb-6 bg-slate-100 p-1 rounded-xl w-full">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 sm:gap-2 mb-5 sm:mb-6 bg-slate-100 p-1 rounded-xl w-full">
             <button
               onClick={() => handleModeChange(InputMode.TEXT)}
-              className={`flex items-center justify-center space-x-2 px-3 sm:px-4 py-3 rounded-lg text-sm font-semibold transition-all duration-200 ${
+              className={`flex items-center justify-center gap-1.5 sm:gap-2 px-2 sm:px-4 py-2.5 sm:py-3 rounded-lg text-xs sm:text-sm font-semibold transition-all duration-200 ${
                 state.inputMode === InputMode.TEXT
                   ? 'bg-white text-indigo-600 shadow-sm'
                   : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200/50'
               }`}
             >
               <Type className="w-4 h-4" />
-              <span>Aufgabe Lösen</span>
+              <span className="sm:hidden">Loesen</span>
+              <span className="hidden sm:inline">{'Aufgabe L\u00f6sen'}</span>
             </button>
             <button
               onClick={() => handleModeChange(InputMode.TUTOR)}
-              className={`flex items-center justify-center space-x-2 px-3 sm:px-4 py-3 rounded-lg text-sm font-semibold transition-all duration-200 ${
+              className={`flex items-center justify-center gap-1.5 sm:gap-2 px-2 sm:px-4 py-2.5 sm:py-3 rounded-lg text-xs sm:text-sm font-semibold transition-all duration-200 ${
                 state.inputMode === InputMode.TUTOR
                   ? 'bg-white text-indigo-600 shadow-sm'
                   : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200/50'
               }`}
             >
               <GraduationCap className="w-4 h-4" />
-              <span>Tutor-Modus</span>
+              <span className="sm:hidden">Tutor</span>
+              <span className="hidden sm:inline">Tutor-Modus</span>
             </button>
             <button
               onClick={() => handleModeChange(InputMode.PRACTICE)}
-              className={`flex items-center justify-center space-x-2 px-3 sm:px-4 py-3 rounded-lg text-sm font-semibold transition-all duration-200 ${
+              className={`flex items-center justify-center gap-1.5 sm:gap-2 px-2 sm:px-4 py-2.5 sm:py-3 rounded-lg text-xs sm:text-sm font-semibold transition-all duration-200 ${
                 state.inputMode === InputMode.PRACTICE
                   ? 'bg-white text-indigo-600 shadow-sm'
                   : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200/50'
               }`}
             >
               <Dumbbell className="w-4 h-4" />
-              <span>Aufgaben üben</span>
+              <span className="sm:hidden">Ueben</span>
+              <span className="hidden sm:inline">{'Aufgaben \u00fcben'}</span>
             </button>
             <button
               onClick={() => handleModeChange(InputMode.EXAM)}
-              className={`flex items-center justify-center space-x-2 px-3 sm:px-4 py-3 rounded-lg text-sm font-semibold transition-all duration-200 ${
+              className={`flex items-center justify-center gap-1.5 sm:gap-2 px-2 sm:px-4 py-2.5 sm:py-3 rounded-lg text-xs sm:text-sm font-semibold transition-all duration-200 ${
                 state.inputMode === InputMode.EXAM
                   ? 'bg-white text-indigo-600 shadow-sm'
                   : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200/50'
               }`}
             >
               <ClipboardCheck className="w-4 h-4" />
-              <span>Prüfungsmodus</span>
+              <span className="sm:hidden">Pruefung</span>
+              <span className="hidden sm:inline">{'Pr\u00fcfungsmodus'}</span>
             </button>
           </div>
 
@@ -1366,10 +1370,6 @@ const App: React.FC = () => {
           {/* Tutor Input Mode */}
           {state.inputMode === InputMode.TUTOR && (
             <div className="space-y-4">
-              <div className="rounded-2xl border border-indigo-100 bg-indigo-50/60 p-4 text-sm leading-relaxed text-indigo-900">
-                Beschreibe das Thema, das du wirklich von Grund auf lernen möchtest (z.&nbsp;B. <strong>Bruchrechnung</strong>, <strong>lineare Funktionen</strong> oder <strong>quadratische Gleichungen</strong>). 
-                Du bekommst dann eine vollständige Lernstrecke mit verständlichen Erklärungen, vorgerechneten Beispielen und Übungsaufgaben mit Musterlösung.
-              </div>
               <textarea
                 value={state.textInput}
                 onChange={handleTextChange}
