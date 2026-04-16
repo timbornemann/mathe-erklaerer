@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { BookOpen, Loader2, Plus, Send, X } from 'lucide-react';
+import { Loader2, Plus, Send, X } from 'lucide-react';
 
 const DIFFICULTY_OPTIONS = [
   { value: 'Schwer', label: 'Schwer' },
@@ -60,16 +60,6 @@ const ExamSetup: React.FC<ExamSetupProps> = ({ isLoading, onStart }) => {
 
   return (
     <div className="space-y-5">
-      <div className="rounded-2xl border border-rose-100 bg-rose-50/70 p-4 text-sm leading-relaxed text-rose-900">
-        <div className="flex items-start gap-2">
-          <BookOpen className="w-5 h-5 mt-0.5 flex-shrink-0 text-rose-600" />
-          <span>
-            Prüfungsmodus simuliert eine Klausur: Du bekommst mehrere Aufgaben, löst sie unter Zeitdruck
-            und siehst Bewertung und Lösungen erst bei Abgabe oder Zeitablauf.
-          </span>
-        </div>
-      </div>
-
       <div>
         <label className="block text-sm font-semibold text-slate-700 mb-1.5">Thema</label>
         <textarea

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Plus, X, Send, Loader2, BookOpen } from 'lucide-react';
+import { Plus, X, Send, Loader2 } from 'lucide-react';
 import { PracticeRoom } from '../types';
 
 const DIFFICULTY_OPTIONS = [
@@ -56,16 +56,6 @@ const PracticeSetup: React.FC<PracticeSetupProps> = ({ onStart, isLoading, exist
 
   return (
     <div className="space-y-5">
-      <div className="rounded-2xl border border-amber-100 bg-amber-50/60 p-4 text-sm leading-relaxed text-amber-900">
-        <div className="flex items-start gap-2">
-          <BookOpen className="w-5 h-5 mt-0.5 flex-shrink-0 text-amber-600" />
-          <span>
-            Beschreibe ein Thema oder eine Aufgabenart, wähle die Schwierigkeit und gib optional Beispielaufgaben ein.
-            Die KI erstellt dann ähnliche Übungsaufgaben für dich zum Üben.
-          </span>
-        </div>
-      </div>
-
       <div>
         <label className="block text-sm font-semibold text-slate-700 mb-1.5">
           Thema / Aufgabenart
