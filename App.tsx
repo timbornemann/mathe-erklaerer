@@ -55,6 +55,7 @@ const generateId = (): string => {
 
 type PracticeView = 'setup' | 'detail' | 'session';
 type ExamView = 'setup' | 'session' | 'result';
+type SolutionOpenView = 'start' | 'summary';
 
 const clampPercent = (value: number): number => {
   if (!Number.isFinite(value)) return 0;
@@ -115,7 +116,8 @@ const App: React.FC = () => {
   const [isExamGenerating, setIsExamGenerating] = useState(false);
   const [isExamSubmitting, setIsExamSubmitting] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [, setActiveSolutionHistoryId] = useState<string | null>(null);
+  const [activeSolutionHistoryId, setActiveSolutionHistoryId] = useState<string | null>(null);
+  const [solutionOpenView, setSolutionOpenView] = useState<SolutionOpenView>('start');
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const importFileInputRef = useRef<HTMLInputElement>(null);
@@ -259,6 +261,7 @@ const App: React.FC = () => {
 
   const handleModeChange = (mode: InputMode) => {
     setActiveHistoryId(null);
+    setSolutionOpenView('start');
     setState(prev => ({
       ...prev,
       inputMode: mode,
@@ -281,9 +284,7 @@ const App: React.FC = () => {
   };
 
   const handleReset = () => {
-    const activeId = activeSolutionHistoryIdRef.current;
-    const activeItem = activeId ? history.find(item => item.id === activeId) : null;
-    const nextMode = activeItem?.mode === InputMode.TUTOR ? InputMode.TUTOR : InputMode.TEXT;
+    const nextMode = state.inputMode === InputMode.IMAGE ? InputMode.TEXT : state.inputMode;
 
     setState(prev => ({
       ...prev,
@@ -301,10 +302,12 @@ const App: React.FC = () => {
     setCurrentPracticeTask(null);
     setExamView('setup');
     setActiveHistoryId(null);
+    setSolutionOpenView('start');
   };
 
-  const handleHistoryRestore = (item: HistoryItem) => {
+  const handleHistoryRestore = (item: HistoryItem, openView: SolutionOpenView = 'start') => {
     setActiveHistoryId(item.id);
+    setSolutionOpenView(openView);
     setState(prev => ({
       ...prev,
       solution: item.solution,
@@ -413,11 +416,11 @@ const App: React.FC = () => {
         const hasConflicts = hasHistoryConflicts || hasRoomConflicts || hasExamConflicts;
 
         const message = hasConflicts
-          ? 'Beim Import wurden Konflikte mit bestehenden Daten gefunden.\n\nOK = vorhandene Daten ERSETZEN.\nAbbrechen = Importierte Daten mit bestehenden ZUSAMMENFÜHREN (Konflikte erhalten neue IDs).'
-          : 'Möchtest du deine aktuellen Daten durch den Import vollständig ersetzen?\n\nOK = Ersetzen.\nAbbrechen = Zusammenführen (Import wird an bestehende Daten angehängt).';
+          ? 'Beim Import wurden ueberschneidende Daten gefunden.\n\nOK = Daten intelligent ZUSAMMENFUEHREN (Duplikate vermeiden).\nAbbrechen = aktuelle Daten komplett durch Import ERSETZEN.'
+          : 'Wie moechtest du importieren?\n\nOK = intelligent zusammenfuehren (Duplikate vermeiden).\nAbbrechen = aktuelle Daten komplett ersetzen.';
 
-        const replace = window.confirm(message);
-        const strategy: ImportStrategy = replace ? 'replace' : 'merge';
+        const merge = window.confirm(message);
+        const strategy: ImportStrategy = merge ? 'merge' : 'replace';
 
         setState(prev => {
           const { history: newHistory, practiceRooms: newPracticeRooms, examSessions: newExamSessions } = applyImportData(
@@ -450,7 +453,11 @@ const App: React.FC = () => {
         });
         setActiveHistoryId(null);
 
-        window.alert('Daten wurden erfolgreich importiert.');
+        window.alert(
+          strategy === 'merge'
+            ? 'Daten wurden erfolgreich zusammengefuehrt. Doppelte Eintraege wurden vermieden.'
+            : 'Daten wurden erfolgreich importiert und ersetzt.'
+        );
       } catch (error) {
         console.error(error);
         window.alert('Beim Import ist ein unerwarteter Fehler aufgetreten.');
@@ -498,6 +505,7 @@ const App: React.FC = () => {
 
       saveToHistory(pendingItem);
       setActiveHistoryId(historyId);
+      setSolutionOpenView('start');
       setState(prev => ({
         ...prev,
         isLoading: false,
@@ -609,6 +617,7 @@ const App: React.FC = () => {
 
       saveToHistory(historyItem);
       setActiveHistoryId(historyItem.id);
+      setSolutionOpenView('start');
 
       setState(prev => ({ ...prev, solution, isLoading: false }));
     } catch (err: any) {
@@ -995,8 +1004,10 @@ const App: React.FC = () => {
         />
 
         <SolutionViewer 
+          key={`${activeSolutionHistoryId ?? 'active-solution'}-${solutionOpenView}`}
           solution={state.solution} 
           onReset={handleReset} 
+          initialView={solutionOpenView}
           initialPrompt={state.textInput || (state.inputMode === InputMode.IMAGE ? "Foto-Analyse" : "Dein Mathe-Problem")}
         />
       </div>
@@ -1569,10 +1580,22 @@ const App: React.FC = () => {
                    </div>
                  </div>
                  
-                 <div className="flex flex-col items-end gap-2">
-                    <button 
-                      onClick={(e) => deleteHistoryItem(e, item.id)}
-                      className="p-2 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-full transition-colors opacity-100 sm:opacity-0 sm:group-hover:opacity-100"
+                  <div className="flex flex-col items-end gap-2">
+                     {item.mode === InputMode.TUTOR && item.status === 'completed' && (
+                       <button
+                         onClick={(e) => {
+                           e.stopPropagation();
+                           handleHistoryRestore(item, 'summary');
+                         }}
+                         className="px-3 py-1.5 text-xs font-semibold text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-full transition-colors"
+                         title="Direkt zur Uebersicht"
+                       >
+                         Uebersicht
+                       </button>
+                     )}
+                     <button 
+                       onClick={(e) => deleteHistoryItem(e, item.id)}
+                       className="p-2 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-full transition-colors opacity-100 sm:opacity-0 sm:group-hover:opacity-100"
                       title="Eintrag löschen"
                     >
                       <Trash2 className="w-4 h-4" />
@@ -1595,3 +1618,4 @@ const App: React.FC = () => {
 };
 
 export default App;
+
