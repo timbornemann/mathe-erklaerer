@@ -1,4 +1,12 @@
-import { HistoryItem, PracticeRoom, ExportData, ExamSession } from '../types';
+import {
+  HistoryItem,
+  PracticeRoom,
+  PracticeTask,
+  ExportData,
+  ExamSession,
+  ExamTask,
+  HistoryStatus
+} from '../types';
 
 export const CURRENT_EXPORT_VERSION = 1;
 
@@ -15,24 +23,6 @@ export interface ValidationFailure {
 }
 
 export type ValidationResult = ValidationSuccess | ValidationFailure;
-
-const generateId = (): string => {
-  if (typeof globalThis.crypto?.randomUUID === 'function') {
-    return globalThis.crypto.randomUUID();
-  }
-
-  if (typeof globalThis.crypto?.getRandomValues === 'function') {
-    const bytes = new Uint8Array(16);
-    globalThis.crypto.getRandomValues(bytes);
-    bytes[6] = (bytes[6] & 0x0f) | 0x40;
-    bytes[8] = (bytes[8] & 0x3f) | 0x80;
-
-    const hex = Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('');
-    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
-  }
-
-  return `id-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-};
 
 const computeStatistics = (history: HistoryItem[], practiceRooms: PracticeRoom[], examSessions: ExamSession[]) => {
   let totalTasksCompleted = 0;
@@ -177,35 +167,245 @@ export function applyImportData(
     };
   }
 
-  const mergeWithStrategy = <T extends { id: string }>(
-    current: T[],
-    incoming: T[]
-  ): T[] => {
-    const existingIds = new Set(current.map(item => item.id));
-    const result = [...current];
+  const history = mergeById(
+    currentHistory,
+    imported.history,
+    mergeHistoryItem,
+    strategy
+  ).sort((a, b) => b.timestamp - a.timestamp);
 
-    for (const item of incoming) {
-      if (existingIds.has(item.id)) {
-        if (strategy === 'skipConflicts') {
-          continue;
-        }
+  const practiceRooms = mergeById(
+    currentPracticeRooms,
+    imported.practiceRooms,
+    mergePracticeRoom,
+    strategy
+  ).sort((a, b) => b.updatedAt - a.updatedAt);
 
-        const cloned: T = { ...item, id: generateId() };
-        result.push(cloned);
-        existingIds.add(cloned.id);
-      } else {
-        result.push(item);
-        existingIds.add(item.id);
-      }
+  const examSessions = mergeById(
+    currentExamSessions,
+    imported.examSessions ?? [],
+    mergeExamSession,
+    strategy
+  ).sort((a, b) => getExamActivityTime(b) - getExamActivityTime(a));
+
+  return { history, practiceRooms, examSessions };
+}
+
+const HISTORY_STATUS_PRIORITY: Record<HistoryStatus, number> = {
+  failed: 0,
+  processing: 1,
+  completed: 2
+};
+
+const EXAM_STATUS_PRIORITY: Record<ExamSession['status'], number> = {
+  configuring: 0,
+  running: 1,
+  submitted: 2,
+  evaluating: 3,
+  completed: 4
+};
+
+const normalizeHistoryStatus = (item: HistoryItem): HistoryStatus => item.status ?? 'completed';
+
+const normalizeHistoryProgress = (item: HistoryItem): number => {
+  if (typeof item.progress === 'number') return item.progress;
+  return normalizeHistoryStatus(item) === 'completed' ? 100 : 0;
+};
+
+const maxDefined = (...values: Array<number | undefined>): number | undefined =>
+  values.reduce<number | undefined>(
+    (best, value) => (value === undefined ? best : best === undefined ? value : Math.max(best, value)),
+    undefined
+  );
+
+const minDefined = (...values: Array<number | undefined>): number | undefined =>
+  values.reduce<number | undefined>(
+    (best, value) => (value === undefined ? best : best === undefined ? value : Math.min(best, value)),
+    undefined
+  );
+
+const mergeById = <T extends { id: string }>(
+  current: T[],
+  incoming: T[],
+  resolver: (currentItem: T, incomingItem: T) => T,
+  strategy: ImportStrategy
+): T[] => {
+  const result = new Map<string, T>();
+
+  for (const item of current) {
+    result.set(item.id, item);
+  }
+
+  for (const item of incoming) {
+    const existing = result.get(item.id);
+    if (!existing) {
+      result.set(item.id, item);
+      continue;
     }
 
-    return result;
-  };
+    if (strategy === 'skipConflicts') {
+      continue;
+    }
+
+    result.set(item.id, resolver(existing, item));
+  }
+
+  return Array.from(result.values());
+};
+
+const mergeHistoryItem = (current: HistoryItem, incoming: HistoryItem): HistoryItem => {
+  const currentStatus = normalizeHistoryStatus(current);
+  const incomingStatus = normalizeHistoryStatus(incoming);
+  const currentPriority = HISTORY_STATUS_PRIORITY[currentStatus];
+  const incomingPriority = HISTORY_STATUS_PRIORITY[incomingStatus];
+
+  if (incomingPriority !== currentPriority) {
+    return incomingPriority > currentPriority ? incoming : current;
+  }
+
+  const currentProgress = normalizeHistoryProgress(current);
+  const incomingProgress = normalizeHistoryProgress(incoming);
+  if (incomingProgress !== currentProgress) {
+    return incomingProgress > currentProgress ? incoming : current;
+  }
+
+  return incoming.timestamp >= current.timestamp ? incoming : current;
+};
+
+const mergeTextLists = (primary: string[], secondary: string[]): string[] => {
+  const seen = new Set<string>();
+  const result: string[] = [];
+
+  for (const entry of [...primary, ...secondary]) {
+    const normalized = entry.trim();
+    if (!normalized) continue;
+    if (seen.has(normalized)) continue;
+    seen.add(normalized);
+    result.push(normalized);
+  }
+
+  return result;
+};
+
+const mergePracticeTask = (current: PracticeTask, incoming: PracticeTask): PracticeTask => {
+  const newer = incoming.timestamp >= current.timestamp ? incoming : current;
+  const older = newer === incoming ? current : incoming;
 
   return {
-    history: mergeWithStrategy(currentHistory, imported.history),
-    practiceRooms: mergeWithStrategy(currentPracticeRooms, imported.practiceRooms),
-    examSessions: mergeWithStrategy(currentExamSessions, imported.examSessions ?? [])
+    ...older,
+    ...newer,
+    userSolution: newer.userSolution ?? older.userSolution,
+    userSolutionImage: newer.userSolutionImage ?? older.userSolutionImage,
+    isCorrect: newer.isCorrect ?? older.isCorrect,
+    aiFeedback: newer.aiFeedback ?? older.aiFeedback,
+    fullSolution: newer.fullSolution ?? older.fullSolution,
+    additionalPrompt: newer.additionalPrompt ?? older.additionalPrompt,
+    timestamp: Math.max(current.timestamp, incoming.timestamp)
   };
-}
+};
+
+const mergePracticeRoom = (current: PracticeRoom, incoming: PracticeRoom): PracticeRoom => {
+  const preferIncoming = incoming.updatedAt >= current.updatedAt;
+  const preferred = preferIncoming ? incoming : current;
+  const fallback = preferIncoming ? current : incoming;
+
+  const generatedTasks = mergeById(
+    current.generatedTasks ?? [],
+    incoming.generatedTasks ?? [],
+    mergePracticeTask,
+    'merge'
+  ).sort((a, b) => a.timestamp - b.timestamp);
+
+  return {
+    ...fallback,
+    ...preferred,
+    topic: preferred.topic || fallback.topic,
+    description: preferred.description || fallback.description,
+    difficulty: preferred.difficulty || fallback.difficulty,
+    exampleTasks: mergeTextLists(preferred.exampleTasks ?? [], fallback.exampleTasks ?? []),
+    generatedTasks,
+    createdAt: minDefined(current.createdAt, incoming.createdAt) ?? preferred.createdAt ?? fallback.createdAt,
+    updatedAt: maxDefined(current.updatedAt, incoming.updatedAt) ?? preferred.updatedAt ?? fallback.updatedAt
+  };
+};
+
+const mergeExamTask = (current: ExamTask, incoming: ExamTask): ExamTask => {
+  const newer = incoming.timestamp >= current.timestamp ? incoming : current;
+  const older = newer === incoming ? current : incoming;
+
+  return {
+    ...older,
+    ...newer,
+    order: newer.order ?? older.order,
+    taskText: newer.taskText || older.taskText,
+    userSolution: newer.userSolution ?? older.userSolution,
+    userSolutionImage: newer.userSolutionImage ?? older.userSolutionImage,
+    isCorrect: newer.isCorrect ?? older.isCorrect,
+    aiFeedback: newer.aiFeedback ?? older.aiFeedback,
+    fullSolution: newer.fullSolution ?? older.fullSolution,
+    evaluationError: newer.evaluationError ?? older.evaluationError,
+    timestamp: Math.max(current.timestamp, incoming.timestamp)
+  };
+};
+
+const getExamActivityTime = (session: ExamSession): number =>
+  session.completedAt ?? session.submittedAt ?? session.startedAt ?? session.createdAt;
+
+const mergeExamSession = (current: ExamSession, incoming: ExamSession): ExamSession => {
+  const currentPriority = EXAM_STATUS_PRIORITY[current.status];
+  const incomingPriority = EXAM_STATUS_PRIORITY[incoming.status];
+
+  const preferIncoming =
+    incomingPriority > currentPriority ||
+    (incomingPriority === currentPriority && getExamActivityTime(incoming) >= getExamActivityTime(current));
+
+  const preferred = preferIncoming ? incoming : current;
+  const fallback = preferIncoming ? current : incoming;
+
+  const tasks = mergeById(
+    current.tasks ?? [],
+    incoming.tasks ?? [],
+    mergeExamTask,
+    'merge'
+  ).sort((a, b) => {
+    if (a.order !== b.order) return a.order - b.order;
+    return a.timestamp - b.timestamp;
+  });
+
+  const merged: ExamSession = {
+    ...fallback,
+    ...preferred,
+    topic: preferred.topic || fallback.topic,
+    difficulty: preferred.difficulty || fallback.difficulty,
+    taskCount: Math.max(preferred.taskCount ?? 0, fallback.taskCount ?? 0, tasks.length),
+    durationMinutes: preferred.durationMinutes || fallback.durationMinutes,
+    status: preferred.status,
+    tasks,
+    createdAt: minDefined(current.createdAt, incoming.createdAt) ?? preferred.createdAt ?? fallback.createdAt,
+    startedAt: maxDefined(current.startedAt, incoming.startedAt) ?? preferred.startedAt ?? fallback.startedAt,
+    endsAt: maxDefined(current.endsAt, incoming.endsAt) ?? preferred.endsAt ?? fallback.endsAt,
+    submittedAt: maxDefined(current.submittedAt, incoming.submittedAt),
+    completedAt: maxDefined(current.completedAt, incoming.completedAt),
+    remainingSeconds: preferred.remainingSeconds ?? fallback.remainingSeconds,
+    submitReason: preferred.submitReason ?? fallback.submitReason,
+    scorePercent: preferred.scorePercent ?? fallback.scorePercent,
+    correctCount: preferred.correctCount ?? fallback.correctCount,
+    wrongCount: preferred.wrongCount ?? fallback.wrongCount,
+    feedbackSummary: preferred.feedbackSummary ?? fallback.feedbackSummary
+  };
+
+  if (merged.status === 'completed') {
+    const evaluableTasks = merged.tasks.filter(task => task.isCorrect !== undefined);
+    const correctCount = evaluableTasks.filter(task => task.isCorrect === true).length;
+    const wrongCount = Math.max(0, evaluableTasks.length - correctCount);
+
+    if (merged.correctCount === undefined) merged.correctCount = correctCount;
+    if (merged.wrongCount === undefined) merged.wrongCount = wrongCount;
+    if (merged.scorePercent === undefined) {
+      merged.scorePercent = evaluableTasks.length > 0 ? Math.round((correctCount / evaluableTasks.length) * 100) : 0;
+    }
+  }
+
+  return merged;
+};
 
