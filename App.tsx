@@ -29,6 +29,8 @@ import {
   Type,
   Clock,
   Trash2,
+  Download,
+  ChevronDown,
   ChevronRight,
   GraduationCap,
   Dumbbell,
@@ -125,6 +127,7 @@ const App: React.FC = () => {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [activeSolutionHistoryId, setActiveSolutionHistoryId] = useState<string | null>(null);
   const [solutionOpenView, setSolutionOpenView] = useState<SolutionOpenView>('start');
+  const [openHistoryDownloadMenuId, setOpenHistoryDownloadMenuId] = useState<string | null>(null);
   const printExportKey =
     typeof window !== 'undefined'
       ? new URLSearchParams(window.location.search).get('printExport')
@@ -176,6 +179,19 @@ const App: React.FC = () => {
       setState(prev => ({ ...prev, ...updates }));
     }
   }, []);
+
+  useEffect(() => {
+    if (!openHistoryDownloadMenuId) return;
+
+    const handleDocumentClick = (event: MouseEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target?.closest('[data-history-download-menu]')) return;
+      setOpenHistoryDownloadMenuId(null);
+    };
+
+    document.addEventListener('click', handleDocumentClick);
+    return () => document.removeEventListener('click', handleDocumentClick);
+  }, [openHistoryDownloadMenuId]);
 
   const savePracticeRooms = useCallback((rooms: PracticeRoom[]) => {
     localStorage.setItem(PRACTICE_ROOMS_KEY, JSON.stringify(rooms));
@@ -273,6 +289,7 @@ const App: React.FC = () => {
   const handleModeChange = (mode: InputMode) => {
     setActiveHistoryId(null);
     setSolutionOpenView('start');
+    setOpenHistoryDownloadMenuId(null);
     setState(prev => ({
       ...prev,
       inputMode: mode,
@@ -314,9 +331,11 @@ const App: React.FC = () => {
     setExamView('setup');
     setActiveHistoryId(null);
     setSolutionOpenView('start');
+    setOpenHistoryDownloadMenuId(null);
   };
 
   const handleHistoryRestore = (item: HistoryItem, openView: SolutionOpenView = 'start') => {
+    setOpenHistoryDownloadMenuId(null);
     setActiveHistoryId(item.id);
     setSolutionOpenView(openView);
     setState(prev => ({
@@ -538,6 +557,33 @@ const App: React.FC = () => {
       window.alert(error?.message || 'PDF-Export der Pruefung fehlgeschlagen.');
     }
   }, []);
+
+  const canDownloadHistoryItem = useCallback((item: HistoryItem): boolean => {
+    if (item.mode === InputMode.TUTOR) {
+      return item.status === 'completed';
+    }
+    return true;
+  }, []);
+
+  const handleDownloadHistoryItemMarkdown = useCallback((item: HistoryItem) => {
+    if (!canDownloadHistoryItem(item)) return;
+    try {
+      downloadSolutionAsMarkdown(item.solution, item.prompt || 'Mathe-Aufgabe');
+    } catch (error) {
+      console.error(error);
+      window.alert('Markdown-Export aus dem Verlauf fehlgeschlagen.');
+    }
+  }, [canDownloadHistoryItem]);
+
+  const handleDownloadHistoryItemPdf = useCallback((item: HistoryItem) => {
+    if (!canDownloadHistoryItem(item)) return;
+    try {
+      downloadSolutionAsPdf(item.solution, item.prompt || 'Mathe-Aufgabe');
+    } catch (error: any) {
+      console.error(error);
+      window.alert(error?.message || 'PDF-Export aus dem Verlauf fehlgeschlagen.');
+    }
+  }, [canDownloadHistoryItem]);
 
   const handleSubmit = useCallback(async () => {
     if (state.isLoading && state.inputMode !== InputMode.TUTOR) return;
@@ -1666,6 +1712,46 @@ const App: React.FC = () => {
                        >
                          Uebersicht
                        </button>
+                     )}
+                     {canDownloadHistoryItem(item) && (
+                       <div className="relative" data-history-download-menu>
+                         <button
+                           onClick={(e) => {
+                             e.stopPropagation();
+                             setOpenHistoryDownloadMenuId(prev => (prev === item.id ? null : item.id));
+                           }}
+                           className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-full transition-colors"
+                           title="Export herunterladen"
+                         >
+                           <Download className="w-3.5 h-3.5" />
+                           Download
+                           <ChevronDown className={`w-3.5 h-3.5 transition-transform ${openHistoryDownloadMenuId === item.id ? 'rotate-180' : ''}`} />
+                         </button>
+                         {openHistoryDownloadMenuId === item.id && (
+                           <div className="absolute right-0 mt-1 w-44 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg z-20">
+                             <button
+                               onClick={(e) => {
+                                 e.stopPropagation();
+                                 setOpenHistoryDownloadMenuId(null);
+                                 handleDownloadHistoryItemMarkdown(item);
+                               }}
+                               className="w-full px-3 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                             >
+                               Als Markdown
+                             </button>
+                             <button
+                               onClick={(e) => {
+                                 e.stopPropagation();
+                                 setOpenHistoryDownloadMenuId(null);
+                                 handleDownloadHistoryItemPdf(item);
+                               }}
+                               className="w-full px-3 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50 border-t border-slate-100"
+                             >
+                               Als PDF
+                             </button>
+                           </div>
+                         )}
+                       </div>
                      )}
                      <button 
                        onClick={(e) => deleteHistoryItem(e, item.id)}
