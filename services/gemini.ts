@@ -13,7 +13,8 @@ GRAPH-OPTIONEN (nur wenn didaktisch sinnvoll):
   - grid optional: boolean
   - title optional: string
 - Nutze echte Zeilenumbrueche in den Codebloecken (kein "\\n" als sichtbarer Text).
-- Uebertreibe nicht: normalerweise maximal 1 Graph pro Abschnitt oder Antwort.
+- Mehrere Graphen sind erlaubt, wenn sie Zusammenhaenge, Aufbauten, Vergleiche oder Zwischenschritte klarer machen.
+- Es gibt kein starres Limit; entscheide nach didaktischem Nutzen und Lesbarkeit.
 `;
 
 const SYSTEM_PROMPT = `
