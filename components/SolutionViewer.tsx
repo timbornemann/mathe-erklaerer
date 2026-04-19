@@ -2,16 +2,25 @@ import React, { useState, useEffect } from 'react';
 import { MathSolution } from '../types';
 import MathRenderer from './MathRenderer';
 import SidePanel from './SidePanel';
-import { ChevronLeft, ChevronRight, List, CheckCircle2, RotateCcw, Loader2, X } from 'lucide-react';
+import { ChevronLeft, ChevronRight, List, CheckCircle2, RotateCcw, Loader2, X, Download, FileText } from 'lucide-react';
 
 interface SolutionViewerProps {
   solution: MathSolution;
   initialPrompt: string;
   onReset: () => void;
   initialView?: 'start' | 'summary';
+  onDownloadMarkdown: () => void;
+  onDownloadPdf: () => void;
 }
 
-const SolutionViewer: React.FC<SolutionViewerProps> = ({ solution, initialPrompt, onReset, initialView = 'start' }) => {
+const SolutionViewer: React.FC<SolutionViewerProps> = ({
+  solution,
+  initialPrompt,
+  onReset,
+  initialView = 'start',
+  onDownloadMarkdown,
+  onDownloadPdf
+}) => {
   const [currentStep, setCurrentStep] = useState(0);
   const [currentSubstepIndex, setCurrentSubstepIndex] = useState(0);
   const [showSummary, setShowSummary] = useState(initialView === 'summary');
@@ -313,17 +322,35 @@ const SolutionViewer: React.FC<SolutionViewerProps> = ({ solution, initialPrompt
 
         <div className="w-full min-w-0 max-w-[1320px] mx-auto">
           <div className="bg-white rounded-3xl shadow-xl overflow-hidden border border-slate-100 w-full relative z-10">
-            <div className="bg-slate-50 p-4 sm:p-6 border-b border-slate-100 flex flex-col sm:flex-row gap-3 sm:justify-between sm:items-center">
-              <h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
-                <List className="w-6 h-6 text-indigo-600" />
-                Zusammenfassung
-              </h2>
-              <button
-                onClick={() => setShowSummary(false)}
-                className="text-sm font-medium text-indigo-600 hover:text-indigo-800"
-              >
-                Zurueck zu den Karten
-              </button>
+            <div className="bg-slate-50 p-4 sm:p-6 border-b border-slate-100 flex flex-col gap-3">
+              <div className="flex flex-col sm:flex-row gap-3 sm:justify-between sm:items-center">
+                <h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
+                  <List className="w-6 h-6 text-indigo-600" />
+                  Zusammenfassung
+                </h2>
+                <button
+                  onClick={() => setShowSummary(false)}
+                  className="text-sm font-medium text-indigo-600 hover:text-indigo-800"
+                >
+                  Zurueck zu den Karten
+                </button>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  onClick={onDownloadMarkdown}
+                  className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:border-indigo-200 hover:text-indigo-700 hover:bg-indigo-50 transition-colors"
+                >
+                  <FileText className="w-4 h-4" />
+                  Als Markdown
+                </button>
+                <button
+                  onClick={onDownloadPdf}
+                  className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:border-indigo-200 hover:text-indigo-700 hover:bg-indigo-50 transition-colors"
+                >
+                  <Download className="w-4 h-4" />
+                  Als PDF
+                </button>
+              </div>
             </div>
 
             <div className="p-4 sm:p-6 md:p-8 space-y-6 sm:space-y-8">

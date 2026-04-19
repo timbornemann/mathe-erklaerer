@@ -1,11 +1,13 @@
 import React, { useState } from 'react';
-import { CheckCircle2, ChevronDown, ChevronUp, Eye, XCircle } from 'lucide-react';
+import { CheckCircle2, ChevronDown, ChevronUp, Download, Eye, FileText, XCircle } from 'lucide-react';
 import { ExamSession } from '../types';
 import MathRenderer from './MathRenderer';
 
 interface ExamResultViewProps {
   session: ExamSession;
   onBackToSetup: () => void;
+  onDownloadMarkdown: () => void;
+  onDownloadPdf: () => void;
 }
 
 const gradeText = (score: number) => {
@@ -16,7 +18,12 @@ const gradeText = (score: number) => {
   return 'Verbesserungsbedarf';
 };
 
-const ExamResultView: React.FC<ExamResultViewProps> = ({ session, onBackToSetup }) => {
+const ExamResultView: React.FC<ExamResultViewProps> = ({
+  session,
+  onBackToSetup,
+  onDownloadMarkdown,
+  onDownloadPdf
+}) => {
   const [openSolutionIds, setOpenSolutionIds] = useState<Record<string, boolean>>({});
   const score = session.scorePercent ?? 0;
   const correct = session.correctCount ?? 0;
@@ -60,6 +67,23 @@ const ExamResultView: React.FC<ExamResultViewProps> = ({ session, onBackToSetup 
               <MathRenderer content={session.feedbackSummary} />
             </div>
           )}
+
+          <div className="flex flex-wrap gap-2">
+            <button
+              onClick={onDownloadMarkdown}
+              className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:border-indigo-200 hover:text-indigo-700 hover:bg-indigo-50 transition-colors"
+            >
+              <FileText className="w-4 h-4" />
+              Pruefung als Markdown
+            </button>
+            <button
+              onClick={onDownloadPdf}
+              className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:border-indigo-200 hover:text-indigo-700 hover:bg-indigo-50 transition-colors"
+            >
+              <Download className="w-4 h-4" />
+              Pruefung als PDF
+            </button>
+          </div>
         </div>
       </div>
 
