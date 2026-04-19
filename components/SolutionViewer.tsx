@@ -47,12 +47,18 @@ const SolutionViewer: React.FC<SolutionViewerProps> = ({
     return sum + count;
   }, 0);
 
+  const getVisibleFormulas = (formulas?: string[]) =>
+    (Array.isArray(formulas) ? formulas : []).filter(
+      (formula) => typeof formula === 'string' && formula.trim().length > 0
+    );
+
   const unitsBeforeCurrentLesson = solution.steps.slice(0, currentStep).reduce((sum, step) => {
     const count = Array.isArray(step.substeps) && step.substeps.length > 0 ? step.substeps.length : 1;
     return sum + count;
   }, 0);
 
   const currentUnitIndex = unitsBeforeCurrentLesson + (hasSubsteps ? currentSubstepIndex : 0);
+  const activeStepFormulas = getVisibleFormulas(activeStep?.formulas);
 
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -373,9 +379,9 @@ const SolutionViewer: React.FC<SolutionViewerProps> = ({
                           <div className="text-slate-600 mb-2">
                             <MathRenderer content={substep.explanation} />
                           </div>
-                          {substep.formulas.length > 0 && (
+                          {getVisibleFormulas(substep.formulas).length > 0 && (
                             <div className="bg-slate-50 p-3 rounded-xl border border-slate-200">
-                              {substep.formulas.map((formula, fIdx) => (
+                              {getVisibleFormulas(substep.formulas).map((formula, fIdx) => (
                                 <MathRenderer key={fIdx} content={`$$ ${formula} $$`} />
                               ))}
                             </div>
@@ -388,11 +394,13 @@ const SolutionViewer: React.FC<SolutionViewerProps> = ({
                       <div className="text-slate-600 mb-4">
                         <MathRenderer content={step.explanation} />
                       </div>
-                      <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
-                        {step.formulas.map((formula, fIdx) => (
-                          <MathRenderer key={fIdx} content={`$$ ${formula} $$`} />
-                        ))}
-                      </div>
+                      {getVisibleFormulas(step.formulas).length > 0 && (
+                        <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
+                          {getVisibleFormulas(step.formulas).map((formula, fIdx) => (
+                            <MathRenderer key={fIdx} content={`$$ ${formula} $$`} />
+                          ))}
+                        </div>
+                      )}
                     </>
                   )}
                 </div>
@@ -496,13 +504,15 @@ const SolutionViewer: React.FC<SolutionViewerProps> = ({
                   <MathRenderer content={activeStep.explanation} />
                 </div>
 
-                <div className="bg-indigo-50/50 rounded-2xl p-4 sm:p-6 border border-indigo-100 flex-1 flex flex-col justify-center items-center space-y-3 sm:space-y-4 shadow-inner overflow-x-auto">
-                  {activeStep.formulas.map((formula, idx) => (
-                    <div key={idx} className="w-full transition-all duration-500 animate-in fade-in slide-in-from-bottom-4">
-                      <MathRenderer content={`$$ ${formula} $$`} />
-                    </div>
-                  ))}
-                </div>
+                {activeStepFormulas.length > 0 && (
+                  <div className="bg-indigo-50/50 rounded-2xl p-4 sm:p-6 border border-indigo-100 flex-1 flex flex-col justify-center items-center space-y-3 sm:space-y-4 shadow-inner overflow-x-auto">
+                    {activeStepFormulas.map((formula, idx) => (
+                      <div key={idx} className="w-full transition-all duration-500 animate-in fade-in slide-in-from-bottom-4">
+                        <MathRenderer content={`$$ ${formula} $$`} />
+                      </div>
+                    ))}
+                  </div>
+                )}
               </>
             )}
           </div>
