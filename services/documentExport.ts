@@ -1,13 +1,5 @@
 import { ExamSession, MathSolution, SolutionStep } from '../types';
 
-const escapeHtml = (value: string): string =>
-  value
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-
 const createTimestamp = (): string => {
   const now = new Date();
   const pad = (part: number) => String(part).padStart(2, '0');
@@ -63,103 +55,29 @@ const appendStepMarkdown = (
   }
 };
 
-const toPrintableHtml = (title: string, textContent: string): string => {
-  const safeTitle = escapeHtml(title);
-  const safeText = escapeHtml(textContent);
+interface PdfExportPayload {
+  title: string;
+  markdown: string;
+  createdAt: number;
+}
 
-  return `<!doctype html>
-<html lang="de">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>${safeTitle}</title>
-  <style>
-    @page {
-      size: A4;
-      margin: 16mm;
-    }
-    body {
-      font-family: "Segoe UI", Arial, sans-serif;
-      color: #0f172a;
-      margin: 0;
-    }
-    h1 {
-      font-size: 20px;
-      margin: 0 0 12px 0;
-    }
-    p {
-      margin: 0 0 12px 0;
-      color: #475569;
-      font-size: 13px;
-    }
-    pre {
-      white-space: pre-wrap;
-      word-break: break-word;
-      font-family: "Cascadia Code", "Consolas", monospace;
-      font-size: 12px;
-      line-height: 1.45;
-      margin: 0;
-      padding: 12px;
-      border: 1px solid #cbd5e1;
-      border-radius: 10px;
-      background: #f8fafc;
-    }
-  </style>
-</head>
-<body>
-  <h1>${safeTitle}</h1>
-  <p>Erstellt mit Mathe Erklaerer</p>
-  <pre>${safeText}</pre>
-</body>
-</html>`;
-};
-
-const openPrintDialog = (title: string, textContent: string): void => {
-  const html = toPrintableHtml(title, textContent);
-  const iframe = document.createElement('iframe');
-  iframe.setAttribute('aria-hidden', 'true');
-  iframe.style.position = 'fixed';
-  iframe.style.width = '0';
-  iframe.style.height = '0';
-  iframe.style.border = '0';
-  iframe.style.right = '0';
-  iframe.style.bottom = '0';
-  iframe.style.opacity = '0';
-
-  let blobUrl: string | null = null;
-  let cleanedUp = false;
-  const cleanup = () => {
-    if (cleanedUp) return;
-    cleanedUp = true;
-    if (blobUrl) {
-      URL.revokeObjectURL(blobUrl);
-    }
-    if (iframe.parentNode) {
-      iframe.parentNode.removeChild(iframe);
-    }
+const openPrintDialog = (title: string, markdown: string): void => {
+  const key = `mathe-print-export-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const payload: PdfExportPayload = {
+    title,
+    markdown,
+    createdAt: Date.now()
   };
 
-  iframe.onload = () => {
-    const frameWindow = iframe.contentWindow;
-    if (!frameWindow) {
-      cleanup();
-      return;
-    }
+  localStorage.setItem(key, JSON.stringify(payload));
 
-    const finish = () => cleanup();
-    frameWindow.onafterprint = finish;
-    frameWindow.focus();
-    frameWindow.print();
-    window.setTimeout(finish, 2000);
-  };
+  const url = new URL(window.location.href);
+  url.searchParams.set('printExport', key);
+  const printWindow = window.open(url.toString(), '_blank');
 
-  document.body.appendChild(iframe);
-
-  if ('srcdoc' in iframe) {
-    iframe.srcdoc = html;
-  } else {
-    blobUrl = URL.createObjectURL(new Blob([html], { type: 'text/html' }));
-    iframe.src = blobUrl;
+  if (!printWindow) {
+    localStorage.removeItem(key);
+    throw new Error('Der Export wurde vom Browser blockiert. Bitte Popups erlauben.');
   }
 };
 
