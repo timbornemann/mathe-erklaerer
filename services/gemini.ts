@@ -6,6 +6,7 @@ GRAPH-OPTIONEN (nur wenn didaktisch sinnvoll):
 - Graphen sind optional. Entscheide selbst, wann ein Graph das Verstaendnis verbessert.
 - Fuer Ablauf- oder Beziehungsdiagramme: immer als Markdown-Codeblock mit Sprache "mermaid" (mit dreifachen Backticks).
 - Fuer Funktionsgraphen: immer als Markdown-Codeblock mit Sprache "functionplot" (mit dreifachen Backticks).
+- Bei Mermaid-Knotenlabels mit Sonderzeichen (z. B. "|", "★", ":", "->") immer quoted Labels verwenden (z. B. A["|"], B(("★"))).
 - Der Inhalt im "functionplot"-Block muss gueltiges JSON sein.
 - Erlaubte Varianten:
   - Kompakt: { "functions": [...], "xDomain"?: [min,max], "yDomain"?: [min,max], "grid"?: boolean, "title"?: string }
