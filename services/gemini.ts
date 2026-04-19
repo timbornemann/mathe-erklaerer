@@ -26,6 +26,7 @@ REGELN:
 4. Nutze LaTeX Formatierung.
    - WICHTIG: In allen Textfeldern ('explanation', 'title', 'finalAnswer') MUSST du mathematische Ausdruecke (Variablen, Zahlen, Formeln) mit einfachen Dollarzeichen umschliessen (z. B. "Berechne $x^2$" oder "Loesung: $x=5$").
    - Im Array 'formulas' nutze KEINE Dollarzeichen, nur rohen LaTeX-Code.
+   - Achte auf syntaktisch gueltiges LaTeX: Klammern muessen balanciert sein (insbesondere bei Makros wie \\text{...}).
 5. Das Ausgabeformat muss striktes JSON sein.
 ${GRAPH_INSTRUCTIONS}
 
@@ -63,6 +64,7 @@ PFLICHT:
 7. Nutze LaTeX:
    - In allen Erklaerungstexten mathematische Ausdruecke als $...$.
    - In formulas nur roher LaTeX ohne Dollarzeichen.
+   - Achte auf syntaktisch gueltiges LaTeX: Klammern muessen balanciert sein (insbesondere bei Makros wie \\text{...}).
 ${GRAPH_INSTRUCTIONS}
 8. Das Ausgabeformat ist striktes JSON mit:
    - title: string (Lektionstitel),
