@@ -1,5 +1,5 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
-import { solveMathProblem } from './services/gemini';
+import { solveMathProblem, resumeTutorSolution } from './services/gemini';
 import { generatePracticeTask } from './services/gemini';
 import { checkPracticeSolution, solvePracticeTask } from './services/gemini';
 import SolutionViewer from './components/SolutionViewer';
@@ -74,16 +74,31 @@ const clampPercent = (value: number): number => {
 const computeTutorProgress = (solution: MathSolution): number => {
   const total = solution.steps.length;
   if (total === 0) return 0;
-  const completed = solution.steps.filter(step => step.loading !== true).length;
+  const completed = solution.steps.filter(step => step.loading !== true && !step.generationError).length;
   return clampPercent((completed / total) * 100);
 };
 
+const getTutorRetryStartIndex = (solution: MathSolution): number =>
+  solution.steps.findIndex(step => step.loading === true || !!step.generationError);
+
+const hasTutorRetryableSteps = (solution: MathSolution): boolean => getTutorRetryStartIndex(solution) >= 0;
+
 const buildTutorPreview = (status: HistoryStatus, progress: number, solution?: MathSolution, error?: string): string => {
+  const unresolvedCount = solution
+    ? solution.steps.filter(step => step.loading === true || !!step.generationError).length
+    : 0;
+
   if (status === 'failed') {
+    if (unresolvedCount > 0) {
+      return `Tutor-Lektion teilweise erstellt. ${unresolvedCount} Lektion(en) offen - bitte Retry klicken.`;
+    }
     return error || 'Tutor-Lektion konnte nicht erstellt werden.';
   }
 
   if (status === 'completed' && solution) {
+    if (unresolvedCount > 0) {
+      return `Tutor-Lektion teilweise erstellt. ${unresolvedCount} Lektion(en) offen - bitte Retry klicken.`;
+    }
     return solution.finalAnswer || solution.steps[0]?.title || 'Tutor-Lektion erstellt.';
   }
 
@@ -128,6 +143,7 @@ const App: React.FC = () => {
   const [activeSolutionHistoryId, setActiveSolutionHistoryId] = useState<string | null>(null);
   const [solutionOpenView, setSolutionOpenView] = useState<SolutionOpenView>('start');
   const [openHistoryDownloadMenuId, setOpenHistoryDownloadMenuId] = useState<string | null>(null);
+  const [retryingHistoryId, setRetryingHistoryId] = useState<string | null>(null);
   const printExportKey =
     typeof window !== 'undefined'
       ? new URLSearchParams(window.location.search).get('printExport')
@@ -585,6 +601,111 @@ const App: React.FC = () => {
     }
   }, [canDownloadHistoryItem]);
 
+  const handleRetryTutorHistory = useCallback((item: HistoryItem) => {
+    if (item.mode !== InputMode.TUTOR) return;
+    if (retryingHistoryId === item.id) return;
+
+    const currentItem = (state.history ?? []).find(entry => entry.id === item.id) ?? item;
+    const topic = (currentItem.prompt || '').trim() || 'Tutor-Lektion';
+    const baseSolution = currentItem.solution ?? createTutorPlaceholderSolution(topic);
+    const retryStartIndex = getTutorRetryStartIndex(baseSolution);
+
+    if (retryStartIndex < 0 && currentItem.status !== 'failed') {
+      return;
+    }
+
+    setRetryingHistoryId(item.id);
+    setActiveHistoryId(item.id);
+    setSolutionOpenView('start');
+    setState(prev => ({
+      ...prev,
+      inputMode: InputMode.TUTOR,
+      textInput: topic,
+      solution: baseSolution,
+      error: null
+    }));
+
+    const initialProgress = computeTutorProgress(baseSolution);
+    updateHistoryItem(item.id, (entry) => ({
+      ...entry,
+      prompt: topic,
+      solution: baseSolution,
+      status: 'processing',
+      progress: initialProgress,
+      error: undefined,
+      preview: buildTutorPreview('processing', initialProgress, baseSolution)
+    }));
+
+    void resumeTutorSolution(topic, baseSolution, {
+      onTutorProgress: (partial: MathSolution) => {
+        const progress = computeTutorProgress(partial);
+        updateHistoryItem(item.id, (entry) => ({
+          ...entry,
+          solution: partial,
+          status: 'processing',
+          progress,
+          error: undefined,
+          preview: buildTutorPreview('processing', progress, partial)
+        }));
+
+        if (activeSolutionHistoryIdRef.current === item.id) {
+          setState(prev => ({
+            ...prev,
+            solution: partial,
+            error: null,
+            inputMode: InputMode.TUTOR
+          }));
+        }
+      }
+    })
+      .then((solution) => {
+        const unresolved = hasTutorRetryableSteps(solution);
+        const nextStatus: HistoryStatus = unresolved ? 'failed' : 'completed';
+        const nextProgress = unresolved ? computeTutorProgress(solution) : 100;
+        const nextError = unresolved
+          ? 'Einige Lektionen konnten noch nicht erzeugt werden. Erneut auf Retry klicken.'
+          : undefined;
+
+        updateHistoryItem(item.id, (entry) => ({
+          ...entry,
+          solution,
+          status: nextStatus,
+          progress: nextProgress,
+          error: nextError,
+          preview: buildTutorPreview(nextStatus, nextProgress, solution, nextError)
+        }));
+
+        if (activeSolutionHistoryIdRef.current === item.id) {
+          setState(prev => ({
+            ...prev,
+            solution,
+            error: nextError ?? null,
+            inputMode: InputMode.TUTOR
+          }));
+        }
+      })
+      .catch((error: any) => {
+        const message = error?.message || 'Tutor-Retry fehlgeschlagen.';
+        updateHistoryItem(item.id, (entry) => ({
+          ...entry,
+          status: 'failed',
+          error: message,
+          preview: buildTutorPreview('failed', entry.progress ?? 0, entry.solution, message)
+        }));
+
+        if (activeSolutionHistoryIdRef.current === item.id) {
+          setState(prev => ({
+            ...prev,
+            error: message,
+            inputMode: InputMode.TUTOR
+          }));
+        }
+      })
+      .finally(() => {
+        setRetryingHistoryId((current) => (current === item.id ? null : current));
+      });
+  }, [retryingHistoryId, setActiveHistoryId, state.history, updateHistoryItem]);
+
   const handleSubmit = useCallback(async () => {
     if (state.isLoading && state.inputMode !== InputMode.TUTOR) return;
 
@@ -653,20 +774,27 @@ const App: React.FC = () => {
         }
       )
         .then((solution) => {
+          const unresolved = hasTutorRetryableSteps(solution);
+          const nextStatus: HistoryStatus = unresolved ? 'failed' : 'completed';
+          const nextProgress = unresolved ? computeTutorProgress(solution) : 100;
+          const nextError = unresolved
+            ? 'Einige Lektionen konnten nicht erzeugt werden. Mit Retry ab der Fehlerstelle fortsetzen.'
+            : undefined;
+
           updateHistoryItem(historyId, (item) => ({
             ...item,
             solution,
-            status: 'completed',
-            progress: 100,
-            error: undefined,
-            preview: buildTutorPreview('completed', 100, solution)
+            status: nextStatus,
+            progress: nextProgress,
+            error: nextError,
+            preview: buildTutorPreview(nextStatus, nextProgress, solution, nextError)
           }));
 
           if (activeSolutionHistoryIdRef.current === historyId) {
             setState(prev => ({
               ...prev,
               solution,
-              error: null,
+              error: nextError ?? null,
               inputMode: InputMode.TUTOR
             }));
           }
@@ -1701,6 +1829,19 @@ const App: React.FC = () => {
                  </div>
                  
                   <div className="flex flex-col items-end gap-2">
+                     {item.mode === InputMode.TUTOR && item.status !== 'processing' && (item.status === 'failed' || hasTutorRetryableSteps(item.solution)) && (
+                       <button
+                         onClick={(e) => {
+                           e.stopPropagation();
+                           handleRetryTutorHistory(item);
+                         }}
+                         disabled={retryingHistoryId === item.id}
+                         className="px-3 py-1.5 text-xs font-semibold text-amber-700 bg-amber-50 hover:bg-amber-100 rounded-full transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                         title="Ab fehlgeschlagener Lektion fortsetzen"
+                       >
+                         {retryingHistoryId === item.id ? 'Retry laeuft...' : 'Retry'}
+                       </button>
+                     )}
                      {item.mode === InputMode.TUTOR && item.status === 'completed' && (
                        <button
                          onClick={(e) => {
