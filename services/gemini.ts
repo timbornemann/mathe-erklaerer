@@ -790,6 +790,28 @@ const normalizeTutorSteps = (steps: SolutionStep[]): SolutionStep[] =>
     generationError: typeof step.generationError === 'string' ? step.generationError : undefined
   }));
 
+const buildTutorFinalAnswerFromTopic = (topic: string, steps: SolutionStep[]): string => {
+  const stepTitles = steps
+    .map((step) => (typeof step.title === 'string' ? step.title.trim() : ''))
+    .filter((title) => title.length > 0)
+    .slice(0, 8);
+
+  const coveredLessons = stepTitles.length
+    ? stepTitles.map((title, index) => `${index + 1}. ${title}`).join('\n')
+    : '1. Grundlagen\n2. Standardverfahren\n3. Vertiefung und Transfer';
+
+  return `
+**Lernpfad abgeschlossen: ${topic}**
+
+Du hast die wichtigsten Inhalte in einer aufeinander aufbauenden Reihenfolge durchgearbeitet - von den Grundlagen bis zu fortgeschrittenen Anwendungen.
+
+**Behandelte Lektionen:**
+${coveredLessons}
+
+Gehe fuer nachhaltiges Verstaendnis die Lektionen erneut durch und loese zusaetzliche Uebungsaufgaben.
+`.trim();
+};
+
 export const resumeTutorSolution = async (
   topic: string,
   existingSolution: MathSolution,
@@ -836,7 +858,6 @@ export const resumeTutorSolution = async (
 
   options?.onTutorProgress?.({ steps: [...steps], finalAnswer: interimFinalAnswer });
 
-  const sectionWarnings: string[] = [];
   for (let i = firstRetryIndex; i < steps.length; i++) {
     if (!isRetryableTutorStep(steps[i])) {
       const takeaway = steps[i].explanation?.trim();
@@ -863,7 +884,6 @@ export const resumeTutorSolution = async (
     } catch (error: any) {
       const reason = error?.message || 'Unbekannter Fehler';
       generationError = reason;
-      sectionWarnings.push(`Lektion ${i + 1}: ${reason}`);
       lesson = buildTutorSectionFallback(steps[i].title, i, reason);
     }
 
@@ -885,20 +905,15 @@ export const resumeTutorSolution = async (
     options?.onTutorProgress?.({ steps: [...steps], finalAnswer: interimFinalAnswer });
   }
 
-  const unresolvedCount = steps.filter((step) => isRetryableTutorStep(step)).length;
-  const warningNote = unresolvedCount
-    ? `\n\n**Technischer Hinweis:** ${unresolvedCount} Lektion(en) konnten weiterhin nicht erzeugt werden.`
+  const existingFinalAnswer = typeof existingSolution.finalAnswer === 'string'
+    ? existingSolution.finalAnswer.trim()
     : '';
-  const warningDetails = sectionWarnings.length
-    ? `\n${sectionWarnings.map((entry) => `- ${entry}`).join('\n')}`
-    : '';
+  const existingLooksTechnical =
+    /lernpfad aktualisiert|fortgesetzt|technischer hinweis|wird erstellt/i.test(existingFinalAnswer);
+  const finalAnswer = existingFinalAnswer && !existingLooksTechnical
+    ? existingFinalAnswer
+    : buildTutorFinalAnswerFromTopic(topic, steps);
 
-  const finalAnswerBase =
-    existingSolution.finalAnswer && !/wird erstellt/i.test(existingSolution.finalAnswer)
-      ? existingSolution.finalAnswer
-      : `**Lernpfad aktualisiert: ${topic}**\n\nDer bestehende Lernpfad wurde ab der fehlgeschlagenen Lektion fortgesetzt.`;
-
-  const finalAnswer = `${finalAnswerBase}${warningNote}${warningDetails}`.trim();
   const completeSolution: MathSolution = { steps, finalAnswer };
   options?.onTutorProgress?.(completeSolution);
   return completeSolution;
