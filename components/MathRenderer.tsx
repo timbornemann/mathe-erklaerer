@@ -23,14 +23,18 @@ const GRAPH_START_KEYWORDS = [
   'xychart'
 ];
 
-interface FunctionPlotLine {
-  fn: string;
+interface FunctionPlotDataItem {
+  fn?: string;
+  points?: [number, number][];
   color?: string;
   title?: string;
+  fnType?: string;
+  graphType?: string;
+  [key: string]: unknown;
 }
 
 interface FunctionPlotSpec {
-  functions: FunctionPlotLine[];
+  data: FunctionPlotDataItem[];
   xDomain?: [number, number];
   yDomain?: [number, number];
   grid?: boolean;
@@ -156,6 +160,28 @@ const isValidDomain = (value: unknown): value is [number, number] => {
   );
 };
 
+const getAxisDomain = (value: unknown): unknown => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return undefined;
+  }
+  return (value as Record<string, unknown>).domain;
+};
+
+const isValidPointTuple = (value: unknown): value is [number, number] => {
+  if (!Array.isArray(value) || value.length !== 2) return false;
+  const [x, y] = value;
+  return (
+    typeof x === 'number' &&
+    Number.isFinite(x) &&
+    typeof y === 'number' &&
+    Number.isFinite(y)
+  );
+};
+
+const isValidPointsArray = (value: unknown): value is [number, number][] => {
+  return Array.isArray(value) && value.length > 0 && value.every(isValidPointTuple);
+};
+
 const parseFunctionPlotSpec = (source: string): { spec?: FunctionPlotSpec; error?: string } => {
   let parsed: unknown;
   try {
@@ -169,32 +195,48 @@ const parseFunctionPlotSpec = (source: string): { spec?: FunctionPlotSpec; error
   }
 
   const payload = parsed as Record<string, unknown>;
-  const rawFunctions = payload.functions;
-  if (!Array.isArray(rawFunctions) || rawFunctions.length === 0) {
-    return { error: 'functionplot braucht ein nicht-leeres "functions"-Array.' };
+  const rawSeries = payload.functions ?? payload.data;
+  if (!Array.isArray(rawSeries) || rawSeries.length === 0) {
+    return { error: 'functionplot braucht ein nicht-leeres "functions"- oder "data"-Array.' };
   }
 
-  const functions: FunctionPlotLine[] = [];
-  for (const candidate of rawFunctions) {
+  const data: FunctionPlotDataItem[] = [];
+  for (const candidate of rawSeries) {
     if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) {
-      return { error: 'Jeder Eintrag in "functions" muss ein Objekt sein.' };
+      return { error: 'Jeder Eintrag in "functions"/"data" muss ein Objekt sein.' };
     }
+
     const item = candidate as Record<string, unknown>;
-    if (typeof item.fn !== 'string' || item.fn.trim() === '') {
-      return { error: 'Jeder Eintrag in "functions" braucht ein gueltiges "fn".' };
+
+    const hasFn = typeof item.fn === 'string' && item.fn.trim() !== '';
+    const hasPoints = item.points !== undefined && isValidPointsArray(item.points);
+
+    if (!hasFn && !hasPoints) {
+      return {
+        error:
+          'Jeder Eintrag in "functions"/"data" braucht entweder ein gueltiges "fn" oder gueltige "points".'
+      };
     }
-    functions.push({
-      fn: item.fn,
-      color: typeof item.color === 'string' ? item.color : undefined,
-      title: typeof item.title === 'string' ? item.title : undefined
+
+    if (item.points !== undefined && !isValidPointsArray(item.points)) {
+      return { error: '"points" muss ein nicht-leeres Array von [x, y]-Zahlenpaaren sein.' };
+    }
+
+    data.push({
+      ...item,
+      fn: hasFn ? String(item.fn) : undefined,
+      points: hasPoints ? (item.points as [number, number][]) : undefined
     });
   }
 
-  if (payload.xDomain !== undefined && !isValidDomain(payload.xDomain)) {
-    return { error: '"xDomain" muss ein Zahlenpaar [min, max] mit min < max sein.' };
+  const xDomain = payload.xDomain ?? getAxisDomain(payload.xAxis);
+  const yDomain = payload.yDomain ?? getAxisDomain(payload.yAxis);
+
+  if (xDomain !== undefined && !isValidDomain(xDomain)) {
+    return { error: '"xDomain" (oder "xAxis.domain") muss [min, max] mit min < max sein.' };
   }
-  if (payload.yDomain !== undefined && !isValidDomain(payload.yDomain)) {
-    return { error: '"yDomain" muss ein Zahlenpaar [min, max] mit min < max sein.' };
+  if (yDomain !== undefined && !isValidDomain(yDomain)) {
+    return { error: '"yDomain" (oder "yAxis.domain") muss [min, max] mit min < max sein.' };
   }
   if (payload.grid !== undefined && typeof payload.grid !== 'boolean') {
     return { error: '"grid" muss true oder false sein.' };
@@ -205,9 +247,9 @@ const parseFunctionPlotSpec = (source: string): { spec?: FunctionPlotSpec; error
 
   return {
     spec: {
-      functions,
-      xDomain: payload.xDomain as [number, number] | undefined,
-      yDomain: payload.yDomain as [number, number] | undefined,
+      data,
+      xDomain: xDomain as [number, number] | undefined,
+      yDomain: yDomain as [number, number] | undefined,
       grid: payload.grid as boolean | undefined,
       title: payload.title as string | undefined
     }
@@ -326,11 +368,7 @@ const FunctionPlotBlock: React.FC<{ source: string }> = ({ source }) => {
           grid: parsed.spec.grid ?? true,
           xAxis: { domain: parsed.spec.xDomain ?? GRAPH_DEFAULT_DOMAIN },
           yAxis: { domain: parsed.spec.yDomain ?? GRAPH_DEFAULT_DOMAIN },
-          data: parsed.spec.functions.map((entry) => ({
-            fn: entry.fn,
-            color: entry.color,
-            title: entry.title
-          }))
+          data: parsed.spec.data
         });
 
         setRuntimeError(null);
