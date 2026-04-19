@@ -46,6 +46,20 @@ let functionPlotPromise: Promise<FunctionPlotFn> | null = null;
 
 const GRAPH_DEFAULT_DOMAIN: [number, number] = [-10, 10];
 
+const looksLikeMermaidSource = (source: string): boolean => {
+  const firstNonEmptyLine = source
+    .split('\n')
+    .map((line) => line.trim())
+    .find((line) => line.length > 0);
+
+  if (!firstNonEmptyLine) {
+    return false;
+  }
+
+  const normalized = firstNonEmptyLine.toLowerCase();
+  return GRAPH_START_KEYWORDS.some((keyword) => normalized.startsWith(keyword.toLowerCase()));
+};
+
 const normalizeEscapedNewlines = (raw: string): string => {
   let text = raw;
 
@@ -267,7 +281,10 @@ const MermaidBlock: React.FC<{ code: string }> = ({ code }) => {
 
   return (
     <div className="my-4 overflow-x-auto rounded-xl border border-slate-200 bg-white p-3">
-      <div className="[&>svg]:h-auto [&>svg]:max-w-full" dangerouslySetInnerHTML={{ __html: svg }} />
+      <div
+        className="flex justify-center [&>svg]:block [&>svg]:h-auto [&>svg]:max-w-full [&>svg]:mx-auto"
+        dangerouslySetInnerHTML={{ __html: svg }}
+      />
     </div>
   );
 };
@@ -385,7 +402,7 @@ const MathRenderer: React.FC<MathRendererProps> = ({ content }) => {
         components={{
           strong: ({ node, ...props }) => <span className="font-bold text-indigo-900" {...props} />,
           a: ({ node, ...props }) => <a className="text-indigo-600 hover:underline" {...props} />,
-          code: ({ inline, className, children, ...props }: any) =>
+          code: ({ node: _node, inline, className, children, ...props }: any) =>
             inline ? (
               <code className="rounded bg-slate-100 px-1 py-0.5 font-mono text-sm text-slate-800" {...props}>
                 {children}
@@ -395,15 +412,20 @@ const MathRenderer: React.FC<MathRendererProps> = ({ content }) => {
                 {children}
               </code>
             ),
-          pre: ({ children, ...props }: any) => {
-            const codeChild = React.Children.toArray(children)[0];
-            if (React.isValidElement(codeChild) && codeChild.type === 'code') {
-              const className = (codeChild.props.className as string | undefined) ?? '';
-              const language = (className.match(/language-([a-z0-9_-]+)/i)?.[1] ?? '').toLowerCase();
-              const rawCodeValue = codeChild.props.children;
-              const rawCode = (Array.isArray(rawCodeValue) ? rawCodeValue.join('') : String(rawCodeValue ?? '')).replace(/\n$/, '');
+          pre: ({ node: _node, children, ...props }: any) => {
+            const codeChild = React.Children.toArray(children).find((child) => React.isValidElement(child));
 
-              if (language === 'mermaid') {
+            // In react-markdown, `codeChild.type` can be a custom component function
+            // (because we override `code` above), not necessarily the literal string "code".
+            if (React.isValidElement(codeChild)) {
+              const codeProps = (codeChild.props ?? {}) as Record<string, unknown>;
+              const className = (codeProps.className as string | undefined) ?? '';
+              const language = (className.match(/language-([a-z0-9_-]+)/i)?.[1] ?? '').toLowerCase();
+              const rawCodeValue = codeProps.children;
+              const rawCode = (Array.isArray(rawCodeValue) ? rawCodeValue.join('') : String(rawCodeValue ?? '')).replace(/\n$/, '');
+              const isUnlabeledMermaid = language === '' && looksLikeMermaidSource(rawCode);
+
+              if (language === 'mermaid' || isUnlabeledMermaid) {
                 return <MermaidBlock code={rawCode} />;
               }
               if (language === 'functionplot') {
