@@ -6,12 +6,11 @@ GRAPH-OPTIONEN (nur wenn didaktisch sinnvoll):
 - Graphen sind optional. Entscheide selbst, wann ein Graph das Verstaendnis verbessert.
 - Fuer Ablauf- oder Beziehungsdiagramme: immer als Markdown-Codeblock mit Sprache "mermaid" (mit dreifachen Backticks).
 - Fuer Funktionsgraphen: immer als Markdown-Codeblock mit Sprache "functionplot" (mit dreifachen Backticks).
-- Der Inhalt im "functionplot"-Block muss gueltiges JSON sein:
-  - functions (Pflicht): Array mit Objekten { "fn": string, "color"?: string, "title"?: string }
-  - xDomain optional: [number, number]
-  - yDomain optional: [number, number]
-  - grid optional: boolean
-  - title optional: string
+- Der Inhalt im "functionplot"-Block muss gueltiges JSON sein.
+- Erlaubte Varianten:
+  - Kompakt: { "functions": [...], "xDomain"?: [min,max], "yDomain"?: [min,max], "grid"?: boolean, "title"?: string }
+  - API-nah: { "data": [...], "xAxis"?: { "domain": [min,max] }, "yAxis"?: { "domain": [min,max] }, "grid"?: boolean, "title"?: string }
+- In "functions" oder "data" muss jeder Eintrag ein Objekt sein und mindestens "fn" oder "points" enthalten.
 - Nutze echte Zeilenumbrueche in den Codebloecken (kein "\\n" als sichtbarer Text).
 - Mehrere Graphen sind erlaubt, wenn sie Zusammenhaenge, Aufbauten, Vergleiche oder Zwischenschritte klarer machen.
 - Es gibt kein starres Limit; entscheide nach didaktischem Nutzen und Lesbarkeit.
