@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { MathSolution } from '../types';
 import MathRenderer from './MathRenderer';
 import SidePanel from './SidePanel';
@@ -12,6 +12,29 @@ interface SolutionViewerProps {
   onDownloadMarkdown: () => void;
   onDownloadPdf: () => void;
 }
+
+const looksTechnicalTutorFinalAnswer = (text: string): boolean =>
+  /lernpfad aktualisiert|fortgesetzt|technischer hinweis|wird erstellt/i.test(text);
+
+const buildTutorSummaryFinalAnswer = (topic: string, steps: MathSolution['steps']): string => {
+  const lessonTitles = steps
+    .map((step) => (typeof step.title === 'string' ? step.title.trim() : ''))
+    .filter((title) => title.length > 0)
+    .slice(0, 8);
+
+  const lessonList = lessonTitles.length
+    ? lessonTitles.map((title, index) => `${index + 1}. ${title}`).join('\n')
+    : '1. Grundlagen\n2. Methoden\n3. Vertiefung';
+
+  return `
+**Lernpfad abgeschlossen: ${topic}**
+
+Du hast die wichtigsten Inhalte schrittweise durchgearbeitet - von den Grundlagen bis zur Vertiefung.
+
+**Behandelte Lektionen:**
+${lessonList}
+`.trim();
+};
 
 const SolutionViewer: React.FC<SolutionViewerProps> = ({
   solution,
@@ -36,6 +59,12 @@ const SolutionViewer: React.FC<SolutionViewerProps> = ({
     ? currentLesson.substeps![currentSubstepIndex]
     : currentLesson;
   const hasLoadingSteps = solution.steps.some((s) => s.loading === true);
+  const summaryFinalAnswer = useMemo(() => {
+    const rawFinal = (solution.finalAnswer || '').trim();
+    if (!rawFinal) return 'Loesung gefunden.';
+    if (!looksTechnicalTutorFinalAnswer(rawFinal)) return rawFinal;
+    return buildTutorSummaryFinalAnswer(initialPrompt, solution.steps);
+  }, [initialPrompt, solution.finalAnswer, solution.steps]);
 
   const isFirstLesson = currentStep === 0;
   const isFirstUnit = isFirstLesson && (!hasSubsteps || currentSubstepIndex === 0);
@@ -412,7 +441,7 @@ const SolutionViewer: React.FC<SolutionViewerProps> = ({
                   Endergebnis
                 </h3>
                 <div className="text-green-800">
-                  <MathRenderer content={solution.finalAnswer || 'Loesung gefunden.'} />
+                  <MathRenderer content={summaryFinalAnswer} />
                 </div>
               </div>
             </div>
