@@ -36,6 +36,51 @@ ${lessonList}
 `.trim();
 };
 
+const isEscapedAt = (text: string, index: number): boolean => {
+  let backslashes = 0;
+  for (let i = index - 1; i >= 0 && text[i] === '\\'; i -= 1) {
+    backslashes += 1;
+  }
+  return backslashes % 2 === 1;
+};
+
+const repairLatexBraces = (input: string): string => {
+  const text = input.trim();
+  if (!text) return text;
+
+  let openBraces = 0;
+  let repaired = '';
+
+  for (let i = 0; i < text.length; i += 1) {
+    const ch = text[i];
+    const escaped = isEscapedAt(text, i);
+
+    if (ch === '{' && !escaped) {
+      openBraces += 1;
+      repaired += ch;
+      continue;
+    }
+
+    if (ch === '}' && !escaped) {
+      if (openBraces > 0) {
+        openBraces -= 1;
+        repaired += ch;
+      }
+      continue;
+    }
+
+    repaired += ch;
+  }
+
+  if (openBraces > 0) {
+    repaired += '}'.repeat(openBraces);
+  }
+
+  return repaired;
+};
+
+const toDisplayMathContent = (formula: string): string => `$$ ${repairLatexBraces(formula)} $$`;
+
 const SolutionViewer: React.FC<SolutionViewerProps> = ({
   solution,
   initialPrompt,
@@ -411,7 +456,7 @@ const SolutionViewer: React.FC<SolutionViewerProps> = ({
                           {getVisibleFormulas(substep.formulas).length > 0 && (
                             <div className="bg-slate-50 p-3 rounded-xl border border-slate-200">
                               {getVisibleFormulas(substep.formulas).map((formula, fIdx) => (
-                                <MathRenderer key={fIdx} content={`$$ ${formula} $$`} />
+                                <MathRenderer key={fIdx} content={toDisplayMathContent(formula)} />
                               ))}
                             </div>
                           )}
@@ -426,7 +471,7 @@ const SolutionViewer: React.FC<SolutionViewerProps> = ({
                       {getVisibleFormulas(step.formulas).length > 0 && (
                         <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
                           {getVisibleFormulas(step.formulas).map((formula, fIdx) => (
-                            <MathRenderer key={fIdx} content={`$$ ${formula} $$`} />
+                            <MathRenderer key={fIdx} content={toDisplayMathContent(formula)} />
                           ))}
                         </div>
                       )}
@@ -537,7 +582,7 @@ const SolutionViewer: React.FC<SolutionViewerProps> = ({
                   <div className="bg-indigo-50/50 rounded-2xl p-4 sm:p-6 border border-indigo-100 flex-1 flex flex-col justify-center items-center space-y-3 sm:space-y-4 shadow-inner overflow-x-auto">
                     {activeStepFormulas.map((formula, idx) => (
                       <div key={idx} className="w-full transition-all duration-500 animate-in fade-in slide-in-from-bottom-4">
-                        <MathRenderer content={`$$ ${formula} $$`} />
+                        <MathRenderer content={toDisplayMathContent(formula)} />
                       </div>
                     ))}
                   </div>
