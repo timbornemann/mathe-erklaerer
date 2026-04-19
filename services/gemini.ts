@@ -146,10 +146,60 @@ const extractJson = (response: any): any => {
 
   try {
     return JSON.parse(raw);
-  } catch {
+  } catch (error) {
     console.error("Failed to parse model response as JSON:", raw.slice(0, 500));
-    throw new Error("Die KI-Antwort konnte nicht verarbeitet werden. Bitte versuche es erneut.");
+    const parseMessage = error instanceof Error ? error.message : 'Unbekannter Parse-Fehler';
+    throw new Error(`Die KI-Antwort konnte nicht verarbeitet werden (${parseMessage}). Bitte versuche es erneut.`);
   }
+};
+
+const wait = (ms: number) => new Promise<void>((resolve) => {
+  globalThis.setTimeout(resolve, ms);
+});
+
+const isRetryableStructuredOutputError = (error: unknown): boolean => {
+  const message = String((error as { message?: string } | undefined)?.message ?? '').toLowerCase();
+  return (
+    message.includes('json') ||
+    message.includes('unterminated') ||
+    message.includes('unexpected end') ||
+    message.includes('could not be processed') ||
+    message.includes('high demand') ||
+    message.includes('unavailable') ||
+    message.includes('503')
+  );
+};
+
+const generateStructuredJson = async (
+  ai: GoogleGenAI,
+  model: string,
+  contents: any,
+  config: any,
+  options?: { maxAttempts?: number; retryDelayMs?: number }
+): Promise<any> => {
+  const maxAttempts = Math.max(1, options?.maxAttempts ?? 3);
+  const retryDelayMs = Math.max(0, options?.retryDelayMs ?? 450);
+  let lastError: unknown;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      const response = await ai.models.generateContent({
+        model,
+        contents,
+        config
+      });
+      return extractJson(response);
+    } catch (error) {
+      lastError = error;
+      const shouldRetry = attempt < maxAttempts && isRetryableStructuredOutputError(error);
+      if (!shouldRetry) {
+        throw error;
+      }
+      await wait(retryDelayMs * attempt);
+    }
+  }
+
+  throw lastError instanceof Error ? lastError : new Error('Unbekannter Fehler bei der JSON-Generierung.');
 };
 
 const buildMathSchema = () => ({
@@ -200,13 +250,14 @@ const generateClassicSolution = async (
 
   parts.push({ text: finalPrompt });
 
-  const response = await ai.models.generateContent({
-    model: modelId,
-    contents: {
+  const parsed = await generateStructuredJson(
+    ai,
+    modelId,
+    {
       role: 'user',
       parts
     },
-    config: {
+    {
       systemInstruction: SYSTEM_PROMPT,
       thinkingConfig: {
         thinkingBudget: 4096,
@@ -215,13 +266,10 @@ const generateClassicSolution = async (
       responseMimeType: "application/json",
       responseSchema: buildMathSchema()
     },
-  });
+    { maxAttempts: 4, retryDelayMs: 600 }
+  );
 
-  if (!response.text) {
-    throw new Error("Keine Antwort erhalten.");
-  }
-
-  return JSON.parse(response.text) as MathSolution;
+  return parsed as MathSolution;
 };
 
 const generateTutorOutline = async (
@@ -229,13 +277,14 @@ const generateTutorOutline = async (
   modelId: string,
   topic: string
 ): Promise<TutorOutline> => {
-  const response = await ai.models.generateContent({
-    model: modelId,
-    contents: {
+  const parsed = await generateStructuredJson(
+    ai,
+    modelId,
+    {
       role: 'user',
       parts: [{ text: `Thema des Lernpfads: ${topic}` }]
     },
-    config: {
+    {
       systemInstruction: TUTOR_OUTLINE_PROMPT,
       thinkingConfig: {
         thinkingBudget: 2048,
@@ -266,13 +315,9 @@ const generateTutorOutline = async (
         required: ["courseTitle", "learnerProfile", "sections", "masteryChecklist"]
       }
     }
-  });
+  );
 
-  if (!response.text) {
-    throw new Error("Tutor-Outline konnte nicht erzeugt werden.");
-  }
-
-  return JSON.parse(response.text) as TutorOutline;
+  return parsed as TutorOutline;
 };
 
 const generateTutorSection = async (
@@ -289,9 +334,10 @@ const generateTutorSection = async (
     ? previousTakeaways.map((item, idx) => `${idx + 1}. ${item}`).join('\n')
     : 'Noch keine vorherigen Lektionen.';
 
-  const response = await ai.models.generateContent({
-    model: modelId,
-    contents: {
+  const parsed = await generateStructuredJson(
+    ai,
+    modelId,
+    {
       role: 'user',
       parts: [{
         text: `
@@ -315,7 +361,7 @@ Wichtig:
 `
       }]
     },
-    config: {
+    {
       systemInstruction: TUTOR_SECTION_PROMPT,
       thinkingConfig: {
         thinkingBudget: 3072,
@@ -342,15 +388,39 @@ Wichtig:
         },
         required: ["title", "substeps", "takeaway"]
       }
-    }
-  });
+    },
+    { maxAttempts: 4, retryDelayMs: 600 }
+  );
 
-  if (!response.text) {
-    throw new Error(`Lektion ${sectionIndex + 1} konnte nicht erzeugt werden.`);
-  }
-
-  return JSON.parse(response.text) as TutorSectionContent;
+  return parsed as TutorSectionContent;
 };
+
+const buildTutorSectionFallback = (
+  sectionTitle: string,
+  sectionIndex: number,
+  reason?: string
+): TutorSectionContent => ({
+  title: sectionTitle || `Lektion ${sectionIndex + 1}`,
+  substeps: [
+    {
+      title: 'Vorlaeufige Platzhalter-Lektion',
+      explanation:
+        `Diese Lektion konnte in diesem Lauf nicht vollstaendig generiert werden.${reason ? ` Fehler: ${reason}` : ''} Starte den Tutor fuer dieses Thema erneut, um den Abschnitt sauber nachzuladen.`,
+      formulas: []
+    }
+  ],
+  takeaway:
+    'Hinweis: Diese Lektion ist ein Platzhalter wegen eines technischen Generierungsfehlers.'
+});
+
+const toLessonSubsteps = (substeps: TutorSubstep[] | undefined): SolutionStep[] =>
+  Array.isArray(substeps)
+    ? substeps.map((substep) => ({
+        title: substep.title,
+        explanation: substep.explanation,
+        formulas: Array.isArray(substep.formulas) ? substep.formulas : []
+      }))
+    : [];
 
 const generateTutorLearningPath = async (
   ai: GoogleGenAI,
@@ -366,41 +436,53 @@ const generateTutorLearningPath = async (
 
   const steps: SolutionStep[] = [];
   const takeaways: string[] = [];
+  const sectionWarnings: string[] = [];
 
   for (let i = 0; i < limitedSections.length; i++) {
     const section = limitedSections[i];
-    const lesson = await generateTutorSection(
-      ai,
-      modelId,
-      topic,
-      outline,
-      section,
-      i,
-      limitedSections.length,
-      takeaways.slice(-3)
-    );
+    let lesson: TutorSectionContent;
+    let generationError: string | undefined;
+    try {
+      lesson = await generateTutorSection(
+        ai,
+        modelId,
+        topic,
+        outline,
+        section,
+        i,
+        limitedSections.length,
+        takeaways.slice(-3)
+      );
+    } catch (error: any) {
+      const reason = error?.message || 'Unbekannter Fehler';
+      sectionWarnings.push(`Lektion ${i + 1}: ${reason}`);
+      generationError = reason;
+      lesson = buildTutorSectionFallback(section.title, i, reason);
+    }
 
-    const lessonSubsteps: SolutionStep[] = Array.isArray(lesson.substeps)
-      ? lesson.substeps.map((substep) => ({
-          title: substep.title,
-          explanation: substep.explanation,
-          formulas: substep.formulas
-        }))
-      : [];
+    const lessonSubsteps = toLessonSubsteps(lesson.substeps);
+    const takeaway = typeof lesson.takeaway === 'string' && lesson.takeaway.trim() !== ''
+      ? lesson.takeaway
+      : `Lektion ${i + 1} abgeschlossen.`;
 
     steps.push({
       title: lesson.title,
-      explanation: lesson.takeaway,
+      explanation: takeaway,
       formulas: [],
-      substeps: lessonSubsteps
+      substeps: lessonSubsteps,
+      generationError
     });
 
-    takeaways.push(lesson.takeaway);
+    takeaways.push(takeaway);
   }
 
   const mastery = outline.masteryChecklist.length
     ? outline.masteryChecklist.map((point, idx) => `${idx + 1}. ${point}`).join('\n')
     : 'Arbeite die Lektionen erneut durch und löse zusätzliche Transferaufgaben.';
+
+  const warningNote = sectionWarnings.length
+    ? `\n\n**Technischer Hinweis:** ${sectionWarnings.length} Lektion(en) wurden als Platzhalter eingefuegt, weil die KI-Antwort dort ungueltiges JSON geliefert hat.`
+    : '';
 
   const finalAnswer = `
 **Lernpfad abgeschlossen: ${outline.courseTitle}**
@@ -409,6 +491,8 @@ Du hast jetzt einen vollständigen Lernpfad von den Grundlagen bis zu Spezialfä
 
 **Mastery-Checkliste:**
 ${mastery}
+
+${warningNote}
 
 **Wiederholen & später ansehen:**
 Dieser Lernpfad wurde in deinem Verlauf gespeichert. Öffne ihn jederzeit erneut und arbeite die Lektionen Schritt für Schritt durch.
@@ -475,13 +559,14 @@ Schwierigkeit: ${difficulty}${examplesSection}${previousSection}${additionalSect
 
 Erstelle eine passende Übungsaufgabe.`;
 
-    const response = await ai.models.generateContent({
-      model: modelId,
-      contents: {
+    const parsed = await generateStructuredJson(
+      ai,
+      modelId,
+      {
         role: 'user',
         parts: [{ text: userPrompt }]
       },
-      config: {
+      {
         systemInstruction: PRACTICE_GENERATE_PROMPT,
         thinkingConfig: { thinkingBudget: 2048 },
         maxOutputTokens: 4096,
@@ -495,9 +580,7 @@ Erstelle eine passende Übungsaufgabe.`;
           required: ["taskText", "description"]
         }
       }
-    });
-
-    const parsed = extractJson(response);
+    );
 
     return {
       taskText: parsed.taskText || "Aufgabe konnte nicht gelesen werden.",
@@ -532,10 +615,11 @@ export const checkPracticeSolution = async (
 
     parts.push({ text: `Aufgabe: ${taskText}${solutionText}` });
 
-    const response = await ai.models.generateContent({
-      model: modelId,
-      contents: { role: 'user', parts },
-      config: {
+    const parsed = await generateStructuredJson(
+      ai,
+      modelId,
+      { role: 'user', parts },
+      {
         systemInstruction: PRACTICE_CHECK_PROMPT,
         thinkingConfig: { thinkingBudget: 4096 },
         maxOutputTokens: 4096,
@@ -549,9 +633,7 @@ export const checkPracticeSolution = async (
           required: ["isCorrect", "feedback"]
         }
       }
-    });
-
-    const parsed = extractJson(response);
+    );
 
     return {
       isCorrect: !!parsed.isCorrect,
@@ -608,42 +690,55 @@ const generateTutorLearningPathProgressive = async (
   onProgress(initialSolution);
 
   const takeaways: string[] = [];
+  const sectionWarnings: string[] = [];
 
   for (let i = 0; i < limitedSections.length; i++) {
     const section = limitedSections[i];
-    const lesson = await generateTutorSection(
-      ai,
-      modelId,
-      topic,
-      outline,
-      section,
-      i,
-      limitedSections.length,
-      takeaways.slice(-3)
-    );
+    let lesson: TutorSectionContent;
+    let generationError: string | undefined;
+    try {
+      lesson = await generateTutorSection(
+        ai,
+        modelId,
+        topic,
+        outline,
+        section,
+        i,
+        limitedSections.length,
+        takeaways.slice(-3)
+      );
+    } catch (error: any) {
+      const reason = error?.message || 'Unbekannter Fehler';
+      sectionWarnings.push(`Lektion ${i + 1}: ${reason}`);
+      generationError = reason;
+      lesson = buildTutorSectionFallback(section.title, i, reason);
+    }
 
-    const lessonSubsteps: SolutionStep[] = Array.isArray(lesson.substeps)
-      ? lesson.substeps.map((substep) => ({
-          title: substep.title,
-          explanation: substep.explanation,
-          formulas: substep.formulas
-        }))
-      : [];
+    const lessonSubsteps = toLessonSubsteps(lesson.substeps);
+    const takeaway = typeof lesson.takeaway === 'string' && lesson.takeaway.trim() !== ''
+      ? lesson.takeaway
+      : `Lektion ${i + 1} abgeschlossen.`;
 
     steps[i] = {
       title: lesson.title,
-      explanation: lesson.takeaway,
+      explanation: takeaway,
       formulas: [],
-      substeps: lessonSubsteps
+      substeps: lessonSubsteps,
+      loading: false,
+      generationError
     };
 
-    takeaways.push(lesson.takeaway);
+    takeaways.push(takeaway);
     onProgress({ steps: [...steps], finalAnswer: initialSolution.finalAnswer });
   }
 
   const mastery = outline.masteryChecklist.length
     ? outline.masteryChecklist.map((point, idx) => `${idx + 1}. ${point}`).join('\n')
     : 'Arbeite die Lektionen erneut durch und löse zusätzliche Transferaufgaben.';
+
+  const warningNote = sectionWarnings.length
+    ? `\n\n**Technischer Hinweis:** ${sectionWarnings.length} Lektion(en) wurden als Platzhalter eingefuegt, weil die KI-Antwort dort ungueltiges JSON geliefert hat.`
+    : '';
 
   const finalAnswer = `
 **Lernpfad abgeschlossen: ${outline.courseTitle}**
@@ -653,12 +748,159 @@ Du hast jetzt einen vollständigen Lernpfad von den Grundlagen bis zu Spezialfä
 **Mastery-Checkliste:**
 ${mastery}
 
+${warningNote}
+
 **Wiederholen & später ansehen:**
 Dieser Lernpfad wurde in deinem Verlauf gespeichert. Öffne ihn jederzeit erneut und arbeite die Lektionen Schritt für Schritt durch.
 `;
 
   const completeSolution: MathSolution = { steps, finalAnswer };
   onProgress(completeSolution);
+  return completeSolution;
+};
+
+const isRetryableTutorStep = (step: SolutionStep | undefined): boolean => {
+  if (!step) return true;
+  const generationError = typeof step.generationError === 'string' ? step.generationError.trim() : '';
+  return step.loading === true || generationError.length > 0;
+};
+
+const sanitizeFormulas = (value: unknown): string[] =>
+  Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === 'string') : [];
+
+const sanitizeSubsteps = (substeps: SolutionStep[] | undefined): SolutionStep[] | undefined => {
+  if (!Array.isArray(substeps)) return undefined;
+  return substeps.map((substep, index) => ({
+    title: typeof substep.title === 'string' && substep.title.trim() !== '' ? substep.title : `Schritt ${index + 1}`,
+    explanation: typeof substep.explanation === 'string' ? substep.explanation : '',
+    formulas: sanitizeFormulas(substep.formulas),
+    substeps: sanitizeSubsteps(substep.substeps),
+    loading: substep.loading === true,
+    generationError: typeof substep.generationError === 'string' ? substep.generationError : undefined
+  }));
+};
+
+const normalizeTutorSteps = (steps: SolutionStep[]): SolutionStep[] =>
+  steps.map((step, index) => ({
+    title: typeof step.title === 'string' && step.title.trim() !== '' ? step.title : `Lektion ${index + 1}`,
+    explanation: typeof step.explanation === 'string' ? step.explanation : '',
+    formulas: sanitizeFormulas(step.formulas),
+    substeps: sanitizeSubsteps(step.substeps),
+    loading: step.loading === true,
+    generationError: typeof step.generationError === 'string' ? step.generationError : undefined
+  }));
+
+export const resumeTutorSolution = async (
+  topic: string,
+  existingSolution: MathSolution,
+  options?: SolveMathOptions
+): Promise<MathSolution> => {
+  const ai = new GoogleGenAI({ apiKey: getApiKey() });
+  const modelId = 'gemini-3-pro-preview';
+
+  const existingSteps = normalizeTutorSteps(Array.isArray(existingSolution.steps) ? existingSolution.steps : []);
+  if (!existingSteps.length) {
+    return await generateTutorLearningPathProgressive(ai, modelId, topic, (partial) => {
+      options?.onTutorProgress?.(partial);
+    });
+  }
+
+  const firstRetryIndex = existingSteps.findIndex((step) => isRetryableTutorStep(step));
+  if (firstRetryIndex === -1) {
+    return existingSolution;
+  }
+
+  const steps: SolutionStep[] = [...existingSteps];
+  const outline: TutorOutline = {
+    courseTitle: `Lernpfad: ${topic}`,
+    learnerProfile: 'Fortsetzung eines bereits begonnenen Tutor-Lernpfads.',
+    sections: steps.map((step, idx) => ({
+      id: `resume-${idx + 1}`,
+      title: step.title || `Lektion ${idx + 1}`,
+      goals: [],
+      focusLevel: 'Fortsetzung',
+      specialCases: []
+    })),
+    masteryChecklist: []
+  };
+
+  const takeaways = steps
+    .slice(0, firstRetryIndex)
+    .map((step) => (typeof step.explanation === 'string' ? step.explanation.trim() : ''))
+    .filter((entry) => entry.length > 0);
+
+  const interimFinalAnswer =
+    existingSolution.finalAnswer && existingSolution.finalAnswer.trim() !== ''
+      ? existingSolution.finalAnswer
+      : 'Lernpfad wird fortgesetzt...';
+
+  options?.onTutorProgress?.({ steps: [...steps], finalAnswer: interimFinalAnswer });
+
+  const sectionWarnings: string[] = [];
+  for (let i = firstRetryIndex; i < steps.length; i++) {
+    if (!isRetryableTutorStep(steps[i])) {
+      const takeaway = steps[i].explanation?.trim();
+      if (takeaway) {
+        takeaways.push(takeaway);
+      }
+      continue;
+    }
+
+    let lesson: TutorSectionContent;
+    let generationError: string | undefined;
+
+    try {
+      lesson = await generateTutorSection(
+        ai,
+        modelId,
+        topic,
+        outline,
+        outline.sections[i],
+        i,
+        steps.length,
+        takeaways.slice(-3)
+      );
+    } catch (error: any) {
+      const reason = error?.message || 'Unbekannter Fehler';
+      generationError = reason;
+      sectionWarnings.push(`Lektion ${i + 1}: ${reason}`);
+      lesson = buildTutorSectionFallback(steps[i].title, i, reason);
+    }
+
+    const takeaway = typeof lesson.takeaway === 'string' && lesson.takeaway.trim() !== ''
+      ? lesson.takeaway
+      : `Lektion ${i + 1} abgeschlossen.`;
+    const lessonSubsteps = toLessonSubsteps(lesson.substeps);
+
+    steps[i] = {
+      title: lesson.title || steps[i].title || `Lektion ${i + 1}`,
+      explanation: takeaway,
+      formulas: [],
+      substeps: lessonSubsteps,
+      loading: false,
+      generationError
+    };
+
+    takeaways.push(takeaway);
+    options?.onTutorProgress?.({ steps: [...steps], finalAnswer: interimFinalAnswer });
+  }
+
+  const unresolvedCount = steps.filter((step) => isRetryableTutorStep(step)).length;
+  const warningNote = unresolvedCount
+    ? `\n\n**Technischer Hinweis:** ${unresolvedCount} Lektion(en) konnten weiterhin nicht erzeugt werden.`
+    : '';
+  const warningDetails = sectionWarnings.length
+    ? `\n${sectionWarnings.map((entry) => `- ${entry}`).join('\n')}`
+    : '';
+
+  const finalAnswerBase =
+    existingSolution.finalAnswer && !/wird erstellt/i.test(existingSolution.finalAnswer)
+      ? existingSolution.finalAnswer
+      : `**Lernpfad aktualisiert: ${topic}**\n\nDer bestehende Lernpfad wurde ab der fehlgeschlagenen Lektion fortgesetzt.`;
+
+  const finalAnswer = `${finalAnswerBase}${warningNote}${warningDetails}`.trim();
+  const completeSolution: MathSolution = { steps, finalAnswer };
+  options?.onTutorProgress?.(completeSolution);
   return completeSolution;
 };
 
