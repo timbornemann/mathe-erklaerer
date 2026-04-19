@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, ArrowRight, Clock3, FileWarning, ImageIcon, Loader2, Send, X } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Clock3, Download, FileText, FileWarning, ImageIcon, Loader2, Send, X } from 'lucide-react';
 import { ExamSession as ExamSessionType, ExamTask } from '../types';
 import MathRenderer from './MathRenderer';
 
@@ -9,6 +9,8 @@ interface ExamSessionProps {
   onTaskUpdated: (task: ExamTask) => void;
   onSubmit: (reason: 'manual' | 'timeout') => void;
   onBack: () => void;
+  onDownloadMarkdown: () => void;
+  onDownloadPdf: () => void;
 }
 
 const formatClock = (seconds: number) => {
@@ -23,7 +25,9 @@ const ExamSession: React.FC<ExamSessionProps> = ({
   isSubmitting,
   onTaskUpdated,
   onSubmit,
-  onBack
+  onBack,
+  onDownloadMarkdown,
+  onDownloadPdf
 }) => {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [remainingSeconds, setRemainingSeconds] = useState(() =>
@@ -123,7 +127,7 @@ const ExamSession: React.FC<ExamSessionProps> = ({
 
   return (
     <div className="w-full max-w-4xl space-y-4">
-      <div className="flex items-center justify-between px-1">
+      <div className="flex flex-col gap-2 px-1 sm:flex-row sm:items-center sm:justify-between">
         <button
           onClick={onBack}
           className="flex items-center gap-1.5 text-sm text-slate-500 hover:text-indigo-600 transition-colors"
@@ -131,9 +135,25 @@ const ExamSession: React.FC<ExamSessionProps> = ({
           <ArrowLeft className="w-4 h-4" />
           Zurück
         </button>
-        <div className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-semibold ${warning ? 'bg-red-50 text-red-700' : 'bg-indigo-50 text-indigo-700'}`}>
-          <Clock3 className="w-4 h-4" />
-          {formatClock(remainingSeconds)}
+        <div className="flex flex-wrap items-center gap-2 sm:justify-end">
+          <button
+            onClick={onDownloadMarkdown}
+            className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700 transition-colors"
+          >
+            <FileText className="w-3.5 h-3.5" />
+            Markdown
+          </button>
+          <button
+            onClick={onDownloadPdf}
+            className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700 transition-colors"
+          >
+            <Download className="w-3.5 h-3.5" />
+            PDF
+          </button>
+          <div className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-semibold ${warning ? 'bg-red-50 text-red-700' : 'bg-indigo-50 text-indigo-700'}`}>
+            <Clock3 className="w-4 h-4" />
+            {formatClock(remainingSeconds)}
+          </div>
         </div>
       </div>
 
