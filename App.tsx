@@ -13,6 +13,12 @@ import ExamSession from './components/ExamSession';
 import ExamResultView from './components/ExamResultView';
 import { MathState, InputMode, HistoryItem, MathSolution, PracticeRoom, PracticeTask, ExamSession as ExamSessionType, ExamTask, HistoryStatus } from './types';
 import { buildExportData, serializeExportData, parseAndValidateExport, applyImportData, ImportStrategy } from './services/exportImport';
+import {
+  downloadExamAsMarkdown,
+  downloadExamAsPdf,
+  downloadSolutionAsMarkdown,
+  downloadSolutionAsPdf
+} from './services/documentExport';
 import { 
   Calculator, 
   X, 
@@ -474,6 +480,59 @@ const App: React.FC = () => {
 
     reader.readAsText(file, 'utf-8');
   };
+
+  const buildActivePromptForExport = useCallback((): string => {
+    if (state.textInput.trim()) {
+      return state.textInput.trim();
+    }
+    if (state.inputMode === InputMode.IMAGE) {
+      return 'Foto-Analyse';
+    }
+    if (state.inputMode === InputMode.TUTOR) {
+      return 'Tutor-Lektion';
+    }
+    return 'Mathe-Aufgabe';
+  }, [state.inputMode, state.textInput]);
+
+  const handleDownloadSolutionMarkdown = useCallback(() => {
+    if (!state.solution) return;
+    try {
+      const prompt = buildActivePromptForExport();
+      downloadSolutionAsMarkdown(state.solution, prompt);
+    } catch (error) {
+      console.error(error);
+      window.alert('Markdown-Export der Loesung fehlgeschlagen.');
+    }
+  }, [buildActivePromptForExport, state.solution]);
+
+  const handleDownloadSolutionPdf = useCallback(() => {
+    if (!state.solution) return;
+    try {
+      const prompt = buildActivePromptForExport();
+      downloadSolutionAsPdf(state.solution, prompt);
+    } catch (error: any) {
+      console.error(error);
+      window.alert(error?.message || 'PDF-Export der Loesung fehlgeschlagen.');
+    }
+  }, [buildActivePromptForExport, state.solution]);
+
+  const handleDownloadExamMarkdown = useCallback((session: ExamSessionType) => {
+    try {
+      downloadExamAsMarkdown(session);
+    } catch (error) {
+      console.error(error);
+      window.alert('Markdown-Export der Pruefung fehlgeschlagen.');
+    }
+  }, []);
+
+  const handleDownloadExamPdf = useCallback((session: ExamSessionType) => {
+    try {
+      downloadExamAsPdf(session);
+    } catch (error: any) {
+      console.error(error);
+      window.alert(error?.message || 'PDF-Export der Pruefung fehlgeschlagen.');
+    }
+  }, []);
 
   const handleSubmit = useCallback(async () => {
     if (state.isLoading && state.inputMode !== InputMode.TUTOR) return;
@@ -1009,6 +1068,8 @@ const App: React.FC = () => {
           onReset={handleReset} 
           initialView={solutionOpenView}
           initialPrompt={state.textInput || (state.inputMode === InputMode.IMAGE ? "Foto-Analyse" : "Dein Mathe-Problem")}
+          onDownloadMarkdown={handleDownloadSolutionMarkdown}
+          onDownloadPdf={handleDownloadSolutionPdf}
         />
       </div>
     );
@@ -1164,6 +1225,8 @@ const App: React.FC = () => {
           onTaskUpdated={handleExamTaskUpdated}
           onSubmit={handleExamSubmit}
           onBack={() => setExamView('setup')}
+          onDownloadMarkdown={() => handleDownloadExamMarkdown(state.activeExamSession!)}
+          onDownloadPdf={() => handleDownloadExamPdf(state.activeExamSession!)}
         />
 
         <footer className="mt-8 md:mt-12 text-slate-400 text-xs sm:text-sm text-center px-4">
@@ -1212,6 +1275,8 @@ const App: React.FC = () => {
 
         <ExamResultView
           session={state.activeExamSession}
+          onDownloadMarkdown={() => handleDownloadExamMarkdown(state.activeExamSession!)}
+          onDownloadPdf={() => handleDownloadExamPdf(state.activeExamSession!)}
           onBackToSetup={() => {
             setState(prev => ({ ...prev, activeExamSession: null }));
             setExamView('setup');
