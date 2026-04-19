@@ -13,6 +13,8 @@ export interface SolutionStep {
   substeps?: SolutionStep[];
   /** When true, step is a placeholder (skeleton) while the lesson is still being generated. */
   loading?: boolean;
+  /** Optional generation error for this lesson/step to allow targeted manual retry. */
+  generationError?: string;
 }
 
 export interface MathSolution {
