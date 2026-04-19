@@ -135,6 +135,27 @@ const loadMermaid = async (): Promise<MermaidApi> => {
   return mermaidPromise;
 };
 
+const escapeMermaidLabel = (label: string): string =>
+  label.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+
+const sanitizeMermaidSource = (source: string): string => {
+  let next = source;
+
+  // Quote square-bracket labels with special chars, e.g. C[|] -> C["|"].
+  next = next.replace(
+    /(\b[A-Za-z0-9_-]+)\[\s*([^\]\n"]*?[^\w\s][^\]\n"]*)\s*\]/g,
+    (_match, id: string, label: string) => `${id}["${escapeMermaidLabel(label.trim())}"]`
+  );
+
+  // Quote double-circle labels with special chars, e.g. A((★)) -> A(("★")).
+  next = next.replace(
+    /(\b[A-Za-z0-9_-]+)\(\(\s*([^\)\n"]*?[^\w\s][^\)\n"]*)\s*\)\)/g,
+    (_match, id: string, label: string) => `${id}(("${escapeMermaidLabel(label.trim())}"))`
+  );
+
+  return next;
+};
+
 const loadFunctionPlot = async (): Promise<FunctionPlotFn> => {
   if (!functionPlotPromise) {
     functionPlotPromise = import('function-plot').then((module) => {
@@ -276,6 +297,12 @@ const MermaidBlock: React.FC<{ code: string }> = ({ code }) => {
     let cancelled = false;
 
     const renderMermaid = async () => {
+      const renderSvg = async (mermaid: MermaidApi, source: string): Promise<string> => {
+        const renderId = `mermaid-${Math.random().toString(36).slice(2, 11)}`;
+        const rendered = await mermaid.render(renderId, source);
+        return typeof rendered === 'string' ? rendered : rendered.svg;
+      };
+
       try {
         setSvg(null);
         setError(null);
@@ -289,9 +316,16 @@ const MermaidBlock: React.FC<{ code: string }> = ({ code }) => {
           mermaidInitialized = true;
         }
 
-        const renderId = `mermaid-${Math.random().toString(36).slice(2, 11)}`;
-        const rendered = await mermaid.render(renderId, code);
-        const nextSvg = typeof rendered === 'string' ? rendered : rendered.svg;
+        let nextSvg: string;
+        try {
+          nextSvg = await renderSvg(mermaid, code);
+        } catch (firstError) {
+          const sanitized = sanitizeMermaidSource(code);
+          if (sanitized === code) {
+            throw firstError;
+          }
+          nextSvg = await renderSvg(mermaid, sanitized);
+        }
 
         if (!cancelled) {
           setSvg(nextSvg);
