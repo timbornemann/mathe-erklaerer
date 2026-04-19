@@ -11,6 +11,7 @@ import PracticeRoomDetail from './components/PracticeRoomDetail';
 import ExamSetup, { ExamConfig } from './components/ExamSetup';
 import ExamSession from './components/ExamSession';
 import ExamResultView from './components/ExamResultView';
+import PrintExportPage from './components/PrintExportPage';
 import { MathState, InputMode, HistoryItem, MathSolution, PracticeRoom, PracticeTask, ExamSession as ExamSessionType, ExamTask, HistoryStatus } from './types';
 import { buildExportData, serializeExportData, parseAndValidateExport, applyImportData, ImportStrategy } from './services/exportImport';
 import {
@@ -124,6 +125,10 @@ const App: React.FC = () => {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [activeSolutionHistoryId, setActiveSolutionHistoryId] = useState<string | null>(null);
   const [solutionOpenView, setSolutionOpenView] = useState<SolutionOpenView>('start');
+  const printExportKey =
+    typeof window !== 'undefined'
+      ? new URLSearchParams(window.location.search).get('printExport')
+      : null;
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const importFileInputRef = useRef<HTMLInputElement>(null);
@@ -1024,6 +1029,10 @@ const App: React.FC = () => {
     }
     setExamView('session');
   };
+
+  if (printExportKey) {
+    return <PrintExportPage exportKey={printExportKey} />;
+  }
 
   // ── Render: Solution view ──
   if (state.solution && state.inputMode !== InputMode.PRACTICE) {
