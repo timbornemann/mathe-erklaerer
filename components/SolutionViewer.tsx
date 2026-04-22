@@ -103,6 +103,14 @@ const SolutionViewer: React.FC<SolutionViewerProps> = ({
   const activeStep = hasSubsteps && currentSubstepIndex < totalSubstepsInLesson
     ? currentLesson.substeps![currentSubstepIndex]
     : currentLesson;
+  const chatContextSteps = hasSubsteps ? (currentLesson.substeps ?? []) : solution.steps;
+  const chatContextStepIndex = hasSubsteps ? currentSubstepIndex : currentStep;
+  const chatStepLabel = hasSubsteps
+    ? `Lektion ${currentStep + 1}, Schritt ${currentSubstepIndex + 1}`
+    : `Schritt ${currentStep + 1}`;
+  const chatStepScopeKey = hasSubsteps
+    ? `lesson-${currentStep}-substep-${currentSubstepIndex}`
+    : `lesson-${currentStep}`;
   const hasLoadingSteps = solution.steps.some((s) => s.loading === true);
   const summaryFinalAnswer = useMemo(() => {
     const rawFinal = (solution.finalAnswer || '').trim();
@@ -646,8 +654,10 @@ const SolutionViewer: React.FC<SolutionViewerProps> = ({
         isOpen={isSidePanelOpen}
         onToggle={() => setIsSidePanelOpen(!isSidePanelOpen)}
         currentStep={activeStep}
-        allSteps={solution.steps}
-        stepIndex={currentStep}
+        allSteps={chatContextSteps}
+        stepIndex={chatContextStepIndex}
+        stepLabel={chatStepLabel}
+        stepScopeKey={chatStepScopeKey}
         initialPrompt={initialPrompt}
       />
     </div>
