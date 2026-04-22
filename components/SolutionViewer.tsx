@@ -1,8 +1,9 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { MathSolution } from '../types';
 import MathRenderer from './MathRenderer';
 import SidePanel from './SidePanel';
-import { ChevronLeft, ChevronRight, List, CheckCircle2, RotateCcw, Loader2, X, Download, FileText } from 'lucide-react';
+import { ChevronLeft, ChevronRight, List, CheckCircle2, RotateCcw, Loader2, X, Download, FileText, Play, Square, Volume2, VolumeX } from 'lucide-react';
+import { speakText } from '../services/tts';
 
 interface SolutionViewerProps {
   solution: MathSolution;
@@ -81,6 +82,21 @@ const repairLatexBraces = (input: string): string => {
 
 const toDisplayMathContent = (formula: string): string => `$$ ${repairLatexBraces(formula)} $$`;
 
+const buildStepNarrationText = (
+  stepLabel: string,
+  stepTitle: string,
+  stepExplanation: string,
+  formulas: string[]
+): string => {
+  const cleanTitle = stepTitle.trim() || stepLabel;
+  const cleanExplanation = stepExplanation.trim() || 'Zu diesem Schritt gibt es noch keine Erklaerung.';
+  const formulasText = formulas.length
+    ? formulas.map((formula, idx) => `Formel ${idx + 1}: ${repairLatexBraces(formula)}.`).join(' ')
+    : 'Es gibt in diesem Schritt keine neue Formel.';
+
+  return `${stepLabel}. ${cleanTitle}. Erklaerung: ${cleanExplanation}. ${formulasText}`;
+};
+
 const SolutionViewer: React.FC<SolutionViewerProps> = ({
   solution,
   initialPrompt,
@@ -94,6 +110,12 @@ const SolutionViewer: React.FC<SolutionViewerProps> = ({
   const [showSummary, setShowSummary] = useState(initialView === 'summary');
   const [isSidePanelOpen, setIsSidePanelOpen] = useState(false);
   const [isTocOpenMobile, setIsTocOpenMobile] = useState(false);
+  const [isStepNarratorEnabled, setIsStepNarratorEnabled] = useState(false);
+  const [isStepNarratorLoading, setIsStepNarratorLoading] = useState(false);
+  const [isStepNarratorPlaying, setIsStepNarratorPlaying] = useState(false);
+  const [stepNarratorError, setStepNarratorError] = useState<string | null>(null);
+  const stepNarratorAudioRef = useRef<HTMLAudioElement | null>(null);
+  const stepNarratorRequestIdRef = useRef(0);
 
   const totalSteps = solution.steps.length;
   const currentLesson = solution.steps[currentStep] ?? solution.steps[0];
@@ -141,6 +163,99 @@ const SolutionViewer: React.FC<SolutionViewerProps> = ({
 
   const currentUnitIndex = unitsBeforeCurrentLesson + (hasSubsteps ? currentSubstepIndex : 0);
   const activeStepFormulas = getVisibleFormulas(activeStep?.formulas);
+  const stepNarrationText = buildStepNarrationText(
+    chatStepLabel,
+    activeStep?.title ?? currentLesson?.title ?? '',
+    activeStep?.explanation ?? '',
+    activeStepFormulas
+  );
+
+  const stopStepNarration = () => {
+    stepNarratorRequestIdRef.current += 1;
+    const activeAudio = stepNarratorAudioRef.current;
+    if (activeAudio) {
+      activeAudio.pause();
+      activeAudio.currentTime = 0;
+      stepNarratorAudioRef.current = null;
+    }
+    setIsStepNarratorLoading(false);
+    setIsStepNarratorPlaying(false);
+  };
+
+  const playStepNarration = async () => {
+    if (showSummary || isCurrentStepLoading) return;
+
+    stopStepNarration();
+    const requestId = stepNarratorRequestIdRef.current;
+    setStepNarratorError(null);
+    setIsStepNarratorLoading(true);
+
+    try {
+      const audio = await speakText(stepNarrationText);
+
+      if (requestId !== stepNarratorRequestIdRef.current) {
+        audio.pause();
+        return;
+      }
+
+      stepNarratorAudioRef.current = audio;
+      audio.onended = () => {
+        if (stepNarratorAudioRef.current === audio) {
+          stepNarratorAudioRef.current = null;
+        }
+        setIsStepNarratorPlaying(false);
+        setIsStepNarratorLoading(false);
+      };
+
+      await audio.play();
+
+      if (requestId !== stepNarratorRequestIdRef.current) {
+        audio.pause();
+        return;
+      }
+
+      setIsStepNarratorPlaying(true);
+      setIsStepNarratorLoading(false);
+    } catch (error: any) {
+      if (requestId !== stepNarratorRequestIdRef.current) {
+        return;
+      }
+      setIsStepNarratorLoading(false);
+      setIsStepNarratorPlaying(false);
+      setStepNarratorError(error?.message || 'Sprachausgabe fehlgeschlagen.');
+      setIsStepNarratorEnabled(false);
+    }
+  };
+
+  const handleToggleStepNarrator = () => {
+    setStepNarratorError(null);
+    setIsStepNarratorEnabled((prev) => !prev);
+  };
+
+  const handleStepNarrationAction = () => {
+    if (isStepNarratorLoading || isStepNarratorPlaying) {
+      stopStepNarration();
+      return;
+    }
+    void playStepNarration();
+  };
+
+  useEffect(() => {
+    return () => {
+      stopStepNarration();
+    };
+  }, []);
+
+  useEffect(() => {
+    stopStepNarration();
+  }, [currentStep, currentSubstepIndex, showSummary]);
+
+  useEffect(() => {
+    if (!isStepNarratorEnabled || showSummary || isCurrentStepLoading) {
+      return;
+    }
+    void playStepNarration();
+  }, [isStepNarratorEnabled, currentStep, currentSubstepIndex, showSummary, isCurrentStepLoading, stepNarrationText]);
 
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -565,6 +680,43 @@ const SolutionViewer: React.FC<SolutionViewerProps> = ({
           </div>
 
           <div className="p-4 sm:p-6 md:p-8 flex-1 flex flex-col">
+            <div className="mb-4 sm:mb-6 flex flex-wrap items-center gap-2">
+              <button
+                onClick={handleToggleStepNarrator}
+                className={`inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-xs sm:text-sm font-semibold transition-colors ${
+                  isStepNarratorEnabled
+                    ? 'border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+                    : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                }`}
+                title={isStepNarratorEnabled ? 'Auto-Vorlesen deaktivieren' : 'Auto-Vorlesen aktivieren'}
+              >
+                {isStepNarratorEnabled ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
+                <span>{isStepNarratorEnabled ? 'Auto-Erklaerer an' : 'Auto-Erklaerer aus'}</span>
+              </button>
+
+              <button
+                onClick={handleStepNarrationAction}
+                disabled={showSummary || isCurrentStepLoading}
+                className="inline-flex items-center gap-2 rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs sm:text-sm font-semibold text-indigo-700 transition-colors hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-60"
+                title={isStepNarratorPlaying || isStepNarratorLoading ? 'Vorlesen stoppen' : 'Aktuellen Schritt vorlesen'}
+              >
+                {isStepNarratorLoading ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : isStepNarratorPlaying ? (
+                  <Square className="w-4 h-4" />
+                ) : (
+                  <Play className="w-4 h-4" />
+                )}
+                <span>{isStepNarratorPlaying || isStepNarratorLoading ? 'Stop' : 'Schritt vorlesen'}</span>
+              </button>
+
+              {stepNarratorError && (
+                <span className="text-xs font-semibold text-red-500">
+                  {stepNarratorError}
+                </span>
+              )}
+            </div>
+
             {isCurrentStepLoading ? (
               <>
                 <div className="space-y-3 mb-6 sm:mb-8" aria-hidden>
