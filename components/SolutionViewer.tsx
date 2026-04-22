@@ -97,6 +97,104 @@ const buildStepNarrationText = (
   return `${stepLabel}. ${cleanTitle}. Erklaerung: ${cleanExplanation}. ${formulasText}`;
 };
 
+type UnitPosition = {
+  lessonIndex: number;
+  substepIndex: number;
+};
+
+type LessonStep = MathSolution['steps'][number];
+
+type UnitContext = {
+  key: string;
+  label: string;
+  lesson: LessonStep;
+  step: LessonStep;
+  hasSubsteps: boolean;
+  lessonLoading: boolean;
+  position: UnitPosition;
+};
+
+const getLessonSubsteps = (lesson?: LessonStep): LessonStep[] => {
+  if (!lesson || !Array.isArray(lesson.substeps) || lesson.substeps.length === 0) {
+    return [];
+  }
+  return lesson.substeps;
+};
+
+const getUnitContext = (steps: LessonStep[], position: UnitPosition): UnitContext | null => {
+  if (position.lessonIndex < 0 || position.lessonIndex >= steps.length) return null;
+
+  const lesson = steps[position.lessonIndex];
+  const substeps = getLessonSubsteps(lesson);
+
+  if (substeps.length > 0) {
+    const boundedSubstepIndex = Math.max(0, Math.min(position.substepIndex, substeps.length - 1));
+    const step = substeps[boundedSubstepIndex];
+    return {
+      key: `lesson-${position.lessonIndex}-substep-${boundedSubstepIndex}`,
+      label: `Lektion ${position.lessonIndex + 1}, Schritt ${boundedSubstepIndex + 1}`,
+      lesson,
+      step,
+      hasSubsteps: true,
+      lessonLoading: lesson.loading === true,
+      position: { lessonIndex: position.lessonIndex, substepIndex: boundedSubstepIndex }
+    };
+  }
+
+  return {
+    key: `lesson-${position.lessonIndex}`,
+    label: `Schritt ${position.lessonIndex + 1}`,
+    lesson,
+    step: lesson,
+    hasSubsteps: false,
+    lessonLoading: lesson.loading === true,
+    position: { lessonIndex: position.lessonIndex, substepIndex: 0 }
+  };
+};
+
+const getNextUnitPosition = (steps: LessonStep[], position: UnitPosition): UnitPosition | null => {
+  const current = getUnitContext(steps, position);
+  if (!current) return null;
+
+  if (current.hasSubsteps) {
+    const substeps = getLessonSubsteps(current.lesson);
+    if (current.position.substepIndex < substeps.length - 1) {
+      return { lessonIndex: current.position.lessonIndex, substepIndex: current.position.substepIndex + 1 };
+    }
+  }
+
+  if (current.position.lessonIndex < steps.length - 1) {
+    return { lessonIndex: current.position.lessonIndex + 1, substepIndex: 0 };
+  }
+
+  return null;
+};
+
+const releaseNarrationAudio = (audio: HTMLAudioElement | null) => {
+  if (!audio) return;
+  try {
+    audio.pause();
+  } catch (_err) {
+    // no-op
+  }
+  try {
+    audio.currentTime = 0;
+  } catch (_err) {
+    // no-op
+  }
+  const src = audio.src;
+  if (src && src.startsWith('blob:')) {
+    try {
+      URL.revokeObjectURL(src);
+    } catch (_err) {
+      // no-op
+    }
+  }
+  audio.onended = null;
+  audio.onerror = null;
+  audio.src = '';
+};
+
 const SolutionViewer: React.FC<SolutionViewerProps> = ({
   solution,
   initialPrompt,
@@ -116,6 +214,8 @@ const SolutionViewer: React.FC<SolutionViewerProps> = ({
   const [stepNarratorError, setStepNarratorError] = useState<string | null>(null);
   const stepNarratorAudioRef = useRef<HTMLAudioElement | null>(null);
   const stepNarratorRequestIdRef = useRef(0);
+  const preloadedStepNarrationRef = useRef<{ key: string; audio: HTMLAudioElement } | null>(null);
+  const preloadingStepNarrationKeyRef = useRef<string | null>(null);
 
   const totalSteps = solution.steps.length;
   const currentLesson = solution.steps[currentStep] ?? solution.steps[0];
@@ -125,14 +225,16 @@ const SolutionViewer: React.FC<SolutionViewerProps> = ({
   const activeStep = hasSubsteps && currentSubstepIndex < totalSubstepsInLesson
     ? currentLesson.substeps![currentSubstepIndex]
     : currentLesson;
+  const currentUnitPosition: UnitPosition = { lessonIndex: currentStep, substepIndex: currentSubstepIndex };
+  const currentUnitContext = getUnitContext(solution.steps, currentUnitPosition);
   const chatContextSteps = hasSubsteps ? (currentLesson.substeps ?? []) : solution.steps;
   const chatContextStepIndex = hasSubsteps ? currentSubstepIndex : currentStep;
-  const chatStepLabel = hasSubsteps
+  const chatStepLabel = currentUnitContext?.label ?? (hasSubsteps
     ? `Lektion ${currentStep + 1}, Schritt ${currentSubstepIndex + 1}`
-    : `Schritt ${currentStep + 1}`;
-  const chatStepScopeKey = hasSubsteps
+    : `Schritt ${currentStep + 1}`);
+  const chatStepScopeKey = currentUnitContext?.key ?? (hasSubsteps
     ? `lesson-${currentStep}-substep-${currentSubstepIndex}`
-    : `lesson-${currentStep}`;
+    : `lesson-${currentStep}`);
   const hasLoadingSteps = solution.steps.some((s) => s.loading === true);
   const summaryFinalAnswer = useMemo(() => {
     const rawFinal = (solution.finalAnswer || '').trim();
@@ -163,59 +265,141 @@ const SolutionViewer: React.FC<SolutionViewerProps> = ({
 
   const currentUnitIndex = unitsBeforeCurrentLesson + (hasSubsteps ? currentSubstepIndex : 0);
   const activeStepFormulas = getVisibleFormulas(activeStep?.formulas);
-  const stepNarrationText = buildStepNarrationText(
-    chatStepLabel,
-    activeStep?.title ?? currentLesson?.title ?? '',
-    activeStep?.explanation ?? '',
-    activeStepFormulas
-  );
+
+  const clearPreloadedStepNarration = () => {
+    preloadingStepNarrationKeyRef.current = null;
+    if (preloadedStepNarrationRef.current) {
+      releaseNarrationAudio(preloadedStepNarrationRef.current.audio);
+      preloadedStepNarrationRef.current = null;
+    }
+  };
 
   const stopStepNarration = () => {
     stepNarratorRequestIdRef.current += 1;
-    const activeAudio = stepNarratorAudioRef.current;
-    if (activeAudio) {
-      activeAudio.pause();
-      activeAudio.currentTime = 0;
-      stepNarratorAudioRef.current = null;
-    }
+    releaseNarrationAudio(stepNarratorAudioRef.current);
+    stepNarratorAudioRef.current = null;
     setIsStepNarratorLoading(false);
     setIsStepNarratorPlaying(false);
   };
 
+  const preloadStepNarrationForPosition = async (fromPosition: UnitPosition) => {
+    if (!isStepNarratorEnabled || showSummary) return;
+
+    const nextPosition = getNextUnitPosition(solution.steps, fromPosition);
+    if (!nextPosition) {
+      clearPreloadedStepNarration();
+      return;
+    }
+
+    const nextContext = getUnitContext(solution.steps, nextPosition);
+    if (!nextContext || nextContext.lessonLoading) return;
+
+    if (preloadedStepNarrationRef.current?.key === nextContext.key) return;
+    if (preloadingStepNarrationKeyRef.current === nextContext.key) return;
+
+    if (preloadedStepNarrationRef.current && preloadedStepNarrationRef.current.key !== nextContext.key) {
+      releaseNarrationAudio(preloadedStepNarrationRef.current.audio);
+      preloadedStepNarrationRef.current = null;
+    }
+
+    preloadingStepNarrationKeyRef.current = nextContext.key;
+
+    const nextFormulas = getVisibleFormulas(nextContext.step.formulas);
+    const nextText = buildStepNarrationText(
+      nextContext.label,
+      nextContext.step.title ?? '',
+      nextContext.step.explanation ?? '',
+      nextFormulas
+    );
+
+    try {
+      const preloadedAudio = await speakText(nextText);
+      if (!isStepNarratorEnabled || preloadingStepNarrationKeyRef.current !== nextContext.key) {
+        releaseNarrationAudio(preloadedAudio);
+        return;
+      }
+      if (preloadedStepNarrationRef.current) {
+        releaseNarrationAudio(preloadedStepNarrationRef.current.audio);
+      }
+      preloadedStepNarrationRef.current = { key: nextContext.key, audio: preloadedAudio };
+    } catch (error) {
+      console.warn('Step narration preload failed:', error);
+    } finally {
+      if (preloadingStepNarrationKeyRef.current === nextContext.key) {
+        preloadingStepNarrationKeyRef.current = null;
+      }
+    }
+  };
+
   const playStepNarration = async () => {
     if (showSummary || isCurrentStepLoading) return;
+    const currentContext = getUnitContext(solution.steps, currentUnitPosition);
+    if (!currentContext) return;
 
     stopStepNarration();
     const requestId = stepNarratorRequestIdRef.current;
+    const shouldAutoAdvance = isStepNarratorEnabled;
+    const nextPositionAfterPlayback = shouldAutoAdvance
+      ? getNextUnitPosition(solution.steps, currentContext.position)
+      : null;
     setStepNarratorError(null);
     setIsStepNarratorLoading(true);
 
     try {
-      const audio = await speakText(stepNarrationText);
+      let audio: HTMLAudioElement;
+      if (preloadedStepNarrationRef.current?.key === currentContext.key) {
+        audio = preloadedStepNarrationRef.current.audio;
+        preloadedStepNarrationRef.current = null;
+      } else {
+        const currentText = buildStepNarrationText(
+          currentContext.label,
+          currentContext.step.title ?? '',
+          currentContext.step.explanation ?? '',
+          getVisibleFormulas(currentContext.step.formulas)
+        );
+        audio = await speakText(currentText);
+      }
 
       if (requestId !== stepNarratorRequestIdRef.current) {
-        audio.pause();
+        releaseNarrationAudio(audio);
         return;
       }
 
       stepNarratorAudioRef.current = audio;
       audio.onended = () => {
+        releaseNarrationAudio(audio);
         if (stepNarratorAudioRef.current === audio) {
           stepNarratorAudioRef.current = null;
         }
+        if (requestId !== stepNarratorRequestIdRef.current) {
+          return;
+        }
         setIsStepNarratorPlaying(false);
         setIsStepNarratorLoading(false);
+
+        if (shouldAutoAdvance) {
+          if (nextPositionAfterPlayback) {
+            setShowSummary(false);
+            setCurrentStep(nextPositionAfterPlayback.lessonIndex);
+            setCurrentSubstepIndex(nextPositionAfterPlayback.substepIndex);
+          } else {
+            setShowSummary(true);
+          }
+        }
       };
 
       await audio.play();
 
       if (requestId !== stepNarratorRequestIdRef.current) {
-        audio.pause();
+        releaseNarrationAudio(audio);
         return;
       }
 
       setIsStepNarratorPlaying(true);
       setIsStepNarratorLoading(false);
+      if (shouldAutoAdvance) {
+        void preloadStepNarrationForPosition(currentContext.position);
+      }
     } catch (error: any) {
       if (requestId !== stepNarratorRequestIdRef.current) {
         return;
@@ -243,6 +427,7 @@ const SolutionViewer: React.FC<SolutionViewerProps> = ({
   useEffect(() => {
     return () => {
       stopStepNarration();
+      clearPreloadedStepNarration();
     };
   }, []);
 
@@ -251,11 +436,22 @@ const SolutionViewer: React.FC<SolutionViewerProps> = ({
   }, [currentStep, currentSubstepIndex, showSummary]);
 
   useEffect(() => {
+    if (isStepNarratorEnabled) return;
+    stopStepNarration();
+    clearPreloadedStepNarration();
+  }, [isStepNarratorEnabled]);
+
+  useEffect(() => {
     if (!isStepNarratorEnabled || showSummary || isCurrentStepLoading) {
       return;
     }
     void playStepNarration();
-  }, [isStepNarratorEnabled, currentStep, currentSubstepIndex, showSummary, isCurrentStepLoading, stepNarrationText]);
+  }, [isStepNarratorEnabled, currentStep, currentSubstepIndex, showSummary, isCurrentStepLoading]);
+
+  useEffect(() => {
+    if (!isStepNarratorEnabled || showSummary || isCurrentStepLoading) return;
+    void preloadStepNarrationForPosition(currentUnitPosition);
+  }, [isStepNarratorEnabled, showSummary, isCurrentStepLoading, currentStep, currentSubstepIndex, solution.steps]);
 
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -688,10 +884,10 @@ const SolutionViewer: React.FC<SolutionViewerProps> = ({
                     ? 'border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
                     : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
                 }`}
-                title={isStepNarratorEnabled ? 'Auto-Vorlesen deaktivieren' : 'Auto-Vorlesen aktivieren'}
+                title={isStepNarratorEnabled ? 'Auto-Vorlesen und Weiterblaettern deaktivieren' : 'Auto-Vorlesen und Weiterblaettern aktivieren'}
               >
                 {isStepNarratorEnabled ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
-                <span>{isStepNarratorEnabled ? 'Auto-Erklaerer an' : 'Auto-Erklaerer aus'}</span>
+                <span>{isStepNarratorEnabled ? 'Auto-Erklaerer an (Weiter)' : 'Auto-Erklaerer aus'}</span>
               </button>
 
               <button
