@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { Send, X, MessageSquare, Loader2, Volume2, VolumeX } from 'lucide-react';
 import MathRenderer from './MathRenderer';
 import { SolutionStep } from '../types';
@@ -9,6 +9,8 @@ interface SidePanelProps {
   currentStep: SolutionStep;
   allSteps: SolutionStep[];
   stepIndex: number;
+  stepLabel: string;
+  stepScopeKey: string;
   initialPrompt: string; // The original question/task
   isOpen: boolean;
   onToggle: () => void;
@@ -19,20 +21,29 @@ interface Message {
   content: string;
 }
 
+const buildGreetingMessage = (stepLabel: string, stepTitle: string): Message => ({
+  role: 'model',
+  content: `Hallo! Ich bin dein Mathe-Assistent. Ich sehe, du bist gerade bei ${stepLabel}: **"${stepTitle}"**. \n\nHast du Fragen dazu?`
+});
+
+const getMessagesForStep = (
+  sessions: Record<string, Message[]>,
+  stepScopeKey: string,
+  stepLabel: string,
+  stepTitle: string
+): Message[] => sessions[stepScopeKey] ?? [buildGreetingMessage(stepLabel, stepTitle)];
+
 const SidePanel: React.FC<SidePanelProps> = ({ 
   currentStep, 
   allSteps, 
   stepIndex, 
+  stepLabel,
+  stepScopeKey,
   initialPrompt, 
   isOpen, 
   onToggle 
 }) => {
-  const [messages, setMessages] = useState<Message[]>([
-    { 
-      role: 'model', 
-      content: `Hallo! Ich bin dein Mathe-Assistent. Ich sehe, du bist gerade bei Schritt ${stepIndex + 1}: **"${currentStep.title}"**. \n\nHast du Fragen dazu?` 
-    }
-  ]);
+  const [chatSessions, setChatSessions] = useState<Record<string, Message[]>>({});
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isSoundEnabled, setIsSoundEnabled] = useState(false);
@@ -40,6 +51,11 @@ const SidePanel: React.FC<SidePanelProps> = ({
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const defaultMessagesForStep = useMemo(
+    () => [buildGreetingMessage(stepLabel, currentStep.title)],
+    [stepLabel, currentStep.title]
+  );
+  const messages = chatSessions[stepScopeKey] ?? defaultMessagesForStep;
 
   // Scroll to bottom on new messages
   useEffect(() => {
@@ -68,6 +84,11 @@ const SidePanel: React.FC<SidePanelProps> = ({
     return () => stopAudio();
   }, []);
 
+  // Switching step should stop any currently playing speech from the old context.
+  useEffect(() => {
+    stopAudio();
+  }, [stepScopeKey]);
+
   const stopAudio = () => {
     if (audioRef.current) {
       audioRef.current.pause();
@@ -95,9 +116,8 @@ const SidePanel: React.FC<SidePanelProps> = ({
 
   const toggleSound = () => {
     if (ttsError) {
-      // If there was an error, try to clear it and re-enable
+      // Clear error first; keep sound disabled until user enables it explicitly.
       setTtsError(null);
-      setIsSoundEnabled(true);
       return;
     }
     const newState = !isSoundEnabled;
@@ -113,8 +133,19 @@ const SidePanel: React.FC<SidePanelProps> = ({
     stopAudio();
     // ...
     const userMsg = input.trim();
+    const activeStepKey = stepScopeKey;
+    const activeStepLabel = stepLabel;
+    const activeStepTitle = currentStep.title;
+    const historyBeforeNewMessage = messages;
+
     setInput('');
-    setMessages(prev => [...prev, { role: 'user', content: userMsg }]);
+    setChatSessions(prev => {
+      const base = getMessagesForStep(prev, activeStepKey, activeStepLabel, activeStepTitle);
+      return {
+        ...prev,
+        [activeStepKey]: [...base, { role: 'user', content: userMsg }]
+      };
+    });
     setIsLoading(true);
 
     try {
@@ -123,15 +154,30 @@ const SidePanel: React.FC<SidePanelProps> = ({
         allSteps,
         stepIndex,
         initialPrompt,
-        chatHistory: messages
+        chatHistory: historyBeforeNewMessage
       };
 
       const response = await chatWithAI(userMsg, context);
 
-      setMessages(prev => [...prev, { role: 'model', content: response }]);
+      setChatSessions(prev => {
+        const base = prev[activeStepKey] ?? [...historyBeforeNewMessage, { role: 'user', content: userMsg }];
+        return {
+          ...prev,
+          [activeStepKey]: [...base, { role: 'model', content: response }]
+        };
+      });
     } catch (error) {
       console.error("Chat error:", error);
-      setMessages(prev => [...prev, { role: 'model', content: "Entschuldigung, ich konnte darauf nicht antworten. Bitte versuche es erneut." }]);
+      setChatSessions(prev => {
+        const base = prev[activeStepKey] ?? [...historyBeforeNewMessage, { role: 'user', content: userMsg }];
+        return {
+          ...prev,
+          [activeStepKey]: [
+            ...base,
+            { role: 'model', content: "Entschuldigung, ich konnte darauf nicht antworten. Bitte versuche es erneut." }
+          ]
+        };
+      });
     } finally {
       setIsLoading(false);
     }
@@ -168,7 +214,7 @@ const SidePanel: React.FC<SidePanelProps> = ({
           <div>
             <h3 className="font-bold">KI Tutor</h3>
             <p className="text-xs text-indigo-200">
-              {ttsError ? <span className="text-red-300 font-bold">{ttsError}</span> : `Schritt ${stepIndex + 1}: ${currentStep.title}`}
+              {ttsError ? <span className="text-red-300 font-bold">{ttsError}</span> : `${stepLabel}: ${currentStep.title}`}
             </p>
           </div>
         </div>
