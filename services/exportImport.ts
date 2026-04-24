@@ -1,5 +1,6 @@
 import {
   HistoryItem,
+  Project,
   PracticeRoom,
   PracticeTask,
   ExportData,
@@ -8,7 +9,7 @@ import {
   HistoryStatus
 } from '../types';
 
-export const CURRENT_EXPORT_VERSION = 1;
+export const CURRENT_EXPORT_VERSION = 2;
 
 export type ImportStrategy = 'replace' | 'merge' | 'skipConflicts';
 
@@ -24,7 +25,12 @@ export interface ValidationFailure {
 
 export type ValidationResult = ValidationSuccess | ValidationFailure;
 
-const computeStatistics = (history: HistoryItem[], practiceRooms: PracticeRoom[], examSessions: ExamSession[]) => {
+const computeStatistics = (
+  history: HistoryItem[],
+  projects: Project[],
+  practiceRooms: PracticeRoom[],
+  examSessions: ExamSession[]
+) => {
   let totalTasksCompleted = 0;
   let examTasksCompleted = 0;
 
@@ -46,6 +52,7 @@ const computeStatistics = (history: HistoryItem[], practiceRooms: PracticeRoom[]
 
   return {
     historyCount: history.length,
+    projectsCount: projects.length,
     practiceRoomsCount: practiceRooms.length,
     totalTasksCompleted,
     examSessionsCount: examSessions.length,
@@ -53,14 +60,22 @@ const computeStatistics = (history: HistoryItem[], practiceRooms: PracticeRoom[]
   };
 };
 
-export function buildExportData(history: HistoryItem[], practiceRooms: PracticeRoom[], examSessions: ExamSession[]): ExportData {
+export function buildExportData(
+  history: HistoryItem[],
+  projects: Project[],
+  activeProjectId: string | null,
+  practiceRooms: PracticeRoom[],
+  examSessions: ExamSession[]
+): ExportData {
   return {
     version: CURRENT_EXPORT_VERSION,
     exportedAt: Date.now(),
     history,
+    projects,
+    activeProjectId,
     practiceRooms,
     examSessions,
-    statistics: computeStatistics(history, practiceRooms, examSessions)
+    statistics: computeStatistics(history, projects, practiceRooms, examSessions)
   };
 }
 
@@ -76,29 +91,37 @@ export function parseAndValidateExport(json: string): ValidationResult {
   } catch {
     return {
       success: false,
-      errors: ['Datei ist kein gültiges JSON.']
+      errors: ['Datei ist kein gueltiges JSON.']
     };
   }
 
   const errors: string[] = [];
 
   if (typeof raw !== 'object' || raw === null) {
-    errors.push('Exportdaten haben ein ungültiges Format.');
+    errors.push('Exportdaten haben ein ungueltiges Format.');
     return { success: false, errors };
   }
 
   const obj = raw as any;
 
   if (typeof obj.version !== 'number') {
-    errors.push('Feld "version" fehlt oder ist ungültig.');
+    errors.push('Feld "version" fehlt oder ist ungueltig.');
   }
 
   if (typeof obj.exportedAt !== 'number') {
-    errors.push('Feld "exportedAt" fehlt oder ist ungültig.');
+    errors.push('Feld "exportedAt" fehlt oder ist ungueltig.');
   }
 
   if (!Array.isArray(obj.history)) {
     errors.push('Feld "history" fehlt oder ist keine Liste.');
+  }
+
+  if (obj.projects !== undefined && !Array.isArray(obj.projects)) {
+    errors.push('Feld "projects" ist ungueltig.');
+  }
+
+  if (obj.activeProjectId !== undefined && obj.activeProjectId !== null && typeof obj.activeProjectId !== 'string') {
+    errors.push('Feld "activeProjectId" ist ungueltig.');
   }
 
   if (!Array.isArray(obj.practiceRooms)) {
@@ -106,27 +129,30 @@ export function parseAndValidateExport(json: string): ValidationResult {
   }
 
   if (obj.examSessions !== undefined && !Array.isArray(obj.examSessions)) {
-    errors.push('Feld "examSessions" ist ungültig.');
+    errors.push('Feld "examSessions" ist ungueltig.');
   }
 
   if (typeof obj.statistics !== 'object' || obj.statistics === null) {
-    errors.push('Feld "statistics" fehlt oder ist ungültig.');
+    errors.push('Feld "statistics" fehlt oder ist ungueltig.');
   } else {
     const stats = obj.statistics;
     if (typeof stats.historyCount !== 'number') {
-      errors.push('statistics.historyCount ist ungültig.');
+      errors.push('statistics.historyCount ist ungueltig.');
+    }
+    if (stats.projectsCount !== undefined && typeof stats.projectsCount !== 'number') {
+      errors.push('statistics.projectsCount ist ungueltig.');
     }
     if (typeof stats.practiceRoomsCount !== 'number') {
-      errors.push('statistics.practiceRoomsCount ist ungültig.');
+      errors.push('statistics.practiceRoomsCount ist ungueltig.');
     }
     if (typeof stats.totalTasksCompleted !== 'number') {
-      errors.push('statistics.totalTasksCompleted ist ungültig.');
+      errors.push('statistics.totalTasksCompleted ist ungueltig.');
     }
     if (stats.examSessionsCount !== undefined && typeof stats.examSessionsCount !== 'number') {
-      errors.push('statistics.examSessionsCount ist ungültig.');
+      errors.push('statistics.examSessionsCount ist ungueltig.');
     }
     if (stats.examTasksCompleted !== undefined && typeof stats.examTasksCompleted !== 'number') {
-      errors.push('statistics.examTasksCompleted ist ungültig.');
+      errors.push('statistics.examTasksCompleted ist ungueltig.');
     }
   }
 
@@ -138,10 +164,13 @@ export function parseAndValidateExport(json: string): ValidationResult {
     version: obj.version,
     exportedAt: obj.exportedAt,
     history: obj.history as HistoryItem[],
+    projects: Array.isArray(obj.projects) ? (obj.projects as Project[]) : [],
+    activeProjectId: typeof obj.activeProjectId === 'string' ? obj.activeProjectId : null,
     practiceRooms: obj.practiceRooms as PracticeRoom[],
     examSessions: Array.isArray(obj.examSessions) ? (obj.examSessions as ExamSession[]) : [],
     statistics: {
       historyCount: obj.statistics.historyCount,
+      projectsCount: obj.statistics.projectsCount ?? (Array.isArray(obj.projects) ? obj.projects.length : 0),
       practiceRoomsCount: obj.statistics.practiceRoomsCount,
       totalTasksCompleted: obj.statistics.totalTasksCompleted,
       examSessionsCount: obj.statistics.examSessionsCount ?? (Array.isArray(obj.examSessions) ? obj.examSessions.length : 0),
@@ -154,41 +183,92 @@ export function parseAndValidateExport(json: string): ValidationResult {
 
 export function applyImportData(
   currentHistory: HistoryItem[],
+  currentProjects: Project[],
+  currentActiveProjectId: string | null,
   currentPracticeRooms: PracticeRoom[],
   currentExamSessions: ExamSession[],
   imported: ExportData,
   strategy: ImportStrategy
-): { history: HistoryItem[]; practiceRooms: PracticeRoom[]; examSessions: ExamSession[] } {
+): {
+  history: HistoryItem[];
+  projects: Project[];
+  activeProjectId: string | null;
+  practiceRooms: PracticeRoom[];
+  examSessions: ExamSession[];
+} {
+  const importedProjects = imported.projects ?? [];
+  const importedActiveProjectId = normalizeProjectId(imported.activeProjectId);
+
   if (strategy === 'replace') {
+    const projects = importedProjects;
+    const projectIds = new Set(projects.map((project) => project.id));
+    const history = sanitizeHistoryProjectRefs(imported.history, projectIds);
+    const practiceRooms = sanitizePracticeRoomProjectRefs(imported.practiceRooms, projectIds);
+    const examSessions = sanitizeExamSessionProjectRefs(imported.examSessions ?? [], projectIds);
+    const activeProjectId =
+      importedActiveProjectId && projectIds.has(importedActiveProjectId)
+        ? importedActiveProjectId
+        : null;
+
     return {
-      history: imported.history,
-      practiceRooms: imported.practiceRooms,
-      examSessions: imported.examSessions ?? []
+      history,
+      projects,
+      activeProjectId,
+      practiceRooms,
+      examSessions
     };
   }
+
+  const projects = mergeById(
+    currentProjects,
+    importedProjects,
+    mergeProject,
+    strategy
+  ).sort((a, b) => b.updatedAt - a.updatedAt);
+
+  const projectIds = new Set(projects.map((project) => project.id));
 
   const history = mergeById(
     currentHistory,
     imported.history,
     mergeHistoryItem,
     strategy
-  ).sort((a, b) => b.timestamp - a.timestamp);
+  );
 
   const practiceRooms = mergeById(
     currentPracticeRooms,
     imported.practiceRooms,
     mergePracticeRoom,
     strategy
-  ).sort((a, b) => b.updatedAt - a.updatedAt);
+  );
 
   const examSessions = mergeById(
     currentExamSessions,
     imported.examSessions ?? [],
     mergeExamSession,
     strategy
-  ).sort((a, b) => getExamActivityTime(b) - getExamActivityTime(a));
+  );
 
-  return { history, practiceRooms, examSessions };
+  const sanitizedHistory = sanitizeHistoryProjectRefs(history, projectIds).sort((a, b) => b.timestamp - a.timestamp);
+  const sanitizedPracticeRooms = sanitizePracticeRoomProjectRefs(practiceRooms, projectIds).sort((a, b) => b.updatedAt - a.updatedAt);
+  const sanitizedExamSessions = sanitizeExamSessionProjectRefs(examSessions, projectIds).sort(
+    (a, b) => getExamActivityTime(b) - getExamActivityTime(a)
+  );
+
+  const currentCandidate = normalizeProjectId(currentActiveProjectId);
+  const activeProjectId = importedActiveProjectId && projectIds.has(importedActiveProjectId)
+    ? importedActiveProjectId
+    : currentCandidate && projectIds.has(currentCandidate)
+      ? currentCandidate
+      : null;
+
+  return {
+    history: sanitizedHistory,
+    projects,
+    activeProjectId,
+    practiceRooms: sanitizedPracticeRooms,
+    examSessions: sanitizedExamSessions
+  };
 }
 
 const HISTORY_STATUS_PRIORITY: Record<HistoryStatus, number> = {
@@ -211,6 +291,54 @@ const normalizeHistoryProgress = (item: HistoryItem): number => {
   if (typeof item.progress === 'number') return item.progress;
   return normalizeHistoryStatus(item) === 'completed' ? 100 : 0;
 };
+
+const normalizeProjectId = (value: unknown): string | undefined =>
+  typeof value === 'string' && value.trim() !== '' ? value : undefined;
+
+const normalizeLinkedProjectId = (value: unknown, knownProjectIds: Set<string>): string | undefined => {
+  const normalized = normalizeProjectId(value);
+  if (!normalized) return undefined;
+  return knownProjectIds.has(normalized) ? normalized : undefined;
+};
+
+const sanitizeHistoryProjectRefs = (items: HistoryItem[], knownProjectIds: Set<string>): HistoryItem[] =>
+  items.map((item) => {
+    const projectId = normalizeLinkedProjectId(item.projectId, knownProjectIds);
+    if (projectId) {
+      if (item.projectId === projectId) return item;
+      return { ...item, projectId };
+    }
+    if (item.projectId === undefined) return item;
+    const cloned: HistoryItem = { ...item };
+    delete cloned.projectId;
+    return cloned;
+  });
+
+const sanitizePracticeRoomProjectRefs = (rooms: PracticeRoom[], knownProjectIds: Set<string>): PracticeRoom[] =>
+  rooms.map((room) => {
+    const projectId = normalizeLinkedProjectId(room.projectId, knownProjectIds);
+    if (projectId) {
+      if (room.projectId === projectId) return room;
+      return { ...room, projectId };
+    }
+    if (room.projectId === undefined) return room;
+    const cloned: PracticeRoom = { ...room };
+    delete cloned.projectId;
+    return cloned;
+  });
+
+const sanitizeExamSessionProjectRefs = (sessions: ExamSession[], knownProjectIds: Set<string>): ExamSession[] =>
+  sessions.map((session) => {
+    const projectId = normalizeLinkedProjectId(session.projectId, knownProjectIds);
+    if (projectId) {
+      if (session.projectId === projectId) return session;
+      return { ...session, projectId };
+    }
+    if (session.projectId === undefined) return session;
+    const cloned: ExamSession = { ...session };
+    delete cloned.projectId;
+    return cloned;
+  });
 
 const maxDefined = (...values: Array<number | undefined>): number | undefined =>
   values.reduce<number | undefined>(
@@ -251,6 +379,22 @@ const mergeById = <T extends { id: string }>(
   }
 
   return Array.from(result.values());
+};
+
+const mergeProject = (current: Project, incoming: Project): Project => {
+  const preferIncoming = incoming.updatedAt >= current.updatedAt;
+  const preferred = preferIncoming ? incoming : current;
+  const fallback = preferIncoming ? current : incoming;
+
+  return {
+    ...fallback,
+    ...preferred,
+    name: (preferred.name || fallback.name || 'Projekt').trim(),
+    description: (preferred.description ?? fallback.description ?? '').trim(),
+    color: preferred.color || fallback.color || '#4f46e5',
+    createdAt: minDefined(current.createdAt, incoming.createdAt) ?? preferred.createdAt ?? fallback.createdAt ?? Date.now(),
+    updatedAt: maxDefined(current.updatedAt, incoming.updatedAt) ?? preferred.updatedAt ?? fallback.updatedAt ?? Date.now()
+  };
 };
 
 const mergeHistoryItem = (current: HistoryItem, incoming: HistoryItem): HistoryItem => {
@@ -319,6 +463,7 @@ const mergePracticeRoom = (current: PracticeRoom, incoming: PracticeRoom): Pract
   return {
     ...fallback,
     ...preferred,
+    projectId: normalizeProjectId(preferred.projectId) ?? normalizeProjectId(fallback.projectId),
     topic: preferred.topic || fallback.topic,
     description: preferred.description || fallback.description,
     difficulty: preferred.difficulty || fallback.difficulty,
@@ -375,6 +520,7 @@ const mergeExamSession = (current: ExamSession, incoming: ExamSession): ExamSess
   const merged: ExamSession = {
     ...fallback,
     ...preferred,
+    projectId: normalizeProjectId(preferred.projectId) ?? normalizeProjectId(fallback.projectId),
     topic: preferred.topic || fallback.topic,
     difficulty: preferred.difficulty || fallback.difficulty,
     taskCount: Math.max(preferred.taskCount ?? 0, fallback.taskCount ?? 0, tasks.length),
@@ -408,4 +554,3 @@ const mergeExamSession = (current: ExamSession, incoming: ExamSession): ExamSess
 
   return merged;
 };
-
