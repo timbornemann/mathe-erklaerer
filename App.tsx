@@ -81,6 +81,59 @@ interface ProjectFormState {
 
 const DEFAULT_PROJECT_COLOR = '#4f46e5';
 
+const normalizeProjectColor = (value?: string): string => {
+  if (!value) return DEFAULT_PROJECT_COLOR;
+  const trimmed = value.trim();
+  const shortHexMatch = /^#([a-fA-F0-9]{3})$/;
+  const longHexMatch = /^#([a-fA-F0-9]{6})$/;
+
+  if (longHexMatch.test(trimmed)) {
+    return trimmed.toLowerCase();
+  }
+
+  const shortMatch = trimmed.match(shortHexMatch);
+  if (shortMatch) {
+    const [r, g, b] = shortMatch[1].split('');
+    return `#${r}${r}${g}${g}${b}${b}`.toLowerCase();
+  }
+
+  return DEFAULT_PROJECT_COLOR;
+};
+
+const parseHexColor = (hexColor: string): [number, number, number] => {
+  const normalized = normalizeProjectColor(hexColor);
+  return [
+    parseInt(normalized.slice(1, 3), 16),
+    parseInt(normalized.slice(3, 5), 16),
+    parseInt(normalized.slice(5, 7), 16)
+  ];
+};
+
+const adjustHexColor = (hexColor: string, amount: number): string => {
+  const [r, g, b] = parseHexColor(hexColor);
+  const clampByte = (value: number) => Math.max(0, Math.min(255, Math.round(value)));
+
+  const adjustChannel = (value: number): number => {
+    if (amount >= 0) {
+      return clampByte(value + (255 - value) * amount);
+    }
+    return clampByte(value * (1 + amount));
+  };
+
+  return `#${[adjustChannel(r), adjustChannel(g), adjustChannel(b)]
+    .map(channel => channel.toString(16).padStart(2, '0'))
+    .join('')}`;
+};
+
+const withHexAlpha = (hexColor: string, alpha: number): string => {
+  const normalized = normalizeProjectColor(hexColor);
+  const clampedAlpha = Math.max(0, Math.min(1, alpha));
+  const alphaHex = Math.round(clampedAlpha * 255)
+    .toString(16)
+    .padStart(2, '0');
+  return `${normalized}${alphaHex}`;
+};
+
 const clampPercent = (value: number): number => {
   if (!Number.isFinite(value)) return 0;
   return Math.max(0, Math.min(100, Math.round(value)));
@@ -1561,6 +1614,9 @@ const App: React.FC = () => {
   const selectedProjectTutorHistory = selectedProjectHistory.filter(item => item.mode === InputMode.TUTOR);
   const selectedProjectPracticeRooms = practiceRooms.filter(room => room.projectId === selectedProjectId);
   const selectedProjectExamSessions = (state.examSessions ?? []).filter(session => session.projectId === selectedProjectId);
+  const selectedProjectColor = normalizeProjectColor(selectedProject?.color);
+  const selectedProjectSurfaceColor = adjustHexColor(selectedProjectColor, 0.86);
+  const selectedProjectBorderColor = adjustHexColor(selectedProjectColor, 0.45);
 
   if (printExportKey) {
     return <PrintExportPage exportKey={printExportKey} />;
@@ -2010,6 +2066,10 @@ const App: React.FC = () => {
                         const projectPracticeCount = practiceRooms.filter(room => room.projectId === project.id).length;
                         const projectExamCount = (state.examSessions ?? []).filter(session => session.projectId === project.id).length;
                         const projectTotalCount = projectSolutionsCount + projectTutorCount + projectPracticeCount + projectExamCount;
+                        const projectColor = normalizeProjectColor(project.color);
+                        const projectSurfaceLight = adjustHexColor(projectColor, 0.12);
+                        const projectSurfaceDark = adjustHexColor(projectColor, -0.12);
+                        const projectTabColor = adjustHexColor(projectColor, 0.3);
 
                         return (
                           <button
@@ -2017,36 +2077,48 @@ const App: React.FC = () => {
                             onClick={() => openProjectDetail(project.id)}
                             className="group text-left"
                           >
-                            <div className="relative h-full rounded-2xl border border-slate-200 bg-gradient-to-b from-amber-50 to-amber-100/60 p-4 shadow-sm transition-all group-hover:-translate-y-0.5 group-hover:border-amber-300 group-hover:shadow-md">
+                            <div
+                              className="relative h-full rounded-2xl border p-4 shadow-sm transition-all group-hover:-translate-y-0.5 group-hover:shadow-md"
+                              style={{
+                                borderColor: withHexAlpha(projectSurfaceDark, 0.6),
+                                background: `linear-gradient(180deg, ${projectSurfaceLight} 0%, ${projectSurfaceDark} 100%)`
+                              }}
+                            >
                               <div
-                                className="absolute -top-2 left-4 h-4 w-20 rounded-t-lg border border-slate-200 border-b-0 bg-amber-100"
-                                style={{ borderColor: project.color || DEFAULT_PROJECT_COLOR, backgroundColor: `${project.color || DEFAULT_PROJECT_COLOR}22` }}
+                                className="absolute -top-2 left-4 h-4 w-20 rounded-t-lg border border-b-0"
+                                style={{
+                                  borderColor: withHexAlpha(projectSurfaceDark, 0.75),
+                                  backgroundColor: projectTabColor
+                                }}
                               />
                               <div className="flex items-start gap-3">
                                 <div
                                   className="mt-1 rounded-xl border p-2"
-                                  style={{ borderColor: project.color || DEFAULT_PROJECT_COLOR, backgroundColor: `${project.color || DEFAULT_PROJECT_COLOR}22` }}
+                                  style={{
+                                    borderColor: withHexAlpha('#ffffff', 0.5),
+                                    backgroundColor: withHexAlpha('#ffffff', 0.18)
+                                  }}
                                 >
-                                  <Folder className="h-5 w-5" style={{ color: project.color || DEFAULT_PROJECT_COLOR }} />
+                                  <Folder className="h-5 w-5" style={{ color: '#ffffff' }} />
                                 </div>
                                 <div className="min-w-0">
-                                  <p className="truncate text-sm font-bold text-slate-800">{project.name}</p>
-                                  <p className="mt-0.5 text-xs text-slate-500 line-clamp-2">
+                                  <p className="truncate text-sm font-bold text-white">{project.name}</p>
+                                  <p className="mt-0.5 text-xs text-white/85 line-clamp-2">
                                     {project.description || 'Ohne Beschreibung'}
                                   </p>
                                 </div>
                               </div>
-                              <div className="mt-4 grid grid-cols-2 gap-2 text-[11px] text-slate-600">
-                                <div className="rounded-lg bg-white/80 px-2 py-1">
+                              <div className="mt-4 grid grid-cols-2 gap-2 text-[11px] text-white">
+                                <div className="rounded-lg bg-white/20 px-2 py-1">
                                   <span className="font-semibold">{projectTotalCount}</span> gesamt
                                 </div>
-                                <div className="rounded-lg bg-white/80 px-2 py-1">
+                                <div className="rounded-lg bg-white/20 px-2 py-1">
                                   <span className="font-semibold">{projectSolutionsCount}</span> Loesungen
                                 </div>
-                                <div className="rounded-lg bg-white/80 px-2 py-1">
+                                <div className="rounded-lg bg-white/20 px-2 py-1">
                                   <span className="font-semibold">{projectTutorCount}</span> Tutor
                                 </div>
-                                <div className="rounded-lg bg-white/80 px-2 py-1">
+                                <div className="rounded-lg bg-white/20 px-2 py-1">
                                   <span className="font-semibold">{projectPracticeCount + projectExamCount}</span> Ueben+Pruefung
                                 </div>
                               </div>
@@ -2067,13 +2139,6 @@ const App: React.FC = () => {
                       <ChevronRight className="h-3.5 w-3.5 rotate-180" />
                       Zurueck zu den Ordnern
                     </button>
-                    <button
-                      onClick={startCreateProject}
-                      className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs font-semibold text-indigo-700 hover:bg-indigo-100 transition-colors"
-                    >
-                      <Plus className="h-3.5 w-3.5" />
-                      Neues Projekt
-                    </button>
                   </div>
 
                   {!selectedProject ? (
@@ -2082,13 +2147,19 @@ const App: React.FC = () => {
                     </p>
                   ) : (
                     <div className="space-y-4">
-                      <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
+                      <div
+                        className="rounded-2xl border p-4 sm:p-5"
+                        style={{
+                          borderColor: withHexAlpha(selectedProjectBorderColor, 0.75),
+                          backgroundColor: withHexAlpha(selectedProjectSurfaceColor, 0.9)
+                        }}
+                      >
                         <div className="flex flex-wrap items-start justify-between gap-3">
                           <div>
                             <div className="flex items-center gap-2">
                               <span
                                 className="inline-block h-3 w-3 rounded-full"
-                                style={{ backgroundColor: selectedProject.color || DEFAULT_PROJECT_COLOR }}
+                                style={{ backgroundColor: selectedProjectColor }}
                               />
                               <h3 className="text-lg font-bold text-slate-800">{selectedProject.name}</h3>
                               {state.activeProjectId === selectedProject.id && (
@@ -2104,11 +2175,18 @@ const App: React.FC = () => {
                           <div className="flex flex-wrap gap-2">
                             <button
                               onClick={() => handleActiveProjectChange(selectedProject.id)}
-                              className={`rounded-lg px-3 py-2 text-xs font-semibold transition-colors ${
+                              className={`rounded-lg border px-3 py-2 text-xs font-semibold transition-colors ${
                                 state.activeProjectId === selectedProject.id
-                                  ? 'bg-emerald-100 text-emerald-700'
-                                  : 'bg-indigo-100 text-indigo-700 hover:bg-indigo-200'
+                                  ? 'border-emerald-200 bg-emerald-100 text-emerald-700'
+                                  : 'hover:opacity-90'
                               }`}
+                              style={state.activeProjectId === selectedProject.id
+                                ? undefined
+                                : {
+                                    borderColor: withHexAlpha(selectedProjectColor, 0.35),
+                                    backgroundColor: withHexAlpha(selectedProjectColor, 0.18),
+                                    color: adjustHexColor(selectedProjectColor, -0.25)
+                                  }}
                             >
                               {state.activeProjectId === selectedProject.id ? 'Aktives Projekt' : 'Als aktiv setzen'}
                             </button>
@@ -2127,35 +2205,33 @@ const App: React.FC = () => {
                             </button>
                           </div>
                         </div>
-
-                        <div className="mt-4 grid gap-3 sm:grid-cols-4">
-                          <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-                            <p className="text-xs text-slate-500">Loesungen</p>
-                            <p className="text-2xl font-bold text-slate-800">{selectedProjectSolutionHistory.length}</p>
-                          </div>
-                          <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-                            <p className="text-xs text-slate-500">Tutor-Lektionen</p>
-                            <p className="text-2xl font-bold text-slate-800">{selectedProjectTutorHistory.length}</p>
-                          </div>
-                          <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-                            <p className="text-xs text-slate-500">Lernraeume</p>
-                            <p className="text-2xl font-bold text-slate-800">{selectedProjectPracticeRooms.length}</p>
-                          </div>
-                          <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-                            <p className="text-xs text-slate-500">Pruefungen</p>
-                            <p className="text-2xl font-bold text-slate-800">{selectedProjectExamSessions.length}</p>
-                          </div>
-                        </div>
                       </div>
 
                       <div className="space-y-4">
                         <div>
-                          <div className="mb-2 flex items-center gap-2">
-                            <Type className="h-4 w-4 text-blue-500" />
-                            <h4 className="text-sm font-semibold text-slate-700">Aufgabe loesen (Text/Foto)</h4>
+                          <div className="mb-2 flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-2">
+                              <Type className="h-4 w-4 text-blue-500" />
+                              <h4 className="text-sm font-semibold text-slate-700">Aufgabe loesen (Text/Foto)</h4>
+                            </div>
+                            <span
+                              className="rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide"
+                              style={{
+                                backgroundColor: withHexAlpha(selectedProjectColor, 0.18),
+                                color: adjustHexColor(selectedProjectColor, -0.28)
+                              }}
+                            >
+                              {selectedProjectSolutionHistory.length}
+                            </span>
                           </div>
                           {selectedProjectSolutionHistory.length === 0 ? (
-                            <p className="rounded-lg border border-dashed border-slate-200 bg-slate-50 p-3 text-xs text-slate-500">
+                            <p
+                              className="rounded-lg border border-dashed p-3 text-xs text-slate-500"
+                              style={{
+                                borderColor: withHexAlpha(selectedProjectBorderColor, 0.5),
+                                backgroundColor: withHexAlpha(selectedProjectSurfaceColor, 0.55)
+                              }}
+                            >
                               Keine Eintraege.
                             </p>
                           ) : (
@@ -2164,7 +2240,11 @@ const App: React.FC = () => {
                                 <div
                                   key={item.id}
                                   onClick={() => handleHistoryRestore(item)}
-                                  className="group cursor-pointer rounded-xl border border-slate-200 bg-white p-3 hover:bg-slate-50 transition-colors"
+                                  className="group cursor-pointer rounded-xl border p-3 hover:bg-slate-50 transition-colors"
+                                  style={{
+                                    borderColor: withHexAlpha(selectedProjectBorderColor, 0.55),
+                                    backgroundColor: withHexAlpha(adjustHexColor(selectedProjectColor, 0.95), 0.95)
+                                  }}
                                 >
                                   <div className="flex items-start justify-between gap-3">
                                     <div className="min-w-0 flex-1">
@@ -2186,15 +2266,48 @@ const App: React.FC = () => {
                                         <MathRenderer content={item.preview} />
                                       </div>
                                     </div>
-                                    <button
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        assignHistoryItemToProject(item.id, null);
-                                      }}
-                                      className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-[11px] font-semibold text-slate-600 hover:bg-slate-100 transition-colors"
-                                    >
-                                      Entfernen
-                                    </button>
+                                    <div className="flex flex-col items-end gap-1" onClick={(e) => e.stopPropagation()}>
+                                      {canDownloadHistoryItem(item) && (
+                                        <div className="relative" data-history-download-menu>
+                                          <button
+                                            onClick={() => setOpenHistoryDownloadMenuId(prev => (prev === item.id ? null : item.id))}
+                                            className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-50 px-2.5 py-1.5 text-[11px] font-semibold text-indigo-700 hover:bg-indigo-100 transition-colors"
+                                          >
+                                            <Download className="h-3.5 w-3.5" />
+                                            Download
+                                            <ChevronDown className={`h-3.5 w-3.5 transition-transform ${openHistoryDownloadMenuId === item.id ? 'rotate-180' : ''}`} />
+                                          </button>
+                                          {openHistoryDownloadMenuId === item.id && (
+                                            <div className="absolute right-0 z-20 mt-1 w-44 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg">
+                                              <button
+                                                onClick={() => {
+                                                  setOpenHistoryDownloadMenuId(null);
+                                                  handleDownloadHistoryItemMarkdown(item);
+                                                }}
+                                                className="w-full px-3 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                                              >
+                                                Als Markdown
+                                              </button>
+                                              <button
+                                                onClick={() => {
+                                                  setOpenHistoryDownloadMenuId(null);
+                                                  handleDownloadHistoryItemPdf(item);
+                                                }}
+                                                className="w-full border-t border-slate-100 px-3 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                                              >
+                                                Als PDF
+                                              </button>
+                                            </div>
+                                          )}
+                                        </div>
+                                      )}
+                                      <button
+                                        onClick={() => assignHistoryItemToProject(item.id, null)}
+                                        className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-[11px] font-semibold text-slate-600 hover:bg-slate-100 transition-colors"
+                                      >
+                                        Entfernen
+                                      </button>
+                                    </div>
                                   </div>
                                 </div>
                               ))}
@@ -2203,12 +2316,29 @@ const App: React.FC = () => {
                         </div>
 
                         <div>
-                          <div className="mb-2 flex items-center gap-2">
-                            <GraduationCap className="h-4 w-4 text-emerald-500" />
-                            <h4 className="text-sm font-semibold text-slate-700">Tutor-Lektionen</h4>
+                          <div className="mb-2 flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-2">
+                              <GraduationCap className="h-4 w-4 text-emerald-500" />
+                              <h4 className="text-sm font-semibold text-slate-700">Tutor-Lektionen</h4>
+                            </div>
+                            <span
+                              className="rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide"
+                              style={{
+                                backgroundColor: withHexAlpha(selectedProjectColor, 0.18),
+                                color: adjustHexColor(selectedProjectColor, -0.28)
+                              }}
+                            >
+                              {selectedProjectTutorHistory.length}
+                            </span>
                           </div>
                           {selectedProjectTutorHistory.length === 0 ? (
-                            <p className="rounded-lg border border-dashed border-slate-200 bg-slate-50 p-3 text-xs text-slate-500">
+                            <p
+                              className="rounded-lg border border-dashed p-3 text-xs text-slate-500"
+                              style={{
+                                borderColor: withHexAlpha(selectedProjectBorderColor, 0.5),
+                                backgroundColor: withHexAlpha(selectedProjectSurfaceColor, 0.55)
+                              }}
+                            >
                               Keine Eintraege.
                             </p>
                           ) : (
@@ -2217,7 +2347,11 @@ const App: React.FC = () => {
                                 <div
                                   key={item.id}
                                   onClick={() => handleHistoryRestore(item)}
-                                  className="group cursor-pointer rounded-xl border border-slate-200 bg-white p-3 hover:bg-slate-50 transition-colors"
+                                  className="group cursor-pointer rounded-xl border p-3 hover:bg-slate-50 transition-colors"
+                                  style={{
+                                    borderColor: withHexAlpha(selectedProjectBorderColor, 0.55),
+                                    backgroundColor: withHexAlpha(adjustHexColor(selectedProjectColor, 0.95), 0.95)
+                                  }}
                                 >
                                   <div className="flex items-start justify-between gap-3">
                                     <div className="min-w-0 flex-1">
@@ -2260,6 +2394,40 @@ const App: React.FC = () => {
                                           Uebersicht
                                         </button>
                                       )}
+                                      {canDownloadHistoryItem(item) && (
+                                        <div className="relative" data-history-download-menu>
+                                          <button
+                                            onClick={() => setOpenHistoryDownloadMenuId(prev => (prev === item.id ? null : item.id))}
+                                            className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-50 px-2.5 py-1.5 text-[11px] font-semibold text-indigo-700 hover:bg-indigo-100 transition-colors"
+                                          >
+                                            <Download className="h-3.5 w-3.5" />
+                                            Download
+                                            <ChevronDown className={`h-3.5 w-3.5 transition-transform ${openHistoryDownloadMenuId === item.id ? 'rotate-180' : ''}`} />
+                                          </button>
+                                          {openHistoryDownloadMenuId === item.id && (
+                                            <div className="absolute right-0 z-20 mt-1 w-44 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg">
+                                              <button
+                                                onClick={() => {
+                                                  setOpenHistoryDownloadMenuId(null);
+                                                  handleDownloadHistoryItemMarkdown(item);
+                                                }}
+                                                className="w-full px-3 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                                              >
+                                                Als Markdown
+                                              </button>
+                                              <button
+                                                onClick={() => {
+                                                  setOpenHistoryDownloadMenuId(null);
+                                                  handleDownloadHistoryItemPdf(item);
+                                                }}
+                                                className="w-full border-t border-slate-100 px-3 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                                              >
+                                                Als PDF
+                                              </button>
+                                            </div>
+                                          )}
+                                        </div>
+                                      )}
                                       <button
                                         onClick={() => assignHistoryItemToProject(item.id, null)}
                                         className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-[11px] font-semibold text-slate-600 hover:bg-slate-100 transition-colors"
@@ -2275,12 +2443,29 @@ const App: React.FC = () => {
                         </div>
 
                         <div>
-                          <div className="mb-2 flex items-center gap-2">
-                            <BookOpen className="h-4 w-4 text-amber-500" />
-                            <h4 className="text-sm font-semibold text-slate-700">Aufgaben ueben (Lernraeume)</h4>
+                          <div className="mb-2 flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-2">
+                              <BookOpen className="h-4 w-4 text-amber-500" />
+                              <h4 className="text-sm font-semibold text-slate-700">Aufgaben ueben (Lernraeume)</h4>
+                            </div>
+                            <span
+                              className="rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide"
+                              style={{
+                                backgroundColor: withHexAlpha(selectedProjectColor, 0.18),
+                                color: adjustHexColor(selectedProjectColor, -0.28)
+                              }}
+                            >
+                              {selectedProjectPracticeRooms.length}
+                            </span>
                           </div>
                           {selectedProjectPracticeRooms.length === 0 ? (
-                            <p className="rounded-lg border border-dashed border-slate-200 bg-slate-50 p-3 text-xs text-slate-500">
+                            <p
+                              className="rounded-lg border border-dashed p-3 text-xs text-slate-500"
+                              style={{
+                                borderColor: withHexAlpha(selectedProjectBorderColor, 0.5),
+                                backgroundColor: withHexAlpha(selectedProjectSurfaceColor, 0.55)
+                              }}
+                            >
                               Keine Eintraege.
                             </p>
                           ) : (
@@ -2291,7 +2476,11 @@ const App: React.FC = () => {
                                   <div
                                     key={room.id}
                                     onClick={() => handleOpenRoom(room)}
-                                    className="group cursor-pointer rounded-xl border border-slate-200 bg-white p-3 hover:bg-slate-50 transition-colors"
+                                    className="group cursor-pointer rounded-xl border p-3 hover:bg-slate-50 transition-colors"
+                                    style={{
+                                      borderColor: withHexAlpha(selectedProjectBorderColor, 0.55),
+                                      backgroundColor: withHexAlpha(adjustHexColor(selectedProjectColor, 0.95), 0.95)
+                                    }}
                                   >
                                     <div className="flex items-start justify-between gap-3">
                                       <div className="min-w-0 flex-1">
@@ -2321,12 +2510,29 @@ const App: React.FC = () => {
                         </div>
 
                         <div>
-                          <div className="mb-2 flex items-center gap-2">
-                            <ClipboardCheck className="h-4 w-4 text-rose-500" />
-                            <h4 className="text-sm font-semibold text-slate-700">Pruefungsmodus</h4>
+                          <div className="mb-2 flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-2">
+                              <ClipboardCheck className="h-4 w-4 text-rose-500" />
+                              <h4 className="text-sm font-semibold text-slate-700">Pruefungsmodus</h4>
+                            </div>
+                            <span
+                              className="rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide"
+                              style={{
+                                backgroundColor: withHexAlpha(selectedProjectColor, 0.18),
+                                color: adjustHexColor(selectedProjectColor, -0.28)
+                              }}
+                            >
+                              {selectedProjectExamSessions.length}
+                            </span>
                           </div>
                           {selectedProjectExamSessions.length === 0 ? (
-                            <p className="rounded-lg border border-dashed border-slate-200 bg-slate-50 p-3 text-xs text-slate-500">
+                            <p
+                              className="rounded-lg border border-dashed p-3 text-xs text-slate-500"
+                              style={{
+                                borderColor: withHexAlpha(selectedProjectBorderColor, 0.5),
+                                backgroundColor: withHexAlpha(selectedProjectSurfaceColor, 0.55)
+                              }}
+                            >
                               Keine Eintraege.
                             </p>
                           ) : (
@@ -2335,7 +2541,11 @@ const App: React.FC = () => {
                                 <div
                                   key={session.id}
                                   onClick={() => handleOpenExamSession(session)}
-                                  className="group cursor-pointer rounded-xl border border-slate-200 bg-white p-3 hover:bg-slate-50 transition-colors"
+                                  className="group cursor-pointer rounded-xl border p-3 hover:bg-slate-50 transition-colors"
+                                  style={{
+                                    borderColor: withHexAlpha(selectedProjectBorderColor, 0.55),
+                                    backgroundColor: withHexAlpha(adjustHexColor(selectedProjectColor, 0.95), 0.95)
+                                  }}
                                 >
                                   <div className="flex items-start justify-between gap-3">
                                     <div className="min-w-0 flex-1">
