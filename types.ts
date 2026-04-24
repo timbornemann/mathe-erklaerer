@@ -31,12 +31,22 @@ export interface HistoryItem {
   preview: string; // Kurze Beschreibung oder erste Formel
   solution: MathSolution;
   mode: InputMode;
+  projectId?: string;
   /** Optional status for long-running generations (e.g. Tutor mode). */
   status?: HistoryStatus;
   /** Progress percentage for in-flight generations. */
   progress?: number;
   /** Optional error message when generation failed. */
   error?: string;
+}
+
+export interface Project {
+  id: string;
+  name: string;
+  description: string;
+  color: string;
+  createdAt: number;
+  updatedAt: number;
 }
 
 export interface PracticeTask {
@@ -56,6 +66,7 @@ export interface PracticeRoom {
   topic: string;
   description: string;
   difficulty: string;
+  projectId?: string;
   exampleTasks: string[];
   generatedTasks: PracticeTask[];
   createdAt: number;
@@ -81,6 +92,7 @@ export interface ExamSession {
   id: string;
   topic: string;
   difficulty: string;
+  projectId?: string;
   taskCount: number;
   durationMinutes: number;
   createdAt: number;
@@ -107,6 +119,8 @@ export interface MathState {
   solution: MathSolution | null;
   error: string | null;
   history: HistoryItem[];
+  projects: Project[];
+  activeProjectId: string | null;
   practiceRooms: PracticeRoom[];
   activePracticeRoom: PracticeRoom | null;
   examSessions: ExamSession[];
@@ -115,6 +129,7 @@ export interface MathState {
 
 export interface ExportStatistics {
   historyCount: number;
+  projectsCount: number;
   practiceRoomsCount: number;
   totalTasksCompleted: number;
   examSessionsCount: number;
@@ -125,6 +140,8 @@ export interface ExportData {
   version: number;
   exportedAt: number;
   history: HistoryItem[];
+  projects: Project[];
+  activeProjectId: string | null;
   practiceRooms: PracticeRoom[];
   examSessions: ExamSession[];
   statistics: ExportStatistics;
