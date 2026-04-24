@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+﻿import React, { useState, useEffect, useCallback } from 'react';
 import { Settings, Save, X, Download, Upload } from 'lucide-react';
 
 interface SettingsModalProps {
@@ -81,7 +81,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
           <button
             onClick={onClose}
             className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-full transition-colors"
-            title="Schließen"
+            title="SchlieÃŸen"
           >
             <X className="w-5 h-5" />
           </button>
@@ -92,7 +92,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
           <section>
             <h3 className="text-sm font-semibold text-slate-700 mb-2">API Key</h3>
             <p className="text-xs text-slate-500 mb-3 leading-relaxed">
-              Gib deinen Google Gemini API Key ein. Er wird lokal gespeichert und überschreibt optional den Container-Key.
+              Gib deinen Google Gemini API Key ein. Er wird lokal gespeichert und Ã¼berschreibt optional den Container-Key.
             </p>
             {runtimeKey && (
               <p className="text-[11px] text-emerald-600 mb-3 leading-relaxed">
@@ -138,7 +138,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
           <section>
             <h3 className="text-sm font-semibold text-slate-700 mb-2">Daten</h3>
             <p className="text-xs text-slate-500 mb-3 leading-relaxed">
-              Verlauf und Lernräume als JSON sichern oder von einem anderen Gerät übernehmen.
+              Verlauf, Projekte, Lernraeume und Pruefungen als JSON sichern oder von einem anderen Geraet uebernehmen.
             </p>
             <div className="flex flex-wrap gap-2">
               <button
@@ -170,3 +170,4 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
 };
 
 export default SettingsModal;
+
