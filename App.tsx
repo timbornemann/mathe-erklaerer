@@ -82,6 +82,9 @@ interface ProjectFormState {
 const DEFAULT_PROJECT_COLOR = '#4f46e5';
 const DETAIL_ACTION_BUTTON_BASE_CLASS =
   'inline-flex h-8 w-28 items-center justify-center gap-1.5 rounded-lg px-3 text-[11px] font-semibold transition-colors';
+const PROJECT_HEADER_ACTION_BUTTON_CLASS =
+  'inline-flex h-9 min-w-[132px] items-center justify-center gap-1.5 rounded-lg px-3 text-xs font-semibold transition-colors';
+const PROJECT_DETAIL_MAX_WIDTH_CLASS = 'max-w-[2100px]';
 
 const normalizeProjectColor = (value?: string): string => {
   if (!value) return DEFAULT_PROJECT_COLOR;
@@ -1616,6 +1619,9 @@ const App: React.FC = () => {
   const selectedProjectTutorHistory = selectedProjectHistory.filter(item => item.mode === InputMode.TUTOR);
   const selectedProjectPracticeRooms = practiceRooms.filter(room => room.projectId === selectedProjectId);
   const selectedProjectExamSessions = (state.examSessions ?? []).filter(session => session.projectId === selectedProjectId);
+  const isProjectDetailView = isProjectsTab && projectsView === 'detail';
+  const pageMaxWidthClass = isProjectDetailView ? PROJECT_DETAIL_MAX_WIDTH_CLASS : 'max-w-4xl';
+  const projectDetailListClass = 'space-y-2 xl:max-h-[520px] xl:overflow-y-auto xl:pr-1';
 
   if (printExportKey) {
     return <PrintExportPage exportKey={printExportKey} />;
@@ -1888,10 +1894,14 @@ const App: React.FC = () => {
 
   // â”€â”€ Render: Main input form â”€â”€
   return (
-    <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-purple-50 flex flex-col items-center p-3 sm:p-4 md:p-8">
+    <div
+      className={`min-h-screen bg-gradient-to-br from-indigo-50 via-white to-purple-50 flex flex-col items-center ${
+        isProjectDetailView ? 'p-3 sm:p-4 md:p-6' : 'p-3 sm:p-4 md:p-8'
+      }`}
+    >
       
       {/* Header */}
-      <header className="w-full max-w-4xl mb-6 md:mb-8 flex items-start justify-between gap-3 sm:items-center">
+      <header className={`w-full ${pageMaxWidthClass} mb-6 md:mb-8 flex items-start justify-between gap-3 sm:items-center`}>
         <div className="flex min-w-0 flex-1 items-center gap-3">
           <div className="bg-indigo-600 p-2.5 sm:p-3 rounded-xl shadow-lg shadow-indigo-200">
             <Calculator className="w-6 h-6 sm:w-8 sm:h-8 text-white" />
@@ -1924,98 +1934,108 @@ const App: React.FC = () => {
         onChange={handleImportFileChange}
       />
 
-      {/* Main Card */}
-      <main className="w-full max-w-4xl bg-white rounded-2xl sm:rounded-3xl shadow-xl overflow-hidden border border-slate-100 transition-all mb-8 md:mb-12">
+      {/* Main Area */}
+      <main
+        className={
+          isProjectDetailView
+            ? `w-full ${PROJECT_DETAIL_MAX_WIDTH_CLASS} mb-8 md:mb-12`
+            : 'w-full max-w-4xl bg-white rounded-2xl sm:rounded-3xl shadow-xl overflow-hidden border border-slate-100 transition-all mb-8 md:mb-12'
+        }
+      >
         
         {/* Input Section */}
-        <div className="p-4 sm:p-6 md:p-8 bg-white">
+        <div className={isProjectDetailView ? 'space-y-6' : 'p-4 sm:p-6 md:p-8 bg-white'}>
           
-          <div className="mb-4 sm:mb-5">
-            <div className="space-y-1">
-              <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500">
-                Aktives Projekt
-              </label>
-              <select
-                value={state.activeProjectId ?? ''}
-                onChange={(e) => handleActiveProjectChange(e.target.value || null)}
-                className="w-full p-2.5 bg-slate-50 rounded-xl border border-slate-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 focus:bg-white transition-all text-sm text-slate-700"
-              >
-                <option value="">Kein aktives Projekt</option>
-                {projects.map(project => (
-                  <option key={project.id} value={project.id}>
-                    {project.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
+          {!isProjectDetailView && (
+            <>
+              <div className="mb-4 sm:mb-5">
+                <div className="space-y-1">
+                  <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    Aktives Projekt
+                  </label>
+                  <select
+                    value={state.activeProjectId ?? ''}
+                    onChange={(e) => handleActiveProjectChange(e.target.value || null)}
+                    className="w-full p-2.5 bg-slate-50 rounded-xl border border-slate-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 focus:bg-white transition-all text-sm text-slate-700"
+                  >
+                    <option value="">Kein aktives Projekt</option>
+                    {projects.map(project => (
+                      <option key={project.id} value={project.id}>
+                        {project.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
 
-          {/* Tabs */}
-          <div className="grid grid-cols-2 sm:grid-cols-5 gap-1.5 sm:gap-2 mb-5 sm:mb-6 bg-slate-100 p-1 rounded-xl w-full">
-            <button
-              onClick={() => handleModeChange(InputMode.TEXT)}
-              className={`flex items-center justify-center gap-1.5 sm:gap-2 px-2 sm:px-4 py-2.5 sm:py-3 rounded-lg text-xs sm:text-sm font-semibold transition-all duration-200 ${
-                activeMainTab === InputMode.TEXT
-                  ? 'bg-white text-indigo-600 shadow-sm'
-                  : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200/50'
-              }`}
-            >
-              <Type className="w-4 h-4" />
-              <span className="sm:hidden">Loesen</span>
-              <span className="hidden sm:inline">{'Aufgabe L\u00f6sen'}</span>
-            </button>
-            <button
-              onClick={() => handleModeChange(InputMode.TUTOR)}
-              className={`flex items-center justify-center gap-1.5 sm:gap-2 px-2 sm:px-4 py-2.5 sm:py-3 rounded-lg text-xs sm:text-sm font-semibold transition-all duration-200 ${
-                activeMainTab === InputMode.TUTOR
-                  ? 'bg-white text-indigo-600 shadow-sm'
-                  : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200/50'
-              }`}
-            >
-              <GraduationCap className="w-4 h-4" />
-              <span className="sm:hidden">Tutor</span>
-              <span className="hidden sm:inline">Tutor-Modus</span>
-            </button>
-            <button
-              onClick={() => handleModeChange(InputMode.PRACTICE)}
-              className={`flex items-center justify-center gap-1.5 sm:gap-2 px-2 sm:px-4 py-2.5 sm:py-3 rounded-lg text-xs sm:text-sm font-semibold transition-all duration-200 ${
-                activeMainTab === InputMode.PRACTICE
-                  ? 'bg-white text-indigo-600 shadow-sm'
-                  : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200/50'
-              }`}
-            >
-              <Dumbbell className="w-4 h-4" />
-              <span className="sm:hidden">Ueben</span>
-              <span className="hidden sm:inline">{'Aufgaben \u00fcben'}</span>
-            </button>
-            <button
-              onClick={() => handleModeChange(InputMode.EXAM)}
-              className={`flex items-center justify-center gap-1.5 sm:gap-2 px-2 sm:px-4 py-2.5 sm:py-3 rounded-lg text-xs sm:text-sm font-semibold transition-all duration-200 ${
-                activeMainTab === InputMode.EXAM
-                  ? 'bg-white text-indigo-600 shadow-sm'
-                  : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200/50'
-              }`}
-            >
-              <ClipboardCheck className="w-4 h-4" />
-              <span className="sm:hidden">Pruefung</span>
-              <span className="hidden sm:inline">{'Pr\u00fcfungsmodus'}</span>
-            </button>
-            <button
-              onClick={handleProjectsTabOpen}
-              className={`flex items-center justify-center gap-1.5 sm:gap-2 px-2 sm:px-4 py-2.5 sm:py-3 rounded-lg text-xs sm:text-sm font-semibold transition-all duration-200 ${
-                isProjectsTab
-                  ? 'bg-white text-indigo-600 shadow-sm'
-                  : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200/50'
-              }`}
-            >
-              <Folder className="w-4 h-4" />
-              <span className="sm:hidden">Projekte</span>
-              <span className="hidden sm:inline">Projekte</span>
-            </button>
-          </div>
+              {/* Tabs */}
+              <div className="grid grid-cols-2 sm:grid-cols-5 gap-1.5 sm:gap-2 mb-5 sm:mb-6 bg-slate-100 p-1 rounded-xl w-full">
+                <button
+                  onClick={() => handleModeChange(InputMode.TEXT)}
+                  className={`flex items-center justify-center gap-1.5 sm:gap-2 px-2 sm:px-4 py-2.5 sm:py-3 rounded-lg text-xs sm:text-sm font-semibold transition-all duration-200 ${
+                    activeMainTab === InputMode.TEXT
+                      ? 'bg-white text-indigo-600 shadow-sm'
+                      : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200/50'
+                  }`}
+                >
+                  <Type className="w-4 h-4" />
+                  <span className="sm:hidden">Loesen</span>
+                  <span className="hidden sm:inline">{'Aufgabe L\u00f6sen'}</span>
+                </button>
+                <button
+                  onClick={() => handleModeChange(InputMode.TUTOR)}
+                  className={`flex items-center justify-center gap-1.5 sm:gap-2 px-2 sm:px-4 py-2.5 sm:py-3 rounded-lg text-xs sm:text-sm font-semibold transition-all duration-200 ${
+                    activeMainTab === InputMode.TUTOR
+                      ? 'bg-white text-indigo-600 shadow-sm'
+                      : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200/50'
+                  }`}
+                >
+                  <GraduationCap className="w-4 h-4" />
+                  <span className="sm:hidden">Tutor</span>
+                  <span className="hidden sm:inline">Tutor-Modus</span>
+                </button>
+                <button
+                  onClick={() => handleModeChange(InputMode.PRACTICE)}
+                  className={`flex items-center justify-center gap-1.5 sm:gap-2 px-2 sm:px-4 py-2.5 sm:py-3 rounded-lg text-xs sm:text-sm font-semibold transition-all duration-200 ${
+                    activeMainTab === InputMode.PRACTICE
+                      ? 'bg-white text-indigo-600 shadow-sm'
+                      : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200/50'
+                  }`}
+                >
+                  <Dumbbell className="w-4 h-4" />
+                  <span className="sm:hidden">Ueben</span>
+                  <span className="hidden sm:inline">{'Aufgaben \u00fcben'}</span>
+                </button>
+                <button
+                  onClick={() => handleModeChange(InputMode.EXAM)}
+                  className={`flex items-center justify-center gap-1.5 sm:gap-2 px-2 sm:px-4 py-2.5 sm:py-3 rounded-lg text-xs sm:text-sm font-semibold transition-all duration-200 ${
+                    activeMainTab === InputMode.EXAM
+                      ? 'bg-white text-indigo-600 shadow-sm'
+                      : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200/50'
+                  }`}
+                >
+                  <ClipboardCheck className="w-4 h-4" />
+                  <span className="sm:hidden">Pruefung</span>
+                  <span className="hidden sm:inline">{'Pr\u00fcfungsmodus'}</span>
+                </button>
+                <button
+                  onClick={handleProjectsTabOpen}
+                  className={`flex items-center justify-center gap-1.5 sm:gap-2 px-2 sm:px-4 py-2.5 sm:py-3 rounded-lg text-xs sm:text-sm font-semibold transition-all duration-200 ${
+                    isProjectsTab
+                      ? 'bg-white text-indigo-600 shadow-sm'
+                      : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200/50'
+                  }`}
+                >
+                  <Folder className="w-4 h-4" />
+                  <span className="sm:hidden">Projekte</span>
+                  <span className="hidden sm:inline">Projekte</span>
+                </button>
+              </div>
+            </>
+          )}
 
           {isProjectsTab && (
-            <div className="space-y-5">
+            <div className={isProjectDetailView ? 'space-y-6' : 'space-y-5'}>
               {projectsView === 'folders' ? (
                 <div className="space-y-4">
                   <div className="flex flex-wrap items-center justify-between gap-2">
@@ -2122,7 +2142,7 @@ const App: React.FC = () => {
                   )}
                 </div>
               ) : (
-                <div className="space-y-5">
+                <div className="space-y-6">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <button
                       onClick={() => setProjectsView('folders')}
@@ -2134,12 +2154,12 @@ const App: React.FC = () => {
                   </div>
 
                   {!selectedProject ? (
-                    <p className="rounded-xl border border-dashed border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">
+                    <p className="rounded-xl border border-dashed border-slate-200 bg-white p-4 text-sm text-slate-500">
                       Dieses Projekt ist nicht mehr verfuegbar. Gehe zurueck zur Ordneransicht.
                     </p>
                   ) : (
-                    <div className="space-y-4">
-                      <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
+                    <div className="space-y-5">
+                      <section className="rounded-2xl border border-slate-200 bg-white/95 p-4 shadow-sm sm:p-5">
                         <div className="flex flex-wrap items-start justify-between gap-3">
                           <div>
                             <div className="flex items-center gap-2">
@@ -2158,7 +2178,7 @@ const App: React.FC = () => {
                           <div className="flex flex-wrap gap-2">
                             <button
                               onClick={() => handleActiveProjectChange(selectedProject.id)}
-                              className={`rounded-lg px-3 py-2 text-xs font-semibold transition-colors ${
+                              className={`${PROJECT_HEADER_ACTION_BUTTON_CLASS} ${
                                 state.activeProjectId === selectedProject.id
                                   ? 'bg-emerald-100 text-emerald-700'
                                   : 'bg-indigo-100 text-indigo-700 hover:bg-indigo-200'
@@ -2168,32 +2188,29 @@ const App: React.FC = () => {
                             </button>
                             <button
                               onClick={() => startEditProject(selectedProject)}
-                              className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-100 transition-colors"
+                              className={`${PROJECT_HEADER_ACTION_BUTTON_CLASS} border border-slate-200 text-slate-700 hover:bg-slate-100`}
                             >
                               <Pencil className="h-3.5 w-3.5" />
                               Bearbeiten
                             </button>
                             <button
                               onClick={() => handleDeleteProject(selectedProject.id)}
-                              className="rounded-lg border border-red-200 px-3 py-2 text-xs font-semibold text-red-600 hover:bg-red-50 transition-colors"
+                              className={`${PROJECT_HEADER_ACTION_BUTTON_CLASS} border border-red-200 text-red-600 hover:bg-red-50`}
                             >
                               Loeschen
                             </button>
                           </div>
                         </div>
-                      </div>
+                      </section>
 
-                      <div className="space-y-4">
-                        <div>
-                          <div className="mb-2 flex items-center justify-between gap-2">
+                      <div className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(min(100%,420px),1fr))]">
+                        <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+                          <div className="mb-3 flex items-center justify-between gap-2">
                             <div className="flex items-center gap-2">
                               <Type className="h-4 w-4 text-blue-500" />
                               <h4 className="text-sm font-semibold text-slate-700">Aufgabe loesen (Text/Foto)</h4>
                             </div>
-                            <span
-                              className="rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide"
-                              style={{ backgroundColor: '#e2e8f0', color: '#475569' }}
-                            >
+                            <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-slate-600">
                               {selectedProjectSolutionHistory.length}
                             </span>
                           </div>
@@ -2202,7 +2219,7 @@ const App: React.FC = () => {
                               Keine Eintraege.
                             </p>
                           ) : (
-                            <div className="space-y-2">
+                            <div className={projectDetailListClass}>
                               {selectedProjectSolutionHistory.map(item => (
                                 <div
                                   key={item.id}
@@ -2276,18 +2293,15 @@ const App: React.FC = () => {
                               ))}
                             </div>
                           )}
-                        </div>
+                        </section>
 
-                        <div>
-                          <div className="mb-2 flex items-center justify-between gap-2">
+                        <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+                          <div className="mb-3 flex items-center justify-between gap-2">
                             <div className="flex items-center gap-2">
                               <GraduationCap className="h-4 w-4 text-emerald-500" />
                               <h4 className="text-sm font-semibold text-slate-700">Tutor-Lektionen</h4>
                             </div>
-                            <span
-                              className="rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide"
-                              style={{ backgroundColor: '#e2e8f0', color: '#475569' }}
-                            >
+                            <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-slate-600">
                               {selectedProjectTutorHistory.length}
                             </span>
                           </div>
@@ -2296,7 +2310,7 @@ const App: React.FC = () => {
                               Keine Eintraege.
                             </p>
                           ) : (
-                            <div className="space-y-2">
+                            <div className={projectDetailListClass}>
                               {selectedProjectTutorHistory.map(item => (
                                 <div
                                   key={item.id}
@@ -2331,7 +2345,7 @@ const App: React.FC = () => {
                                         <button
                                           onClick={() => handleRetryTutorHistory(item)}
                                           disabled={retryingHistoryId === item.id}
-                                          className="rounded-lg bg-amber-50 px-2.5 py-1.5 text-[11px] font-semibold text-amber-700 hover:bg-amber-100 transition-colors disabled:opacity-60"
+                                          className={`${DETAIL_ACTION_BUTTON_BASE_CLASS} bg-amber-50 text-amber-700 hover:bg-amber-100 disabled:opacity-60`}
                                         >
                                           {retryingHistoryId === item.id ? 'Retry...' : 'Retry'}
                                         </button>
@@ -2390,18 +2404,15 @@ const App: React.FC = () => {
                               ))}
                             </div>
                           )}
-                        </div>
+                        </section>
 
-                        <div>
-                          <div className="mb-2 flex items-center justify-between gap-2">
+                        <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+                          <div className="mb-3 flex items-center justify-between gap-2">
                             <div className="flex items-center gap-2">
                               <BookOpen className="h-4 w-4 text-amber-500" />
                               <h4 className="text-sm font-semibold text-slate-700">Aufgaben ueben (Lernraeume)</h4>
                             </div>
-                            <span
-                              className="rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide"
-                              style={{ backgroundColor: '#e2e8f0', color: '#475569' }}
-                            >
+                            <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-slate-600">
                               {selectedProjectPracticeRooms.length}
                             </span>
                           </div>
@@ -2410,7 +2421,7 @@ const App: React.FC = () => {
                               Keine Eintraege.
                             </p>
                           ) : (
-                            <div className="space-y-2">
+                            <div className={projectDetailListClass}>
                               {selectedProjectPracticeRooms.map(room => {
                                 const solvedTasks = room.generatedTasks.filter(task => task.isCorrect === true).length;
                                 return (
@@ -2434,7 +2445,7 @@ const App: React.FC = () => {
                                           e.stopPropagation();
                                           assignPracticeRoomToProject(room.id, null);
                                         }}
-                                        className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-[11px] font-semibold text-slate-600 hover:bg-slate-100 transition-colors"
+                                        className={`${DETAIL_ACTION_BUTTON_BASE_CLASS} border border-slate-200 text-slate-600 hover:bg-slate-100`}
                                       >
                                         Entfernen
                                       </button>
@@ -2444,18 +2455,15 @@ const App: React.FC = () => {
                               })}
                             </div>
                           )}
-                        </div>
+                        </section>
 
-                        <div>
-                          <div className="mb-2 flex items-center justify-between gap-2">
+                        <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+                          <div className="mb-3 flex items-center justify-between gap-2">
                             <div className="flex items-center gap-2">
                               <ClipboardCheck className="h-4 w-4 text-rose-500" />
                               <h4 className="text-sm font-semibold text-slate-700">Pruefungsmodus</h4>
                             </div>
-                            <span
-                              className="rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide"
-                              style={{ backgroundColor: '#e2e8f0', color: '#475569' }}
-                            >
+                            <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-slate-600">
                               {selectedProjectExamSessions.length}
                             </span>
                           </div>
@@ -2464,7 +2472,7 @@ const App: React.FC = () => {
                               Keine Eintraege.
                             </p>
                           ) : (
-                            <div className="space-y-2">
+                            <div className={projectDetailListClass}>
                               {selectedProjectExamSessions.map(session => (
                                 <div
                                   key={session.id}
@@ -2497,7 +2505,7 @@ const App: React.FC = () => {
                                         e.stopPropagation();
                                         assignExamSessionToProject(session.id, null);
                                       }}
-                                      className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-[11px] font-semibold text-slate-600 hover:bg-slate-100 transition-colors"
+                                      className={`${DETAIL_ACTION_BUTTON_BASE_CLASS} border border-slate-200 text-slate-600 hover:bg-slate-100`}
                                     >
                                       Entfernen
                                     </button>
@@ -2506,7 +2514,7 @@ const App: React.FC = () => {
                               ))}
                             </div>
                           )}
-                        </div>
+                        </section>
                       </div>
                     </div>
                   )}
