@@ -71,6 +71,7 @@ type PracticeView = 'setup' | 'detail' | 'session';
 type ExamView = 'setup' | 'session' | 'result';
 type SolutionOpenView = 'start' | 'summary';
 type MainTab = InputMode.TEXT | InputMode.TUTOR | InputMode.PRACTICE | InputMode.EXAM | 'PROJECTS';
+type ProjectsView = 'folders' | 'detail';
 
 interface ProjectFormState {
   name: string;
@@ -162,6 +163,8 @@ const App: React.FC = () => {
   const [openHistoryDownloadMenuId, setOpenHistoryDownloadMenuId] = useState<string | null>(null);
   const [retryingHistoryId, setRetryingHistoryId] = useState<string | null>(null);
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
+  const [projectsView, setProjectsView] = useState<ProjectsView>('folders');
+  const [projectModalOpen, setProjectModalOpen] = useState(false);
   const [editingProjectId, setEditingProjectId] = useState<string | null>(null);
   const [projectForm, setProjectForm] = useState<ProjectFormState>({
     name: '',
@@ -263,6 +266,14 @@ const App: React.FC = () => {
     setSelectedProjectId(projects[0]?.id ?? null);
   }, [projects, selectedProjectId]);
 
+  useEffect(() => {
+    if (activeMainTab !== 'PROJECTS') return;
+    if (projectsView !== 'detail') return;
+    if (!selectedProjectId || !projects.some(project => project.id === selectedProjectId)) {
+      setProjectsView('folders');
+    }
+  }, [activeMainTab, projects, projectsView, selectedProjectId]);
+
   const savePracticeRooms = useCallback((rooms: PracticeRoom[]) => {
     localStorage.setItem(PRACTICE_ROOMS_KEY, JSON.stringify(rooms));
   }, []);
@@ -350,13 +361,23 @@ const App: React.FC = () => {
     });
   }, [saveExamSessions]);
 
-  const startCreateProject = () => {
+  const resetProjectForm = () => {
     setEditingProjectId(null);
     setProjectForm({
       name: '',
       description: '',
       color: DEFAULT_PROJECT_COLOR
     });
+  };
+
+  const closeProjectModal = () => {
+    setProjectModalOpen(false);
+    resetProjectForm();
+  };
+
+  const startCreateProject = () => {
+    resetProjectForm();
+    setProjectModalOpen(true);
   };
 
   const startEditProject = (project: Project) => {
@@ -366,6 +387,7 @@ const App: React.FC = () => {
       description: project.description,
       color: project.color || DEFAULT_PROJECT_COLOR
     });
+    setProjectModalOpen(true);
   };
 
   const saveProjectForm = () => {
@@ -417,12 +439,8 @@ const App: React.FC = () => {
       };
     });
 
-    setEditingProjectId(null);
-    setProjectForm({
-      name: '',
-      description: '',
-      color: DEFAULT_PROJECT_COLOR
-    });
+    setProjectModalOpen(false);
+    resetProjectForm();
   };
 
   const handleDeleteProject = (projectId: string) => {
@@ -483,14 +501,10 @@ const App: React.FC = () => {
 
     if (selectedProjectId === projectId) {
       setSelectedProjectId(null);
+      setProjectsView('folders');
     }
     if (editingProjectId === projectId) {
-      setEditingProjectId(null);
-      setProjectForm({
-        name: '',
-        description: '',
-        color: DEFAULT_PROJECT_COLOR
-      });
+      closeProjectModal();
     }
   };
 
@@ -576,6 +590,8 @@ const App: React.FC = () => {
 
   const handleModeChange = (mode: InputMode) => {
     setActiveMainTab(mode);
+    setProjectsView('folders');
+    setProjectModalOpen(false);
     setActiveHistoryId(null);
     setSolutionOpenView('start');
     setOpenHistoryDownloadMenuId(null);
@@ -598,13 +614,20 @@ const App: React.FC = () => {
 
   const handleProjectsTabOpen = () => {
     setActiveMainTab('PROJECTS');
+    setProjectsView('folders');
     setActiveHistoryId(null);
     setSolutionOpenView('start');
     setOpenHistoryDownloadMenuId(null);
     setState(prev => ({ ...prev, solution: null, error: null }));
+    setProjectModalOpen(false);
     if (!selectedProjectId && projects.length > 0) {
       setSelectedProjectId(projects[0].id);
     }
+  };
+
+  const openProjectDetail = (projectId: string) => {
+    setSelectedProjectId(projectId);
+    setProjectsView('detail');
   };
 
   const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -615,6 +638,8 @@ const App: React.FC = () => {
     const nextMode = state.inputMode === InputMode.IMAGE ? InputMode.TEXT : state.inputMode;
 
     setActiveMainTab(nextMode);
+    setProjectsView('folders');
+    setProjectModalOpen(false);
     setState(prev => ({
       ...prev,
       isLoading: false,
@@ -1530,6 +1555,10 @@ const App: React.FC = () => {
   const isProjectsTab = activeMainTab === 'PROJECTS';
   const selectedProject = projects.find(project => project.id === selectedProjectId) ?? null;
   const selectedProjectHistory = history.filter(item => item.projectId === selectedProjectId);
+  const selectedProjectSolutionHistory = selectedProjectHistory.filter(
+    item => item.mode === InputMode.TEXT || item.mode === InputMode.IMAGE
+  );
+  const selectedProjectTutorHistory = selectedProjectHistory.filter(item => item.mode === InputMode.TUTOR);
   const selectedProjectPracticeRooms = practiceRooms.filter(room => room.projectId === selectedProjectId);
   const selectedProjectExamSessions = (state.examSessions ?? []).filter(session => session.projectId === selectedProjectId);
 
@@ -1939,96 +1968,87 @@ const App: React.FC = () => {
 
           {isProjectsTab && (
             <div className="space-y-5">
-              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 sm:p-5">
-                <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-                  <div>
-                    <h3 className="text-base font-bold text-slate-800">Projekt bearbeiten</h3>
-                    <p className="text-xs text-slate-500">
-                      Lege neue Projekte an oder bearbeite bestehende.
-                    </p>
-                  </div>
-                  <button
-                    onClick={startCreateProject}
-                    className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-2 text-xs font-semibold text-white hover:bg-indigo-700 transition-colors"
-                  >
-                    <Plus className="w-3.5 h-3.5" />
-                    Neues Projekt
-                  </button>
-                </div>
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <input
-                    value={projectForm.name}
-                    onChange={(e) => setProjectForm(prev => ({ ...prev, name: e.target.value }))}
-                    placeholder="Projektname"
-                    className="w-full rounded-xl border border-slate-200 bg-white p-2.5 text-sm text-slate-700 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200"
-                  />
-                  <div className="flex items-center gap-2">
-                    <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">Farbe</label>
-                    <input
-                      type="color"
-                      value={projectForm.color}
-                      onChange={(e) => setProjectForm(prev => ({ ...prev, color: e.target.value }))}
-                      className="h-9 w-12 cursor-pointer rounded border border-slate-200 bg-white p-1"
-                    />
-                  </div>
-                </div>
-                <textarea
-                  value={projectForm.description}
-                  onChange={(e) => setProjectForm(prev => ({ ...prev, description: e.target.value }))}
-                  placeholder="Kurzbeschreibung (optional)"
-                  className="mt-3 h-20 w-full rounded-xl border border-slate-200 bg-white p-2.5 text-sm text-slate-700 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 resize-none"
-                />
-                <div className="mt-3 flex flex-wrap justify-end gap-2">
-                  {editingProjectId && (
+              {projectsView === 'folders' ? (
+                <div className="space-y-4">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <h3 className="text-base font-bold text-slate-800">Projektordner</h3>
+                      <p className="text-xs text-slate-500">
+                        Waehle einen Ordner aus, um alle Inhalte des Projekts im Detail zu sehen.
+                      </p>
+                    </div>
                     <button
                       onClick={startCreateProject}
-                      className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 transition-colors"
+                      className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-2 text-xs font-semibold text-white hover:bg-indigo-700 transition-colors"
                     >
-                      Abbrechen
+                      <Plus className="w-3.5 h-3.5" />
+                      Neues Projekt
                     </button>
-                  )}
-                  <button
-                    onClick={saveProjectForm}
-                    className="rounded-lg bg-indigo-600 px-3 py-2 text-xs font-semibold text-white hover:bg-indigo-700 transition-colors"
-                  >
-                    {editingProjectId ? 'Projekt speichern' : 'Projekt anlegen'}
-                  </button>
-                </div>
-              </div>
+                  </div>
 
-              <div className="grid gap-4 lg:grid-cols-[280px_1fr]">
-                <div className="rounded-2xl border border-slate-200 bg-white p-3">
-                  <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Projekte</p>
                   {projects.length === 0 ? (
-                    <p className="rounded-xl border border-dashed border-slate-200 bg-slate-50 p-3 text-xs text-slate-500">
-                      Noch keine Projekte vorhanden.
-                    </p>
+                    <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-6 text-center">
+                      <Folder className="mx-auto mb-2 h-8 w-8 text-slate-400" />
+                      <p className="text-sm font-semibold text-slate-700">Noch keine Projektordner vorhanden.</p>
+                      <p className="mt-1 text-xs text-slate-500">Erstelle ein Projekt und sammle passende Inhalte aus allen vier Modi.</p>
+                      <button
+                        onClick={startCreateProject}
+                        className="mt-4 inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-2 text-xs font-semibold text-white hover:bg-indigo-700 transition-colors"
+                      >
+                        <Plus className="h-3.5 w-3.5" />
+                        Projekt anlegen
+                      </button>
+                    </div>
                   ) : (
-                    <div className="space-y-2">
+                    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                       {projects.map(project => {
-                        const isSelected = selectedProjectId === project.id;
+                        const projectHistoryEntries = history.filter(item => item.projectId === project.id);
+                        const projectSolutionsCount = projectHistoryEntries.filter(
+                          item => item.mode === InputMode.TEXT || item.mode === InputMode.IMAGE
+                        ).length;
+                        const projectTutorCount = projectHistoryEntries.filter(item => item.mode === InputMode.TUTOR).length;
+                        const projectPracticeCount = practiceRooms.filter(room => room.projectId === project.id).length;
+                        const projectExamCount = (state.examSessions ?? []).filter(session => session.projectId === project.id).length;
+                        const projectTotalCount = projectSolutionsCount + projectTutorCount + projectPracticeCount + projectExamCount;
+
                         return (
                           <button
                             key={project.id}
-                            onClick={() => setSelectedProjectId(project.id)}
-                            className={`w-full rounded-xl border p-3 text-left transition-colors ${
-                              isSelected
-                                ? 'border-indigo-200 bg-indigo-50'
-                                : 'border-slate-200 bg-white hover:bg-slate-50'
-                            }`}
+                            onClick={() => openProjectDetail(project.id)}
+                            className="group text-left"
                           >
-                            <div className="flex items-start justify-between gap-2">
-                              <div className="min-w-0">
-                                <div className="flex items-center gap-2">
-                                  <span
-                                    className="inline-block h-2.5 w-2.5 rounded-full"
-                                    style={{ backgroundColor: project.color || DEFAULT_PROJECT_COLOR }}
-                                  />
-                                  <p className="truncate text-sm font-semibold text-slate-800">{project.name}</p>
+                            <div className="relative h-full rounded-2xl border border-slate-200 bg-gradient-to-b from-amber-50 to-amber-100/60 p-4 shadow-sm transition-all group-hover:-translate-y-0.5 group-hover:border-amber-300 group-hover:shadow-md">
+                              <div
+                                className="absolute -top-2 left-4 h-4 w-20 rounded-t-lg border border-slate-200 border-b-0 bg-amber-100"
+                                style={{ borderColor: project.color || DEFAULT_PROJECT_COLOR, backgroundColor: `${project.color || DEFAULT_PROJECT_COLOR}22` }}
+                              />
+                              <div className="flex items-start gap-3">
+                                <div
+                                  className="mt-1 rounded-xl border p-2"
+                                  style={{ borderColor: project.color || DEFAULT_PROJECT_COLOR, backgroundColor: `${project.color || DEFAULT_PROJECT_COLOR}22` }}
+                                >
+                                  <Folder className="h-5 w-5" style={{ color: project.color || DEFAULT_PROJECT_COLOR }} />
                                 </div>
-                                {project.description && (
-                                  <p className="mt-1 line-clamp-2 text-xs text-slate-500">{project.description}</p>
-                                )}
+                                <div className="min-w-0">
+                                  <p className="truncate text-sm font-bold text-slate-800">{project.name}</p>
+                                  <p className="mt-0.5 text-xs text-slate-500 line-clamp-2">
+                                    {project.description || 'Ohne Beschreibung'}
+                                  </p>
+                                </div>
+                              </div>
+                              <div className="mt-4 grid grid-cols-2 gap-2 text-[11px] text-slate-600">
+                                <div className="rounded-lg bg-white/80 px-2 py-1">
+                                  <span className="font-semibold">{projectTotalCount}</span> gesamt
+                                </div>
+                                <div className="rounded-lg bg-white/80 px-2 py-1">
+                                  <span className="font-semibold">{projectSolutionsCount}</span> Loesungen
+                                </div>
+                                <div className="rounded-lg bg-white/80 px-2 py-1">
+                                  <span className="font-semibold">{projectTutorCount}</span> Tutor
+                                </div>
+                                <div className="rounded-lg bg-white/80 px-2 py-1">
+                                  <span className="font-semibold">{projectPracticeCount + projectExamCount}</span> Ueben+Pruefung
+                                </div>
                               </div>
                             </div>
                           </button>
@@ -2037,135 +2057,318 @@ const App: React.FC = () => {
                     </div>
                   )}
                 </div>
+              ) : (
+                <div className="space-y-5">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <button
+                      onClick={() => setProjectsView('folders')}
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-100 transition-colors"
+                    >
+                      <ChevronRight className="h-3.5 w-3.5 rotate-180" />
+                      Zurueck zu den Ordnern
+                    </button>
+                    <button
+                      onClick={startCreateProject}
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs font-semibold text-indigo-700 hover:bg-indigo-100 transition-colors"
+                    >
+                      <Plus className="h-3.5 w-3.5" />
+                      Neues Projekt
+                    </button>
+                  </div>
 
-                <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
                   {!selectedProject ? (
-                    <p className="text-sm text-slate-500">
-                      Waehle links ein Projekt aus, um die zugeordneten Inhalte zu sehen.
+                    <p className="rounded-xl border border-dashed border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">
+                      Dieses Projekt ist nicht mehr verfuegbar. Gehe zurueck zur Ordneransicht.
                     </p>
                   ) : (
-                    <div className="space-y-5">
-                      <div className="flex flex-wrap items-center justify-between gap-3">
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <span
-                              className="inline-block h-3 w-3 rounded-full"
-                              style={{ backgroundColor: selectedProject.color || DEFAULT_PROJECT_COLOR }}
-                            />
-                            <h3 className="text-lg font-bold text-slate-800">{selectedProject.name}</h3>
+                    <div className="space-y-4">
+                      <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <span
+                                className="inline-block h-3 w-3 rounded-full"
+                                style={{ backgroundColor: selectedProject.color || DEFAULT_PROJECT_COLOR }}
+                              />
+                              <h3 className="text-lg font-bold text-slate-800">{selectedProject.name}</h3>
+                              {state.activeProjectId === selectedProject.id && (
+                                <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-700">
+                                  aktiv
+                                </span>
+                              )}
+                            </div>
+                            {selectedProject.description && (
+                              <p className="mt-1 text-sm text-slate-500">{selectedProject.description}</p>
+                            )}
                           </div>
-                          {selectedProject.description && (
-                            <p className="mt-1 text-sm text-slate-500">{selectedProject.description}</p>
-                          )}
+                          <div className="flex flex-wrap gap-2">
+                            <button
+                              onClick={() => handleActiveProjectChange(selectedProject.id)}
+                              className={`rounded-lg px-3 py-2 text-xs font-semibold transition-colors ${
+                                state.activeProjectId === selectedProject.id
+                                  ? 'bg-emerald-100 text-emerald-700'
+                                  : 'bg-indigo-100 text-indigo-700 hover:bg-indigo-200'
+                              }`}
+                            >
+                              {state.activeProjectId === selectedProject.id ? 'Aktives Projekt' : 'Als aktiv setzen'}
+                            </button>
+                            <button
+                              onClick={() => startEditProject(selectedProject)}
+                              className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-100 transition-colors"
+                            >
+                              <Pencil className="h-3.5 w-3.5" />
+                              Bearbeiten
+                            </button>
+                            <button
+                              onClick={() => handleDeleteProject(selectedProject.id)}
+                              className="rounded-lg border border-red-200 px-3 py-2 text-xs font-semibold text-red-600 hover:bg-red-50 transition-colors"
+                            >
+                              Loeschen
+                            </button>
+                          </div>
                         </div>
-                        <div className="flex flex-wrap gap-2">
-                          <button
-                            onClick={() => handleActiveProjectChange(selectedProject.id)}
-                            className={`rounded-lg px-3 py-2 text-xs font-semibold transition-colors ${
-                              state.activeProjectId === selectedProject.id
-                                ? 'bg-emerald-100 text-emerald-700'
-                                : 'bg-indigo-100 text-indigo-700 hover:bg-indigo-200'
-                            }`}
-                          >
-                            {state.activeProjectId === selectedProject.id ? 'Aktiv' : 'Als aktiv setzen'}
-                          </button>
-                          <button
-                            onClick={() => startEditProject(selectedProject)}
-                            className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-100 transition-colors"
-                          >
-                            <Pencil className="w-3.5 h-3.5" />
-                            Bearbeiten
-                          </button>
-                          <button
-                            onClick={() => handleDeleteProject(selectedProject.id)}
-                            className="rounded-lg border border-red-200 px-3 py-2 text-xs font-semibold text-red-600 hover:bg-red-50 transition-colors"
-                          >
-                            Loeschen
-                          </button>
-                        </div>
-                      </div>
 
-                      <div className="grid gap-3 sm:grid-cols-3">
-                        <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-                          <p className="text-xs text-slate-500">Loesungen/Tutor</p>
-                          <p className="text-2xl font-bold text-slate-800">{selectedProjectHistory.length}</p>
-                        </div>
-                        <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-                          <p className="text-xs text-slate-500">Lernraeume</p>
-                          <p className="text-2xl font-bold text-slate-800">{selectedProjectPracticeRooms.length}</p>
-                        </div>
-                        <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-                          <p className="text-xs text-slate-500">Pruefungen</p>
-                          <p className="text-2xl font-bold text-slate-800">{selectedProjectExamSessions.length}</p>
+                        <div className="mt-4 grid gap-3 sm:grid-cols-4">
+                          <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                            <p className="text-xs text-slate-500">Loesungen</p>
+                            <p className="text-2xl font-bold text-slate-800">{selectedProjectSolutionHistory.length}</p>
+                          </div>
+                          <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                            <p className="text-xs text-slate-500">Tutor-Lektionen</p>
+                            <p className="text-2xl font-bold text-slate-800">{selectedProjectTutorHistory.length}</p>
+                          </div>
+                          <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                            <p className="text-xs text-slate-500">Lernraeume</p>
+                            <p className="text-2xl font-bold text-slate-800">{selectedProjectPracticeRooms.length}</p>
+                          </div>
+                          <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                            <p className="text-xs text-slate-500">Pruefungen</p>
+                            <p className="text-2xl font-bold text-slate-800">{selectedProjectExamSessions.length}</p>
+                          </div>
                         </div>
                       </div>
 
                       <div className="space-y-4">
                         <div>
-                          <h4 className="mb-2 text-sm font-semibold text-slate-700">Loesungen und Tutor-Lektionen</h4>
-                          {selectedProjectHistory.length === 0 ? (
+                          <div className="mb-2 flex items-center gap-2">
+                            <Type className="h-4 w-4 text-blue-500" />
+                            <h4 className="text-sm font-semibold text-slate-700">Aufgabe loesen (Text/Foto)</h4>
+                          </div>
+                          {selectedProjectSolutionHistory.length === 0 ? (
                             <p className="rounded-lg border border-dashed border-slate-200 bg-slate-50 p-3 text-xs text-slate-500">
                               Keine Eintraege.
                             </p>
                           ) : (
                             <div className="space-y-2">
-                              {selectedProjectHistory.slice(0, 12).map(item => (
-                                <button
+                              {selectedProjectSolutionHistory.map(item => (
+                                <div
                                   key={item.id}
                                   onClick={() => handleHistoryRestore(item)}
-                                  className="w-full rounded-xl border border-slate-200 bg-white p-3 text-left hover:bg-slate-50 transition-colors"
+                                  className="group cursor-pointer rounded-xl border border-slate-200 bg-white p-3 hover:bg-slate-50 transition-colors"
                                 >
-                                  <p className="line-clamp-1 text-sm font-semibold text-slate-800">{item.prompt}</p>
-                                  <p className="mt-1 text-xs text-slate-500">
-                                    {new Date(item.timestamp).toLocaleDateString()} â€¢ {new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                  </p>
-                                </button>
+                                  <div className="flex items-start justify-between gap-3">
+                                    <div className="min-w-0 flex-1">
+                                      <div className="mb-1 flex items-center gap-2">
+                                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider ${
+                                          item.mode === InputMode.IMAGE ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'
+                                        }`}>
+                                          {item.mode === InputMode.IMAGE ? 'Foto' : 'Text'}
+                                        </span>
+                                        <span className="text-xs text-slate-400">
+                                          {new Date(item.timestamp).toLocaleDateString()} • {new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                        </span>
+                                      </div>
+                                      <div className="line-clamp-1 text-sm font-semibold text-slate-800">
+                                        <MathRenderer content={item.prompt} />
+                                      </div>
+                                      <div className="mt-1 text-sm text-slate-500 line-clamp-2">
+                                        <span className="mr-1 font-medium text-slate-400">Ergebnis:</span>
+                                        <MathRenderer content={item.preview} />
+                                      </div>
+                                    </div>
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        assignHistoryItemToProject(item.id, null);
+                                      }}
+                                      className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-[11px] font-semibold text-slate-600 hover:bg-slate-100 transition-colors"
+                                    >
+                                      Entfernen
+                                    </button>
+                                  </div>
+                                </div>
                               ))}
                             </div>
                           )}
                         </div>
 
                         <div>
-                          <h4 className="mb-2 text-sm font-semibold text-slate-700">Lernraeume</h4>
+                          <div className="mb-2 flex items-center gap-2">
+                            <GraduationCap className="h-4 w-4 text-emerald-500" />
+                            <h4 className="text-sm font-semibold text-slate-700">Tutor-Lektionen</h4>
+                          </div>
+                          {selectedProjectTutorHistory.length === 0 ? (
+                            <p className="rounded-lg border border-dashed border-slate-200 bg-slate-50 p-3 text-xs text-slate-500">
+                              Keine Eintraege.
+                            </p>
+                          ) : (
+                            <div className="space-y-2">
+                              {selectedProjectTutorHistory.map(item => (
+                                <div
+                                  key={item.id}
+                                  onClick={() => handleHistoryRestore(item)}
+                                  className="group cursor-pointer rounded-xl border border-slate-200 bg-white p-3 hover:bg-slate-50 transition-colors"
+                                >
+                                  <div className="flex items-start justify-between gap-3">
+                                    <div className="min-w-0 flex-1">
+                                      <div className="mb-1 flex items-center gap-2">
+                                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider bg-emerald-100 text-emerald-700">
+                                          Tutor
+                                        </span>
+                                        {item.status === 'processing' && (
+                                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider bg-amber-100 text-amber-700">
+                                            {clampPercent(item.progress ?? 0)}%
+                                          </span>
+                                        )}
+                                        {item.status === 'failed' && (
+                                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider bg-red-100 text-red-700">
+                                            Fehler
+                                          </span>
+                                        )}
+                                        <span className="text-xs text-slate-400">
+                                          {new Date(item.timestamp).toLocaleDateString()} • {new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                        </span>
+                                      </div>
+                                      <p className="line-clamp-1 text-sm font-semibold text-slate-800">{item.prompt}</p>
+                                      <p className="mt-1 line-clamp-2 text-sm text-slate-500">{item.preview}</p>
+                                    </div>
+                                    <div className="flex flex-col items-end gap-1" onClick={(e) => e.stopPropagation()}>
+                                      {item.status !== 'processing' && (item.status === 'failed' || hasTutorRetryableSteps(item.solution)) && (
+                                        <button
+                                          onClick={() => handleRetryTutorHistory(item)}
+                                          disabled={retryingHistoryId === item.id}
+                                          className="rounded-lg bg-amber-50 px-2.5 py-1.5 text-[11px] font-semibold text-amber-700 hover:bg-amber-100 transition-colors disabled:opacity-60"
+                                        >
+                                          {retryingHistoryId === item.id ? 'Retry...' : 'Retry'}
+                                        </button>
+                                      )}
+                                      {item.status === 'completed' && (
+                                        <button
+                                          onClick={() => handleHistoryRestore(item, 'summary')}
+                                          className="rounded-lg bg-indigo-50 px-2.5 py-1.5 text-[11px] font-semibold text-indigo-700 hover:bg-indigo-100 transition-colors"
+                                        >
+                                          Uebersicht
+                                        </button>
+                                      )}
+                                      <button
+                                        onClick={() => assignHistoryItemToProject(item.id, null)}
+                                        className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-[11px] font-semibold text-slate-600 hover:bg-slate-100 transition-colors"
+                                      >
+                                        Entfernen
+                                      </button>
+                                    </div>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+
+                        <div>
+                          <div className="mb-2 flex items-center gap-2">
+                            <BookOpen className="h-4 w-4 text-amber-500" />
+                            <h4 className="text-sm font-semibold text-slate-700">Aufgaben ueben (Lernraeume)</h4>
+                          </div>
                           {selectedProjectPracticeRooms.length === 0 ? (
                             <p className="rounded-lg border border-dashed border-slate-200 bg-slate-50 p-3 text-xs text-slate-500">
                               Keine Eintraege.
                             </p>
                           ) : (
                             <div className="space-y-2">
-                              {selectedProjectPracticeRooms.slice(0, 12).map(room => (
-                                <button
-                                  key={room.id}
-                                  onClick={() => handleOpenRoom(room)}
-                                  className="w-full rounded-xl border border-slate-200 bg-white p-3 text-left hover:bg-slate-50 transition-colors"
-                                >
-                                  <p className="line-clamp-1 text-sm font-semibold text-slate-800">{room.topic}</p>
-                                  <p className="mt-1 text-xs text-slate-500">{room.generatedTasks.length} Aufgaben</p>
-                                </button>
-                              ))}
+                              {selectedProjectPracticeRooms.map(room => {
+                                const solvedTasks = room.generatedTasks.filter(task => task.isCorrect === true).length;
+                                return (
+                                  <div
+                                    key={room.id}
+                                    onClick={() => handleOpenRoom(room)}
+                                    className="group cursor-pointer rounded-xl border border-slate-200 bg-white p-3 hover:bg-slate-50 transition-colors"
+                                  >
+                                    <div className="flex items-start justify-between gap-3">
+                                      <div className="min-w-0 flex-1">
+                                        <p className="line-clamp-1 text-sm font-semibold text-slate-800">{room.topic}</p>
+                                        <p className="mt-1 text-xs text-slate-500">
+                                          Schwierigkeit: {room.difficulty} • {room.generatedTasks.length} Aufgaben • {solvedTasks} korrekt
+                                        </p>
+                                        <p className="mt-1 text-xs text-slate-400">
+                                          {new Date(room.createdAt).toLocaleDateString()} • {new Date(room.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                        </p>
+                                      </div>
+                                      <button
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          assignPracticeRoomToProject(room.id, null);
+                                        }}
+                                        className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-[11px] font-semibold text-slate-600 hover:bg-slate-100 transition-colors"
+                                      >
+                                        Entfernen
+                                      </button>
+                                    </div>
+                                  </div>
+                                );
+                              })}
                             </div>
                           )}
                         </div>
 
                         <div>
-                          <h4 className="mb-2 text-sm font-semibold text-slate-700">Pruefungen</h4>
+                          <div className="mb-2 flex items-center gap-2">
+                            <ClipboardCheck className="h-4 w-4 text-rose-500" />
+                            <h4 className="text-sm font-semibold text-slate-700">Pruefungsmodus</h4>
+                          </div>
                           {selectedProjectExamSessions.length === 0 ? (
                             <p className="rounded-lg border border-dashed border-slate-200 bg-slate-50 p-3 text-xs text-slate-500">
                               Keine Eintraege.
                             </p>
                           ) : (
                             <div className="space-y-2">
-                              {selectedProjectExamSessions.slice(0, 12).map(session => (
-                                <button
+                              {selectedProjectExamSessions.map(session => (
+                                <div
                                   key={session.id}
                                   onClick={() => handleOpenExamSession(session)}
-                                  className="w-full rounded-xl border border-slate-200 bg-white p-3 text-left hover:bg-slate-50 transition-colors"
+                                  className="group cursor-pointer rounded-xl border border-slate-200 bg-white p-3 hover:bg-slate-50 transition-colors"
                                 >
-                                  <p className="line-clamp-1 text-sm font-semibold text-slate-800">{session.topic}</p>
-                                  <p className="mt-1 text-xs text-slate-500">
-                                    {session.taskCount} Aufgaben Â· {session.durationMinutes} Min Â· {session.status === 'completed' ? `${session.scorePercent ?? 0}%` : 'Offen'}
-                                  </p>
-                                </button>
+                                  <div className="flex items-start justify-between gap-3">
+                                    <div className="min-w-0 flex-1">
+                                      <div className="mb-1 flex items-center gap-2">
+                                        {session.status === 'completed' ? (
+                                          <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-700">
+                                            {session.scorePercent ?? 0}%
+                                          </span>
+                                        ) : (
+                                          <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-700">
+                                            Offen
+                                          </span>
+                                        )}
+                                        <span className="text-xs text-slate-400">
+                                          {new Date(session.createdAt).toLocaleDateString()} • {new Date(session.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                        </span>
+                                      </div>
+                                      <p className="line-clamp-1 text-sm font-semibold text-slate-800">{session.topic}</p>
+                                      <p className="mt-1 text-xs text-slate-500">
+                                        {session.taskCount} Aufgaben • {session.durationMinutes} Min • {session.difficulty}
+                                      </p>
+                                    </div>
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        assignExamSessionToProject(session.id, null);
+                                      }}
+                                      className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-[11px] font-semibold text-slate-600 hover:bg-slate-100 transition-colors"
+                                    >
+                                      Entfernen
+                                    </button>
+                                  </div>
+                                </div>
                               ))}
                             </div>
                           )}
@@ -2174,7 +2377,76 @@ const App: React.FC = () => {
                     </div>
                   )}
                 </div>
-              </div>
+              )}
+
+              {projectModalOpen && (
+                <div
+                  className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/55 p-4"
+                  onClick={closeProjectModal}
+                >
+                  <div
+                    className="w-full max-w-lg rounded-2xl border border-slate-200 bg-white p-4 shadow-2xl sm:p-5"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <div className="mb-3 flex items-start justify-between gap-3">
+                      <div>
+                        <h3 className="text-base font-bold text-slate-800">
+                          {editingProjectId ? 'Projekt bearbeiten' : 'Neues Projekt'}
+                        </h3>
+                        <p className="text-xs text-slate-500">
+                          Name, Farbe und Beschreibung festlegen.
+                        </p>
+                      </div>
+                      <button
+                        onClick={closeProjectModal}
+                        className="rounded-lg border border-slate-200 p-1.5 text-slate-500 hover:bg-slate-100 transition-colors"
+                        title="Schliessen"
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    </div>
+
+                    <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
+                      <input
+                        value={projectForm.name}
+                        onChange={(e) => setProjectForm(prev => ({ ...prev, name: e.target.value }))}
+                        placeholder="Projektname"
+                        className="w-full rounded-xl border border-slate-200 bg-white p-2.5 text-sm text-slate-700 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200"
+                      />
+                      <div className="flex items-center gap-2">
+                        <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">Farbe</label>
+                        <input
+                          type="color"
+                          value={projectForm.color}
+                          onChange={(e) => setProjectForm(prev => ({ ...prev, color: e.target.value }))}
+                          className="h-9 w-12 cursor-pointer rounded border border-slate-200 bg-white p-1"
+                        />
+                      </div>
+                    </div>
+                    <textarea
+                      value={projectForm.description}
+                      onChange={(e) => setProjectForm(prev => ({ ...prev, description: e.target.value }))}
+                      placeholder="Kurzbeschreibung (optional)"
+                      className="mt-3 h-24 w-full rounded-xl border border-slate-200 bg-white p-2.5 text-sm text-slate-700 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 resize-none"
+                    />
+
+                    <div className="mt-4 flex justify-end gap-2">
+                      <button
+                        onClick={closeProjectModal}
+                        className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 transition-colors"
+                      >
+                        Abbrechen
+                      </button>
+                      <button
+                        onClick={saveProjectForm}
+                        className="rounded-lg bg-indigo-600 px-3 py-2 text-xs font-semibold text-white hover:bg-indigo-700 transition-colors"
+                      >
+                        {editingProjectId ? 'Projekt speichern' : 'Projekt anlegen'}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
