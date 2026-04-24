@@ -1,4 +1,4 @@
-import React, { useState, useRef, useCallback, useEffect } from 'react';
+﻿import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { solveMathProblem, resumeTutorSolution } from './services/gemini';
 import { generatePracticeTask } from './services/gemini';
 import { checkPracticeSolution, solvePracticeTask } from './services/gemini';
@@ -12,7 +12,7 @@ import ExamSetup, { ExamConfig } from './components/ExamSetup';
 import ExamSession from './components/ExamSession';
 import ExamResultView from './components/ExamResultView';
 import PrintExportPage from './components/PrintExportPage';
-import { MathState, InputMode, HistoryItem, MathSolution, PracticeRoom, PracticeTask, ExamSession as ExamSessionType, ExamTask, HistoryStatus } from './types';
+import { MathState, InputMode, HistoryItem, MathSolution, PracticeRoom, PracticeTask, ExamSession as ExamSessionType, ExamTask, HistoryStatus, Project } from './types';
 import { buildExportData, serializeExportData, parseAndValidateExport, applyImportData, ImportStrategy } from './services/exportImport';
 import {
   downloadExamAsMarkdown,
@@ -35,6 +35,9 @@ import {
   GraduationCap,
   Dumbbell,
   BookOpen,
+  Folder,
+  Plus,
+  Pencil,
   Settings,
   ClipboardCheck
 } from 'lucide-react';
@@ -43,6 +46,8 @@ import SettingsModal from './components/SettingsModal';
 const PRACTICE_ROOMS_KEY = 'mathPracticeRooms';
 const EXAM_SESSIONS_KEY = 'mathExamSessions';
 const HISTORY_STORAGE_KEY = 'mathGeniusHistory';
+const PROJECTS_STORAGE_KEY = 'mathProjects';
+const ACTIVE_PROJECT_STORAGE_KEY = 'mathActiveProjectId';
 
 const generateId = (): string => {
   if (typeof globalThis.crypto?.randomUUID === 'function') {
@@ -65,6 +70,15 @@ const generateId = (): string => {
 type PracticeView = 'setup' | 'detail' | 'session';
 type ExamView = 'setup' | 'session' | 'result';
 type SolutionOpenView = 'start' | 'summary';
+type MainTab = InputMode.TEXT | InputMode.TUTOR | InputMode.PRACTICE | InputMode.EXAM | 'PROJECTS';
+
+interface ProjectFormState {
+  name: string;
+  description: string;
+  color: string;
+}
+
+const DEFAULT_PROJECT_COLOR = '#4f46e5';
 
 const clampPercent = (value: number): number => {
   if (!Number.isFinite(value)) return 0;
@@ -127,12 +141,15 @@ const App: React.FC = () => {
     solution: null,
     error: null,
     history: [],
+    projects: [],
+    activeProjectId: null,
     practiceRooms: [],
     activePracticeRoom: null,
     examSessions: [],
     activeExamSession: null
   });
 
+  const [activeMainTab, setActiveMainTab] = useState<MainTab>(InputMode.TEXT);
   const [practiceView, setPracticeView] = useState<PracticeView>('setup');
   const [currentPracticeTask, setCurrentPracticeTask] = useState<PracticeTask | null>(null);
   const [isPracticeGenerating, setIsPracticeGenerating] = useState(false);
@@ -144,6 +161,13 @@ const App: React.FC = () => {
   const [solutionOpenView, setSolutionOpenView] = useState<SolutionOpenView>('start');
   const [openHistoryDownloadMenuId, setOpenHistoryDownloadMenuId] = useState<string | null>(null);
   const [retryingHistoryId, setRetryingHistoryId] = useState<string | null>(null);
+  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
+  const [editingProjectId, setEditingProjectId] = useState<string | null>(null);
+  const [projectForm, setProjectForm] = useState<ProjectFormState>({
+    name: '',
+    description: '',
+    color: DEFAULT_PROJECT_COLOR
+  });
   const printExportKey =
     typeof window !== 'undefined'
       ? new URLSearchParams(window.location.search).get('printExport')
@@ -154,6 +178,7 @@ const App: React.FC = () => {
   const activeSolutionHistoryIdRef = useRef<string | null>(null);
 
   const history = state.history ?? [];
+  const projects = state.projects ?? [];
   const practiceRooms = state.practiceRooms ?? [];
 
   const setActiveHistoryId = useCallback((id: string | null) => {
@@ -171,6 +196,20 @@ const App: React.FC = () => {
       } catch (e) {
         console.error("Failed to parse history", e);
       }
+    }
+
+    const savedProjects = localStorage.getItem(PROJECTS_STORAGE_KEY);
+    if (savedProjects) {
+      try {
+        updates.projects = JSON.parse(savedProjects);
+      } catch (e) {
+        console.error("Failed to parse projects", e);
+      }
+    }
+
+    const savedActiveProjectId = localStorage.getItem(ACTIVE_PROJECT_STORAGE_KEY);
+    if (savedActiveProjectId) {
+      updates.activeProjectId = savedActiveProjectId;
     }
 
     const savedRooms = localStorage.getItem(PRACTICE_ROOMS_KEY);
@@ -192,7 +231,15 @@ const App: React.FC = () => {
     }
 
     if (Object.keys(updates).length) {
-      setState(prev => ({ ...prev, ...updates }));
+      setState(prev => {
+        const merged = { ...prev, ...updates };
+        const knownIds = new Set((merged.projects ?? []).map(project => project.id));
+        if (merged.activeProjectId && !knownIds.has(merged.activeProjectId)) {
+          merged.activeProjectId = null;
+          localStorage.removeItem(ACTIVE_PROJECT_STORAGE_KEY);
+        }
+        return merged;
+      });
     }
   }, []);
 
@@ -209,12 +256,31 @@ const App: React.FC = () => {
     return () => document.removeEventListener('click', handleDocumentClick);
   }, [openHistoryDownloadMenuId]);
 
+  useEffect(() => {
+    if (selectedProjectId && projects.some(project => project.id === selectedProjectId)) {
+      return;
+    }
+    setSelectedProjectId(projects[0]?.id ?? null);
+  }, [projects, selectedProjectId]);
+
   const savePracticeRooms = useCallback((rooms: PracticeRoom[]) => {
     localStorage.setItem(PRACTICE_ROOMS_KEY, JSON.stringify(rooms));
   }, []);
 
   const saveExamSessions = useCallback((sessions: ExamSessionType[]) => {
     localStorage.setItem(EXAM_SESSIONS_KEY, JSON.stringify(sessions));
+  }, []);
+
+  const saveProjects = useCallback((projectItems: Project[]) => {
+    localStorage.setItem(PROJECTS_STORAGE_KEY, JSON.stringify(projectItems));
+  }, []);
+
+  const saveActiveProjectId = useCallback((projectId: string | null) => {
+    if (projectId) {
+      localStorage.setItem(ACTIVE_PROJECT_STORAGE_KEY, projectId);
+      return;
+    }
+    localStorage.removeItem(ACTIVE_PROJECT_STORAGE_KEY);
   }, []);
 
   const updateRoom = useCallback((updatedRoom: PracticeRoom) => {
@@ -232,6 +298,201 @@ const App: React.FC = () => {
       return { ...prev, examSessions: sessions, activeExamSession: updatedSession };
     });
   }, [saveExamSessions]);
+
+  const handleActiveProjectChange = useCallback((projectId: string | null) => {
+    setState(prev => ({ ...prev, activeProjectId: projectId }));
+    saveActiveProjectId(projectId);
+  }, [saveActiveProjectId]);
+
+  const assignPracticeRoomToProject = useCallback((roomId: string, projectId: string | null) => {
+    setState(prev => {
+      let updatedActivePracticeRoom = prev.activePracticeRoom;
+      const rooms = prev.practiceRooms.map(room => {
+        if (room.id !== roomId) return room;
+        const nextRoom: PracticeRoom = projectId ? { ...room, projectId } : { ...room };
+        if (!projectId) {
+          delete nextRoom.projectId;
+        }
+        if (updatedActivePracticeRoom?.id === room.id) {
+          updatedActivePracticeRoom = nextRoom;
+        }
+        return nextRoom;
+      });
+      savePracticeRooms(rooms);
+      return {
+        ...prev,
+        practiceRooms: rooms,
+        activePracticeRoom: updatedActivePracticeRoom
+      };
+    });
+  }, [savePracticeRooms]);
+
+  const assignExamSessionToProject = useCallback((sessionId: string, projectId: string | null) => {
+    setState(prev => {
+      let updatedActiveExamSession = prev.activeExamSession;
+      const sessions = prev.examSessions.map(session => {
+        if (session.id !== sessionId) return session;
+        const nextSession: ExamSessionType = projectId ? { ...session, projectId } : { ...session };
+        if (!projectId) {
+          delete nextSession.projectId;
+        }
+        if (updatedActiveExamSession?.id === session.id) {
+          updatedActiveExamSession = nextSession;
+        }
+        return nextSession;
+      });
+      saveExamSessions(sessions);
+      return {
+        ...prev,
+        examSessions: sessions,
+        activeExamSession: updatedActiveExamSession
+      };
+    });
+  }, [saveExamSessions]);
+
+  const startCreateProject = () => {
+    setEditingProjectId(null);
+    setProjectForm({
+      name: '',
+      description: '',
+      color: DEFAULT_PROJECT_COLOR
+    });
+  };
+
+  const startEditProject = (project: Project) => {
+    setEditingProjectId(project.id);
+    setProjectForm({
+      name: project.name,
+      description: project.description,
+      color: project.color || DEFAULT_PROJECT_COLOR
+    });
+  };
+
+  const saveProjectForm = () => {
+    const name = projectForm.name.trim();
+    if (!name) {
+      window.alert('Bitte gib einen Projektnamen ein.');
+      return;
+    }
+
+    const now = Date.now();
+
+    setState(prev => {
+      let updatedProjects: Project[];
+      let selectedIdAfterSave: string | null = null;
+
+      if (editingProjectId) {
+        updatedProjects = prev.projects.map(project => {
+          if (project.id !== editingProjectId) return project;
+          selectedIdAfterSave = project.id;
+          return {
+            ...project,
+            name,
+            description: projectForm.description.trim(),
+            color: projectForm.color || DEFAULT_PROJECT_COLOR,
+            updatedAt: now
+          };
+        });
+      } else {
+        const newProject: Project = {
+          id: generateId(),
+          name,
+          description: projectForm.description.trim(),
+          color: projectForm.color || DEFAULT_PROJECT_COLOR,
+          createdAt: now,
+          updatedAt: now
+        };
+        updatedProjects = [newProject, ...prev.projects];
+        selectedIdAfterSave = newProject.id;
+      }
+
+      saveProjects(updatedProjects);
+      if (selectedIdAfterSave) {
+        setSelectedProjectId(selectedIdAfterSave);
+      }
+
+      return {
+        ...prev,
+        projects: updatedProjects
+      };
+    });
+
+    setEditingProjectId(null);
+    setProjectForm({
+      name: '',
+      description: '',
+      color: DEFAULT_PROJECT_COLOR
+    });
+  };
+
+  const handleDeleteProject = (projectId: string) => {
+    const project = projects.find(entry => entry.id === projectId);
+    if (!project) return;
+
+    if (!window.confirm(`Projekt "${project.name}" wirklich loeschen? Inhalte bleiben erhalten und werden nur entkoppelt.`)) {
+      return;
+    }
+
+    setState(prev => {
+      const nextProjects = prev.projects.filter(entry => entry.id !== projectId);
+
+      const nextHistory = prev.history.map(item => {
+        if (item.projectId !== projectId) return item;
+        const nextItem: HistoryItem = { ...item };
+        delete nextItem.projectId;
+        return nextItem;
+      });
+
+      const nextPracticeRooms = prev.practiceRooms.map(room => {
+        if (room.projectId !== projectId) return room;
+        const nextRoom: PracticeRoom = { ...room };
+        delete nextRoom.projectId;
+        return nextRoom;
+      });
+
+      const nextExamSessions = prev.examSessions.map(session => {
+        if (session.projectId !== projectId) return session;
+        const nextSession: ExamSessionType = { ...session };
+        delete nextSession.projectId;
+        return nextSession;
+      });
+
+      const nextActiveProjectId = prev.activeProjectId === projectId ? null : prev.activeProjectId;
+
+      saveProjects(nextProjects);
+      persistHistory(nextHistory);
+      savePracticeRooms(nextPracticeRooms);
+      saveExamSessions(nextExamSessions);
+      saveActiveProjectId(nextActiveProjectId);
+
+      return {
+        ...prev,
+        projects: nextProjects,
+        activeProjectId: nextActiveProjectId,
+        history: nextHistory,
+        practiceRooms: nextPracticeRooms,
+        examSessions: nextExamSessions,
+        activePracticeRoom: prev.activePracticeRoom?.id && prev.activePracticeRoom.projectId === projectId
+          ? { ...prev.activePracticeRoom, projectId: undefined }
+          : prev.activePracticeRoom,
+        activeExamSession: prev.activeExamSession?.id && prev.activeExamSession.projectId === projectId
+          ? { ...prev.activeExamSession, projectId: undefined }
+          : prev.activeExamSession
+      };
+    });
+
+    if (selectedProjectId === projectId) {
+      setSelectedProjectId(null);
+    }
+    if (editingProjectId === projectId) {
+      setEditingProjectId(null);
+      setProjectForm({
+        name: '',
+        description: '',
+        color: DEFAULT_PROJECT_COLOR
+      });
+    }
+  };
 
   const persistHistory = useCallback((items: HistoryItem[]) => {
     localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(items));
@@ -262,6 +523,17 @@ const App: React.FC = () => {
       return { ...prev, history: updatedHistory };
     });
   }, [persistHistory]);
+
+  const assignHistoryItemToProject = useCallback((historyId: string, projectId: string | null) => {
+    updateHistoryItem(historyId, (item) => {
+      if (projectId) {
+        return { ...item, projectId };
+      }
+      const nextItem: HistoryItem = { ...item };
+      delete nextItem.projectId;
+      return nextItem;
+    });
+  }, [updateHistoryItem]);
 
   const clearHistory = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -303,6 +575,7 @@ const App: React.FC = () => {
   };
 
   const handleModeChange = (mode: InputMode) => {
+    setActiveMainTab(mode);
     setActiveHistoryId(null);
     setSolutionOpenView('start');
     setOpenHistoryDownloadMenuId(null);
@@ -323,6 +596,17 @@ const App: React.FC = () => {
     }
   };
 
+  const handleProjectsTabOpen = () => {
+    setActiveMainTab('PROJECTS');
+    setActiveHistoryId(null);
+    setSolutionOpenView('start');
+    setOpenHistoryDownloadMenuId(null);
+    setState(prev => ({ ...prev, solution: null, error: null }));
+    if (!selectedProjectId && projects.length > 0) {
+      setSelectedProjectId(projects[0].id);
+    }
+  };
+
   const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setState(prev => ({ ...prev, textInput: e.target.value }));
   };
@@ -330,6 +614,7 @@ const App: React.FC = () => {
   const handleReset = () => {
     const nextMode = state.inputMode === InputMode.IMAGE ? InputMode.TEXT : state.inputMode;
 
+    setActiveMainTab(nextMode);
     setState(prev => ({
       ...prev,
       isLoading: false,
@@ -354,6 +639,7 @@ const App: React.FC = () => {
     setOpenHistoryDownloadMenuId(null);
     setActiveHistoryId(item.id);
     setSolutionOpenView(openView);
+    setActiveMainTab(item.mode);
     setState(prev => ({
       ...prev,
       solution: item.solution,
@@ -379,7 +665,7 @@ const App: React.FC = () => {
         };
         reader.readAsDataURL(file);
       } else {
-        setState(prev => ({ ...prev, error: "Bitte wähle eine gültige Bilddatei." }));
+        setState(prev => ({ ...prev, error: "Bitte wÃ¤hle eine gÃ¼ltige Bilddatei." }));
       }
     }
   };
@@ -413,7 +699,13 @@ const App: React.FC = () => {
   };
 
   const handleExportData = () => {
-    const exportData = buildExportData(history, practiceRooms, state.examSessions ?? []);
+    const exportData = buildExportData(
+      history,
+      projects,
+      state.activeProjectId ?? null,
+      practiceRooms,
+      state.examSessions ?? []
+    );
     const json = serializeExportData(exportData);
     const blob = new Blob([json], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
@@ -453,13 +745,16 @@ const App: React.FC = () => {
         const hasHistoryConflicts = (state.history ?? []).some(existing =>
           imported.history.some(item => item.id === existing.id)
         );
+        const hasProjectConflicts = (state.projects ?? []).some(existing =>
+          (imported.projects ?? []).some(project => project.id === existing.id)
+        );
         const hasRoomConflicts = (state.practiceRooms ?? []).some(existing =>
           imported.practiceRooms.some(room => room.id === existing.id)
         );
         const hasExamConflicts = (state.examSessions ?? []).some(existing =>
           imported.examSessions.some(session => session.id === existing.id)
         );
-        const hasConflicts = hasHistoryConflicts || hasRoomConflicts || hasExamConflicts;
+        const hasConflicts = hasHistoryConflicts || hasProjectConflicts || hasRoomConflicts || hasExamConflicts;
 
         const message = hasConflicts
           ? 'Beim Import wurden ueberschneidende Daten gefunden.\n\nOK = Daten intelligent ZUSAMMENFUEHREN (Duplikate vermeiden).\nAbbrechen = aktuelle Daten komplett durch Import ERSETZEN.'
@@ -469,8 +764,16 @@ const App: React.FC = () => {
         const strategy: ImportStrategy = merge ? 'merge' : 'replace';
 
         setState(prev => {
-          const { history: newHistory, practiceRooms: newPracticeRooms, examSessions: newExamSessions } = applyImportData(
+          const {
+            history: newHistory,
+            projects: newProjects,
+            activeProjectId: newActiveProjectId,
+            practiceRooms: newPracticeRooms,
+            examSessions: newExamSessions
+          } = applyImportData(
             prev.history ?? [],
+            prev.projects ?? [],
+            prev.activeProjectId ?? null,
             prev.practiceRooms ?? [],
             prev.examSessions ?? [],
             imported,
@@ -478,8 +781,10 @@ const App: React.FC = () => {
           );
 
           localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(newHistory));
+          localStorage.setItem(PROJECTS_STORAGE_KEY, JSON.stringify(newProjects));
           localStorage.setItem(PRACTICE_ROOMS_KEY, JSON.stringify(newPracticeRooms));
           localStorage.setItem(EXAM_SESSIONS_KEY, JSON.stringify(newExamSessions));
+          saveActiveProjectId(newActiveProjectId);
 
           let newActivePracticeRoom = prev.activePracticeRoom;
           if (newActivePracticeRoom) {
@@ -489,12 +794,23 @@ const App: React.FC = () => {
             }
           }
 
+          let newActiveExamSession = prev.activeExamSession;
+          if (newActiveExamSession) {
+            const stillExists = newExamSessions.find(session => session.id === newActiveExamSession!.id);
+            if (!stillExists) {
+              newActiveExamSession = null;
+            }
+          }
+
           return {
             ...prev,
             history: newHistory,
+            projects: newProjects,
+            activeProjectId: newActiveProjectId,
             practiceRooms: newPracticeRooms,
             examSessions: newExamSessions,
-            activePracticeRoom: newActivePracticeRoom
+            activePracticeRoom: newActivePracticeRoom,
+            activeExamSession: newActiveExamSession
           };
         });
         setActiveHistoryId(null);
@@ -617,6 +933,7 @@ const App: React.FC = () => {
     setRetryingHistoryId(item.id);
     setActiveHistoryId(item.id);
     setSolutionOpenView('start');
+    setActiveMainTab(InputMode.TUTOR);
     setState(prev => ({
       ...prev,
       inputMode: InputMode.TUTOR,
@@ -727,6 +1044,7 @@ const App: React.FC = () => {
         id: historyId,
         timestamp: Date.now(),
         mode: InputMode.TUTOR,
+        projectId: state.activeProjectId ?? undefined,
         prompt: tutorTopic,
         preview: buildTutorPreview('processing', initialProgress, placeholderSolution),
         solution: placeholderSolution,
@@ -846,6 +1164,7 @@ const App: React.FC = () => {
         id: generateId(),
         timestamp: Date.now(),
         mode: savedMode,
+        projectId: state.activeProjectId ?? undefined,
         prompt: state.textInput || (state.imageFile ? "Foto-Analyse" : "Aufgabe"),
         preview: solution.finalAnswer || solution.steps[0]?.title || "Geloeste Aufgabe",
         solution,
@@ -865,9 +1184,9 @@ const App: React.FC = () => {
         error: err.message || "Es ist ein Fehler aufgetreten. Bitte versuche es erneut."
       }));
     }
-  }, [state.isLoading, state.inputMode, state.textInput, state.imagePreview, state.imageFile, saveToHistory, setActiveHistoryId, updateHistoryItem]);
+  }, [state.isLoading, state.inputMode, state.textInput, state.imagePreview, state.imageFile, state.activeProjectId, saveToHistory, setActiveHistoryId, updateHistoryItem]);
 
-  // ── Practice Mode handlers ──
+  // â”€â”€ Practice Mode handlers â”€â”€
 
   const handlePracticeStart = async (topic: string, difficulty: string, exampleTasks: string[]) => {
     setIsPracticeGenerating(true);
@@ -887,6 +1206,7 @@ const App: React.FC = () => {
         topic,
         description: result.description,
         difficulty,
+        projectId: state.activeProjectId ?? undefined,
         exampleTasks,
         generatedTasks: [newTask],
         createdAt: Date.now(),
@@ -959,7 +1279,7 @@ const App: React.FC = () => {
     } catch (err: any) {
       setState(prev => ({
         ...prev,
-        error: err.message || "Nächste Aufgabe konnte nicht erstellt werden."
+        error: err.message || "NÃ¤chste Aufgabe konnte nicht erstellt werden."
       }));
     } finally {
       setIsPracticeGenerating(false);
@@ -967,6 +1287,7 @@ const App: React.FC = () => {
   };
 
   const handleOpenRoom = (room: PracticeRoom) => {
+    setActiveMainTab(InputMode.PRACTICE);
     setState(prev => ({ ...prev, activePracticeRoom: room, inputMode: InputMode.PRACTICE }));
     setPracticeView('detail');
     setCurrentPracticeTask(null);
@@ -974,7 +1295,7 @@ const App: React.FC = () => {
 
   const handleDeleteRoom = (e: React.MouseEvent, roomId: string) => {
     e.stopPropagation();
-    if (window.confirm("Möchtest du diesen Lernraum wirklich löschen?")) {
+    if (window.confirm("MÃ¶chtest du diesen Lernraum wirklich lÃ¶schen?")) {
       setState(prev => {
         const rooms = prev.practiceRooms.filter(r => r.id !== roomId);
         savePracticeRooms(rooms);
@@ -1016,13 +1337,13 @@ const App: React.FC = () => {
     }
   };
 
-  // ── Exam Mode handlers ──
+  // â”€â”€ Exam Mode handlers â”€â”€
 
   const buildExamSummary = (scorePercent: number, correctCount: number, total: number): string => {
     if (scorePercent >= 90) return `Starke Leistung: $${correctCount}$ von $${total}$ Aufgaben korrekt.`;
     if (scorePercent >= 75) return `Gute Leistung: $${correctCount}$ von $${total}$ Aufgaben korrekt.`;
     if (scorePercent >= 60) return `Solide Basis: $${correctCount}$ von $${total}$ Aufgaben korrekt.`;
-    return `Ausbaufähig: $${correctCount}$ von $${total}$ Aufgaben korrekt. Wiederhole die schwachen Themen gezielt.`;
+    return `AusbaufÃ¤hig: $${correctCount}$ von $${total}$ Aufgaben korrekt. Wiederhole die schwachen Themen gezielt.`;
   };
 
   const handleExamStart = async (config: ExamConfig) => {
@@ -1039,7 +1360,7 @@ const App: React.FC = () => {
           config.difficulty,
           config.exampleTasks,
           previousTasks,
-          `Erstelle Aufgabe ${i + 1} von ${config.taskCount} für eine Prüfung.`
+          `Erstelle Aufgabe ${i + 1} von ${config.taskCount} fÃ¼r eine PrÃ¼fung.`
         );
 
         const task: ExamTask = {
@@ -1062,6 +1383,7 @@ const App: React.FC = () => {
         id: generateId(),
         topic: config.topic,
         difficulty: config.difficulty,
+        projectId: state.activeProjectId ?? undefined,
         taskCount: config.taskCount,
         durationMinutes: config.durationMinutes,
         createdAt: startedAt,
@@ -1085,7 +1407,7 @@ const App: React.FC = () => {
     } catch (err: any) {
       setState(prev => ({
         ...prev,
-        error: err.message || "Prüfungsaufgaben konnten nicht erstellt werden."
+        error: err.message || "PrÃ¼fungsaufgaben konnten nicht erstellt werden."
       }));
     } finally {
       setIsExamGenerating(false);
@@ -1156,7 +1478,7 @@ const App: React.FC = () => {
             return {
               ...task,
               isCorrect: false,
-              aiFeedback: 'Aufgabe konnte nicht vollständig bewertet werden.',
+              aiFeedback: 'Aufgabe konnte nicht vollstÃ¤ndig bewertet werden.',
               evaluationError: error?.message || 'Unbekannter Fehler'
             };
           }
@@ -1183,7 +1505,7 @@ const App: React.FC = () => {
     } catch (err: any) {
       setState(prev => ({
         ...prev,
-        error: err.message || 'Prüfung konnte nicht vollständig ausgewertet werden.'
+        error: err.message || 'PrÃ¼fung konnte nicht vollstÃ¤ndig ausgewertet werden.'
       }));
 
       updateExamSession({
@@ -1196,6 +1518,7 @@ const App: React.FC = () => {
   };
 
   const handleOpenExamSession = (session: ExamSessionType) => {
+    setActiveMainTab(InputMode.EXAM);
     setState(prev => ({ ...prev, inputMode: InputMode.EXAM, activeExamSession: session }));
     if (session.status === 'completed') {
       setExamView('result');
@@ -1204,11 +1527,17 @@ const App: React.FC = () => {
     setExamView('session');
   };
 
+  const isProjectsTab = activeMainTab === 'PROJECTS';
+  const selectedProject = projects.find(project => project.id === selectedProjectId) ?? null;
+  const selectedProjectHistory = history.filter(item => item.projectId === selectedProjectId);
+  const selectedProjectPracticeRooms = practiceRooms.filter(room => room.projectId === selectedProjectId);
+  const selectedProjectExamSessions = (state.examSessions ?? []).filter(session => session.projectId === selectedProjectId);
+
   if (printExportKey) {
     return <PrintExportPage exportKey={printExportKey} />;
   }
 
-  // ── Render: Solution view ──
+  // â”€â”€ Render: Solution view â”€â”€
   if (state.solution && state.inputMode !== InputMode.PRACTICE) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-purple-50 flex flex-col items-center p-3 sm:p-4 md:p-8">
@@ -1219,7 +1548,7 @@ const App: React.FC = () => {
             </div>
             <div className="min-w-0">
               <h1 className="text-xl sm:text-3xl font-extrabold text-slate-800 tracking-tight leading-tight">Mathe Erklaerer</h1>
-              <p className="text-sm text-slate-500">Zurück zur Übersicht</p>
+              <p className="text-sm text-slate-500">ZurÃ¼ck zur Ãœbersicht</p>
             </div>
           </div>
           <button
@@ -1258,7 +1587,7 @@ const App: React.FC = () => {
     );
   }
 
-  // ── Render: Practice session ──
+  // â”€â”€ Render: Practice session â”€â”€
   if (state.inputMode === InputMode.PRACTICE && practiceView === 'session' && state.activePracticeRoom && currentPracticeTask) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-purple-50 flex flex-col items-center p-3 sm:p-4 md:p-8">
@@ -1269,7 +1598,7 @@ const App: React.FC = () => {
             </div>
             <div className="min-w-0">
               <h1 className="text-xl sm:text-3xl font-extrabold text-slate-800 tracking-tight leading-tight">Mathe Erklaerer</h1>
-              <p className="text-sm text-slate-500">Zurück zur Übersicht</p>
+              <p className="text-sm text-slate-500">ZurÃ¼ck zur Ãœbersicht</p>
             </div>
           </div>
           <button
@@ -1311,7 +1640,7 @@ const App: React.FC = () => {
     );
   }
 
-  // ── Render: Practice room detail ──
+  // â”€â”€ Render: Practice room detail â”€â”€
   if (state.inputMode === InputMode.PRACTICE && practiceView === 'detail' && state.activePracticeRoom) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-purple-50 flex flex-col items-center p-3 sm:p-4 md:p-8">
@@ -1322,7 +1651,7 @@ const App: React.FC = () => {
             </div>
             <div className="min-w-0">
               <h1 className="text-xl sm:text-3xl font-extrabold text-slate-800 tracking-tight leading-tight">Mathe Erklaerer</h1>
-              <p className="text-sm text-slate-500">Zurück zur Übersicht</p>
+              <p className="text-sm text-slate-500">ZurÃ¼ck zur Ãœbersicht</p>
             </div>
           </div>
           <button
@@ -1365,7 +1694,7 @@ const App: React.FC = () => {
     );
   }
 
-  // ── Render: Exam session ──
+  // â”€â”€ Render: Exam session â”€â”€
   if (state.inputMode === InputMode.EXAM && examView === 'session' && state.activeExamSession) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-purple-50 flex flex-col items-center p-3 sm:p-4 md:p-8">
@@ -1376,7 +1705,7 @@ const App: React.FC = () => {
             </div>
             <div className="min-w-0">
               <h1 className="text-xl sm:text-3xl font-extrabold text-slate-800 tracking-tight leading-tight">Mathe Erklaerer</h1>
-              <p className="text-sm text-slate-500">Zurück zur Übersicht</p>
+              <p className="text-sm text-slate-500">ZurÃ¼ck zur Ãœbersicht</p>
             </div>
           </div>
           <button
@@ -1419,7 +1748,7 @@ const App: React.FC = () => {
     );
   }
 
-  // ── Render: Exam result ──
+  // â”€â”€ Render: Exam result â”€â”€
   if (state.inputMode === InputMode.EXAM && examView === 'result' && state.activeExamSession) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-purple-50 flex flex-col items-center p-3 sm:p-4 md:p-8">
@@ -1430,7 +1759,7 @@ const App: React.FC = () => {
             </div>
             <div className="min-w-0">
               <h1 className="text-xl sm:text-3xl font-extrabold text-slate-800 tracking-tight leading-tight">Mathe Erklaerer</h1>
-              <p className="text-sm text-slate-500">Zurück zur Übersicht</p>
+              <p className="text-sm text-slate-500">ZurÃ¼ck zur Ãœbersicht</p>
             </div>
           </div>
           <button
@@ -1473,7 +1802,7 @@ const App: React.FC = () => {
     );
   }
 
-  // ── Render: Main input form ──
+  // â”€â”€ Render: Main input form â”€â”€
   return (
     <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-purple-50 flex flex-col items-center p-3 sm:p-4 md:p-8">
       
@@ -1485,7 +1814,7 @@ const App: React.FC = () => {
           </div>
           <div className="min-w-0">
             <h1 className="text-xl sm:text-3xl font-extrabold text-slate-800 tracking-tight leading-tight">Mathe Erklaerer</h1>
-            <p className="text-xs sm:text-sm text-slate-500">Dein persönlicher Schritt-für-Schritt Tutor</p>
+            <p className="text-xs sm:text-sm text-slate-500">Dein persÃ¶nlicher Schritt-fÃ¼r-Schritt Tutor</p>
           </div>
         </div>
         <button
@@ -1517,12 +1846,39 @@ const App: React.FC = () => {
         {/* Input Section */}
         <div className="p-4 sm:p-6 md:p-8 bg-white">
           
+          <div className="mb-4 sm:mb-5 grid gap-3 sm:grid-cols-[1fr_auto] sm:items-center">
+            <div className="space-y-1">
+              <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Aktives Projekt
+              </label>
+              <select
+                value={state.activeProjectId ?? ''}
+                onChange={(e) => handleActiveProjectChange(e.target.value || null)}
+                className="w-full p-2.5 bg-slate-50 rounded-xl border border-slate-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 focus:bg-white transition-all text-sm text-slate-700"
+              >
+                <option value="">Kein aktives Projekt</option>
+                {projects.map(project => (
+                  <option key={project.id} value={project.id}>
+                    {project.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <button
+              onClick={handleProjectsTabOpen}
+              className="inline-flex h-fit items-center justify-center gap-2 rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-2.5 text-sm font-semibold text-indigo-700 hover:bg-indigo-100 transition-colors"
+            >
+              <Folder className="w-4 h-4" />
+              Projekte verwalten
+            </button>
+          </div>
+
           {/* Tabs */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 sm:gap-2 mb-5 sm:mb-6 bg-slate-100 p-1 rounded-xl w-full">
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-1.5 sm:gap-2 mb-5 sm:mb-6 bg-slate-100 p-1 rounded-xl w-full">
             <button
               onClick={() => handleModeChange(InputMode.TEXT)}
               className={`flex items-center justify-center gap-1.5 sm:gap-2 px-2 sm:px-4 py-2.5 sm:py-3 rounded-lg text-xs sm:text-sm font-semibold transition-all duration-200 ${
-                state.inputMode === InputMode.TEXT
+                activeMainTab === InputMode.TEXT
                   ? 'bg-white text-indigo-600 shadow-sm'
                   : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200/50'
               }`}
@@ -1534,7 +1890,7 @@ const App: React.FC = () => {
             <button
               onClick={() => handleModeChange(InputMode.TUTOR)}
               className={`flex items-center justify-center gap-1.5 sm:gap-2 px-2 sm:px-4 py-2.5 sm:py-3 rounded-lg text-xs sm:text-sm font-semibold transition-all duration-200 ${
-                state.inputMode === InputMode.TUTOR
+                activeMainTab === InputMode.TUTOR
                   ? 'bg-white text-indigo-600 shadow-sm'
                   : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200/50'
               }`}
@@ -1546,7 +1902,7 @@ const App: React.FC = () => {
             <button
               onClick={() => handleModeChange(InputMode.PRACTICE)}
               className={`flex items-center justify-center gap-1.5 sm:gap-2 px-2 sm:px-4 py-2.5 sm:py-3 rounded-lg text-xs sm:text-sm font-semibold transition-all duration-200 ${
-                state.inputMode === InputMode.PRACTICE
+                activeMainTab === InputMode.PRACTICE
                   ? 'bg-white text-indigo-600 shadow-sm'
                   : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200/50'
               }`}
@@ -1558,7 +1914,7 @@ const App: React.FC = () => {
             <button
               onClick={() => handleModeChange(InputMode.EXAM)}
               className={`flex items-center justify-center gap-1.5 sm:gap-2 px-2 sm:px-4 py-2.5 sm:py-3 rounded-lg text-xs sm:text-sm font-semibold transition-all duration-200 ${
-                state.inputMode === InputMode.EXAM
+                activeMainTab === InputMode.EXAM
                   ? 'bg-white text-indigo-600 shadow-sm'
                   : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200/50'
               }`}
@@ -1567,16 +1923,269 @@ const App: React.FC = () => {
               <span className="sm:hidden">Pruefung</span>
               <span className="hidden sm:inline">{'Pr\u00fcfungsmodus'}</span>
             </button>
+            <button
+              onClick={handleProjectsTabOpen}
+              className={`flex items-center justify-center gap-1.5 sm:gap-2 px-2 sm:px-4 py-2.5 sm:py-3 rounded-lg text-xs sm:text-sm font-semibold transition-all duration-200 ${
+                isProjectsTab
+                  ? 'bg-white text-indigo-600 shadow-sm'
+                  : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200/50'
+              }`}
+            >
+              <Folder className="w-4 h-4" />
+              <span className="sm:hidden">Projekte</span>
+              <span className="hidden sm:inline">Projekte</span>
+            </button>
           </div>
 
+          {isProjectsTab && (
+            <div className="space-y-5">
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 sm:p-5">
+                <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <h3 className="text-base font-bold text-slate-800">Projekt bearbeiten</h3>
+                    <p className="text-xs text-slate-500">
+                      Lege neue Projekte an oder bearbeite bestehende.
+                    </p>
+                  </div>
+                  <button
+                    onClick={startCreateProject}
+                    className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-2 text-xs font-semibold text-white hover:bg-indigo-700 transition-colors"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    Neues Projekt
+                  </button>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <input
+                    value={projectForm.name}
+                    onChange={(e) => setProjectForm(prev => ({ ...prev, name: e.target.value }))}
+                    placeholder="Projektname"
+                    className="w-full rounded-xl border border-slate-200 bg-white p-2.5 text-sm text-slate-700 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200"
+                  />
+                  <div className="flex items-center gap-2">
+                    <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">Farbe</label>
+                    <input
+                      type="color"
+                      value={projectForm.color}
+                      onChange={(e) => setProjectForm(prev => ({ ...prev, color: e.target.value }))}
+                      className="h-9 w-12 cursor-pointer rounded border border-slate-200 bg-white p-1"
+                    />
+                  </div>
+                </div>
+                <textarea
+                  value={projectForm.description}
+                  onChange={(e) => setProjectForm(prev => ({ ...prev, description: e.target.value }))}
+                  placeholder="Kurzbeschreibung (optional)"
+                  className="mt-3 h-20 w-full rounded-xl border border-slate-200 bg-white p-2.5 text-sm text-slate-700 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 resize-none"
+                />
+                <div className="mt-3 flex flex-wrap justify-end gap-2">
+                  {editingProjectId && (
+                    <button
+                      onClick={startCreateProject}
+                      className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 transition-colors"
+                    >
+                      Abbrechen
+                    </button>
+                  )}
+                  <button
+                    onClick={saveProjectForm}
+                    className="rounded-lg bg-indigo-600 px-3 py-2 text-xs font-semibold text-white hover:bg-indigo-700 transition-colors"
+                  >
+                    {editingProjectId ? 'Projekt speichern' : 'Projekt anlegen'}
+                  </button>
+                </div>
+              </div>
+
+              <div className="grid gap-4 lg:grid-cols-[280px_1fr]">
+                <div className="rounded-2xl border border-slate-200 bg-white p-3">
+                  <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Projekte</p>
+                  {projects.length === 0 ? (
+                    <p className="rounded-xl border border-dashed border-slate-200 bg-slate-50 p-3 text-xs text-slate-500">
+                      Noch keine Projekte vorhanden.
+                    </p>
+                  ) : (
+                    <div className="space-y-2">
+                      {projects.map(project => {
+                        const isSelected = selectedProjectId === project.id;
+                        return (
+                          <button
+                            key={project.id}
+                            onClick={() => setSelectedProjectId(project.id)}
+                            className={`w-full rounded-xl border p-3 text-left transition-colors ${
+                              isSelected
+                                ? 'border-indigo-200 bg-indigo-50'
+                                : 'border-slate-200 bg-white hover:bg-slate-50'
+                            }`}
+                          >
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="min-w-0">
+                                <div className="flex items-center gap-2">
+                                  <span
+                                    className="inline-block h-2.5 w-2.5 rounded-full"
+                                    style={{ backgroundColor: project.color || DEFAULT_PROJECT_COLOR }}
+                                  />
+                                  <p className="truncate text-sm font-semibold text-slate-800">{project.name}</p>
+                                </div>
+                                {project.description && (
+                                  <p className="mt-1 line-clamp-2 text-xs text-slate-500">{project.description}</p>
+                                )}
+                              </div>
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+
+                <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
+                  {!selectedProject ? (
+                    <p className="text-sm text-slate-500">
+                      Waehle links ein Projekt aus, um die zugeordneten Inhalte zu sehen.
+                    </p>
+                  ) : (
+                    <div className="space-y-5">
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span
+                              className="inline-block h-3 w-3 rounded-full"
+                              style={{ backgroundColor: selectedProject.color || DEFAULT_PROJECT_COLOR }}
+                            />
+                            <h3 className="text-lg font-bold text-slate-800">{selectedProject.name}</h3>
+                          </div>
+                          {selectedProject.description && (
+                            <p className="mt-1 text-sm text-slate-500">{selectedProject.description}</p>
+                          )}
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          <button
+                            onClick={() => handleActiveProjectChange(selectedProject.id)}
+                            className={`rounded-lg px-3 py-2 text-xs font-semibold transition-colors ${
+                              state.activeProjectId === selectedProject.id
+                                ? 'bg-emerald-100 text-emerald-700'
+                                : 'bg-indigo-100 text-indigo-700 hover:bg-indigo-200'
+                            }`}
+                          >
+                            {state.activeProjectId === selectedProject.id ? 'Aktiv' : 'Als aktiv setzen'}
+                          </button>
+                          <button
+                            onClick={() => startEditProject(selectedProject)}
+                            className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-100 transition-colors"
+                          >
+                            <Pencil className="w-3.5 h-3.5" />
+                            Bearbeiten
+                          </button>
+                          <button
+                            onClick={() => handleDeleteProject(selectedProject.id)}
+                            className="rounded-lg border border-red-200 px-3 py-2 text-xs font-semibold text-red-600 hover:bg-red-50 transition-colors"
+                          >
+                            Loeschen
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="grid gap-3 sm:grid-cols-3">
+                        <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                          <p className="text-xs text-slate-500">Loesungen/Tutor</p>
+                          <p className="text-2xl font-bold text-slate-800">{selectedProjectHistory.length}</p>
+                        </div>
+                        <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                          <p className="text-xs text-slate-500">Lernraeume</p>
+                          <p className="text-2xl font-bold text-slate-800">{selectedProjectPracticeRooms.length}</p>
+                        </div>
+                        <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                          <p className="text-xs text-slate-500">Pruefungen</p>
+                          <p className="text-2xl font-bold text-slate-800">{selectedProjectExamSessions.length}</p>
+                        </div>
+                      </div>
+
+                      <div className="space-y-4">
+                        <div>
+                          <h4 className="mb-2 text-sm font-semibold text-slate-700">Loesungen und Tutor-Lektionen</h4>
+                          {selectedProjectHistory.length === 0 ? (
+                            <p className="rounded-lg border border-dashed border-slate-200 bg-slate-50 p-3 text-xs text-slate-500">
+                              Keine Eintraege.
+                            </p>
+                          ) : (
+                            <div className="space-y-2">
+                              {selectedProjectHistory.slice(0, 12).map(item => (
+                                <button
+                                  key={item.id}
+                                  onClick={() => handleHistoryRestore(item)}
+                                  className="w-full rounded-xl border border-slate-200 bg-white p-3 text-left hover:bg-slate-50 transition-colors"
+                                >
+                                  <p className="line-clamp-1 text-sm font-semibold text-slate-800">{item.prompt}</p>
+                                  <p className="mt-1 text-xs text-slate-500">
+                                    {new Date(item.timestamp).toLocaleDateString()} â€¢ {new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                  </p>
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+
+                        <div>
+                          <h4 className="mb-2 text-sm font-semibold text-slate-700">Lernraeume</h4>
+                          {selectedProjectPracticeRooms.length === 0 ? (
+                            <p className="rounded-lg border border-dashed border-slate-200 bg-slate-50 p-3 text-xs text-slate-500">
+                              Keine Eintraege.
+                            </p>
+                          ) : (
+                            <div className="space-y-2">
+                              {selectedProjectPracticeRooms.slice(0, 12).map(room => (
+                                <button
+                                  key={room.id}
+                                  onClick={() => handleOpenRoom(room)}
+                                  className="w-full rounded-xl border border-slate-200 bg-white p-3 text-left hover:bg-slate-50 transition-colors"
+                                >
+                                  <p className="line-clamp-1 text-sm font-semibold text-slate-800">{room.topic}</p>
+                                  <p className="mt-1 text-xs text-slate-500">{room.generatedTasks.length} Aufgaben</p>
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+
+                        <div>
+                          <h4 className="mb-2 text-sm font-semibold text-slate-700">Pruefungen</h4>
+                          {selectedProjectExamSessions.length === 0 ? (
+                            <p className="rounded-lg border border-dashed border-slate-200 bg-slate-50 p-3 text-xs text-slate-500">
+                              Keine Eintraege.
+                            </p>
+                          ) : (
+                            <div className="space-y-2">
+                              {selectedProjectExamSessions.slice(0, 12).map(session => (
+                                <button
+                                  key={session.id}
+                                  onClick={() => handleOpenExamSession(session)}
+                                  className="w-full rounded-xl border border-slate-200 bg-white p-3 text-left hover:bg-slate-50 transition-colors"
+                                >
+                                  <p className="line-clamp-1 text-sm font-semibold text-slate-800">{session.topic}</p>
+                                  <p className="mt-1 text-xs text-slate-500">
+                                    {session.taskCount} Aufgaben Â· {session.durationMinutes} Min Â· {session.status === 'completed' ? `${session.scorePercent ?? 0}%` : 'Offen'}
+                                  </p>
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Aufgabe (Text + optional Foto) */}
-          {state.inputMode === InputMode.TEXT && (
+          {!isProjectsTab && state.inputMode === InputMode.TEXT && (
             <div className="space-y-4">
               <textarea
                 value={state.textInput}
                 onChange={handleTextChange}
                 onPaste={handlePaste}
-                placeholder="Gib hier deine Matheaufgabe ein (z.B. 'Löse die Gleichung x^2 - 4 = 0') oder lade ein Foto der Aufgabe hoch … Tipp: Bild mit Strg+V einfügen!"
+                placeholder="Gib hier deine Matheaufgabe ein (z.B. 'LÃ¶se die Gleichung x^2 - 4 = 0') oder lade ein Foto der Aufgabe hoch â€¦ Tipp: Bild mit Strg+V einfÃ¼gen!"
                 className="w-full h-36 sm:h-32 p-4 bg-slate-50 rounded-2xl border border-slate-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 focus:bg-white transition-all resize-none text-slate-700 text-base sm:text-lg placeholder:text-slate-400"
               />
               {!state.imagePreview ? (
@@ -1585,8 +2194,8 @@ const App: React.FC = () => {
                   className="w-full h-32 border-2 border-dashed border-slate-300 rounded-2xl flex flex-col items-center justify-center bg-slate-50 hover:bg-indigo-50 hover:border-indigo-400 transition-all cursor-pointer group"
                 >
                   <ImageIcon className="w-6 h-6 text-indigo-500 mb-2 group-hover:scale-110 transition-transform" />
-                  <p className="text-slate-600 text-sm font-medium">Foto anhängen (optional)</p>
-                  <p className="text-xs text-slate-400 mt-0.5">Klicken oder Strg+V · JPG, PNG, WEBP</p>
+                  <p className="text-slate-600 text-sm font-medium">Foto anhÃ¤ngen (optional)</p>
+                  <p className="text-xs text-slate-400 mt-0.5">Klicken oder Strg+V Â· JPG, PNG, WEBP</p>
                 </div>
               ) : (
                 <div className="relative w-full rounded-2xl overflow-hidden border border-slate-200 bg-slate-900 group">
@@ -1616,26 +2225,26 @@ const App: React.FC = () => {
           )}
 
           {/* Tutor Input Mode */}
-          {state.inputMode === InputMode.TUTOR && (
+          {!isProjectsTab && state.inputMode === InputMode.TUTOR && (
             <div className="space-y-4">
               <textarea
                 value={state.textInput}
                 onChange={handleTextChange}
-                placeholder="Welches Thema soll ich dir beibringen? Beschreibe gerne dein Level (z.B. 'Noch nie gehört', 'Grundlagen bekannt', 'bitte ab Klasse 8 Niveau')."
+                placeholder="Welches Thema soll ich dir beibringen? Beschreibe gerne dein Level (z.B. 'Noch nie gehÃ¶rt', 'Grundlagen bekannt', 'bitte ab Klasse 8 Niveau')."
                 className="w-full h-44 sm:h-40 p-4 bg-slate-50 rounded-2xl border border-slate-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 focus:bg-white transition-all resize-none text-slate-700 text-base sm:text-lg placeholder:text-slate-400"
               />
             </div>
           )}
 
           {/* Practice Input Mode */}
-          {state.inputMode === InputMode.PRACTICE && (
+          {!isProjectsTab && state.inputMode === InputMode.PRACTICE && (
             <PracticeSetup
               onStart={handlePracticeStart}
               isLoading={isPracticeGenerating}
             />
           )}
 
-          {state.inputMode === InputMode.EXAM && (
+          {!isProjectsTab && state.inputMode === InputMode.EXAM && (
             <ExamSetup
               onStart={handleExamStart}
               isLoading={isExamGenerating}
@@ -1643,7 +2252,7 @@ const App: React.FC = () => {
           )}
 
           {/* Error Message */}
-          {state.error && state.inputMode !== InputMode.PRACTICE && state.inputMode !== InputMode.EXAM && (
+          {!isProjectsTab && state.error && state.inputMode !== InputMode.PRACTICE && state.inputMode !== InputMode.EXAM && (
             <div className="mt-4 p-3 bg-red-50 border border-red-100 rounded-lg flex items-center space-x-2 text-red-600 text-sm">
               <X className="w-4 h-4" />
               <span>{state.error}</span>
@@ -1651,7 +2260,7 @@ const App: React.FC = () => {
           )}
 
           {/* Submit Button (only for TEXT and TUTOR) */}
-          {state.inputMode !== InputMode.PRACTICE && state.inputMode !== InputMode.EXAM && (
+          {!isProjectsTab && state.inputMode !== InputMode.PRACTICE && state.inputMode !== InputMode.EXAM && (
             <div className="mt-6 flex justify-end">
               <button
                 onClick={handleSubmit}
@@ -1664,12 +2273,12 @@ const App: React.FC = () => {
                 {state.isLoading ? (
                   <>
                     <Loader2 className="w-5 h-5 animate-spin" />
-                    <span>{state.inputMode === InputMode.TUTOR ? 'Erstelle Tutor-Lektion...' : 'Löse Aufgabe...'}</span>
+                    <span>{state.inputMode === InputMode.TUTOR ? 'Erstelle Tutor-Lektion...' : 'LÃ¶se Aufgabe...'}</span>
                   </>
                 ) : (
                   <>
                     <Send className="w-5 h-5" />
-                    <span>{state.inputMode === InputMode.TUTOR ? 'Tutor starten' : 'Aufgabe Lösen'}</span>
+                    <span>{state.inputMode === InputMode.TUTOR ? 'Tutor starten' : 'Aufgabe LÃ¶sen'}</span>
                   </>
                 )}
               </button>
@@ -1677,7 +2286,7 @@ const App: React.FC = () => {
           )}
 
           {/* Practice error (shown inside PracticeSetup area) */}
-          {state.error && (state.inputMode === InputMode.PRACTICE || state.inputMode === InputMode.EXAM) && (
+          {!isProjectsTab && state.error && (state.inputMode === InputMode.PRACTICE || state.inputMode === InputMode.EXAM) && (
             <div className="mt-4 p-3 bg-red-50 border border-red-100 rounded-lg flex items-center space-x-2 text-red-600 text-sm">
               <X className="w-4 h-4" />
               <span>{state.error}</span>
@@ -1686,7 +2295,7 @@ const App: React.FC = () => {
         </div>
         
         {/* Loading State Visualization */}
-        {state.isLoading && state.inputMode === InputMode.TEXT && (
+        {!isProjectsTab && state.isLoading && state.inputMode === InputMode.TEXT && (
           <div className="p-8 sm:p-12 text-center bg-slate-50/50 border-t border-slate-100">
              <div className="inline-block relative w-20 h-20">
                <div className="absolute top-0 left-0 w-full h-full border-4 border-indigo-100 rounded-full animate-pulse"></div>
@@ -1701,67 +2310,99 @@ const App: React.FC = () => {
       </main>
 
       {/* Practice Rooms Section */}
-      {state.inputMode === InputMode.PRACTICE && practiceRooms.length > 0 && !isPracticeGenerating && (
+      {!isProjectsTab && state.inputMode === InputMode.PRACTICE && practiceRooms.length > 0 && !isPracticeGenerating && (
         <section className="w-full max-w-4xl animate-in slide-in-from-bottom-8 fade-in duration-500 mb-8">
           <div className="flex items-center justify-between mb-4 px-1 sm:px-2 gap-2">
             <h3 className="text-xl font-bold text-slate-700 flex items-center gap-2">
               <BookOpen className="w-5 h-5 text-amber-500" />
-              Deine Lernräume
+              Deine LernrÃ¤ume
             </h3>
           </div>
           <div className="grid gap-3 sm:gap-4 md:grid-cols-1">
             {practiceRooms.map(room => (
-              <PracticeRoomCard
-                key={room.id}
-                room={room}
-                onClick={() => handleOpenRoom(room)}
-                onDelete={(e) => handleDeleteRoom(e, room.id)}
-              />
+              <div key={room.id} className="space-y-2">
+                <PracticeRoomCard
+                  room={room}
+                  onClick={() => handleOpenRoom(room)}
+                  onDelete={(e) => handleDeleteRoom(e, room.id)}
+                />
+                <div className="flex items-center justify-end gap-2 px-2">
+                  <label className="text-xs font-semibold text-slate-500">Projekt</label>
+                  <select
+                    value={room.projectId ?? ''}
+                    onChange={(e) => assignPracticeRoomToProject(room.id, e.target.value || null)}
+                    className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200"
+                  >
+                    <option value="">Kein Projekt</option>
+                    {projects.map(project => (
+                      <option key={project.id} value={project.id}>
+                        {project.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
             ))}
           </div>
         </section>
       )}
 
-      {state.inputMode === InputMode.EXAM && state.examSessions.length > 0 && !isExamGenerating && (
+      {!isProjectsTab && state.inputMode === InputMode.EXAM && state.examSessions.length > 0 && !isExamGenerating && (
         <section className="w-full max-w-4xl animate-in slide-in-from-bottom-8 fade-in duration-500 mb-8">
           <div className="flex items-center justify-between mb-4 px-1 sm:px-2 gap-2">
             <h3 className="text-xl font-bold text-slate-700 flex items-center gap-2">
               <ClipboardCheck className="w-5 h-5 text-rose-500" />
-              Letzte Prüfungen
+              Letzte PrÃ¼fungen
             </h3>
           </div>
           <div className="grid gap-3 sm:gap-4 md:grid-cols-1">
             {state.examSessions.slice(0, 8).map(session => (
-              <button
-                key={session.id}
-                onClick={() => handleOpenExamSession(session)}
-                className="w-full text-left bg-white p-4 sm:p-5 rounded-2xl shadow-sm border border-slate-100 hover:shadow-md hover:border-indigo-200 transition-all"
-              >
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <p className="font-semibold text-slate-800">{session.topic}</p>
-                    <p className="text-sm text-slate-500 mt-0.5">
-                      {session.taskCount} Aufgaben · {session.durationMinutes} Min · {session.difficulty}
-                    </p>
+              <div key={session.id} className="space-y-2">
+                <button
+                  onClick={() => handleOpenExamSession(session)}
+                  className="w-full text-left bg-white p-4 sm:p-5 rounded-2xl shadow-sm border border-slate-100 hover:shadow-md hover:border-indigo-200 transition-all"
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="font-semibold text-slate-800">{session.topic}</p>
+                      <p className="text-sm text-slate-500 mt-0.5">
+                        {session.taskCount} Aufgaben · {session.durationMinutes} Min · {session.difficulty}
+                      </p>
+                    </div>
+                    {session.status === 'completed' ? (
+                      <span className="text-xs font-semibold px-2 py-1 rounded-full bg-emerald-50 text-emerald-700">
+                        {session.scorePercent ?? 0}%
+                      </span>
+                    ) : (
+                      <span className="text-xs font-semibold px-2 py-1 rounded-full bg-amber-50 text-amber-700">
+                        Offen
+                      </span>
+                    )}
                   </div>
-                  {session.status === 'completed' ? (
-                    <span className="text-xs font-semibold px-2 py-1 rounded-full bg-emerald-50 text-emerald-700">
-                      {session.scorePercent ?? 0}%
-                    </span>
-                  ) : (
-                    <span className="text-xs font-semibold px-2 py-1 rounded-full bg-amber-50 text-amber-700">
-                      Offen
-                    </span>
-                  )}
+                </button>
+                <div className="flex items-center justify-end gap-2 px-2">
+                  <label className="text-xs font-semibold text-slate-500">Projekt</label>
+                  <select
+                    value={session.projectId ?? ''}
+                    onChange={(e) => assignExamSessionToProject(session.id, e.target.value || null)}
+                    className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200"
+                  >
+                    <option value="">Kein Projekt</option>
+                    {projects.map(project => (
+                      <option key={project.id} value={project.id}>
+                        {project.name}
+                      </option>
+                    ))}
+                  </select>
                 </div>
-              </button>
+              </div>
             ))}
           </div>
         </section>
       )}
 
       {/* History Section */}
-      {state.inputMode !== InputMode.PRACTICE && state.inputMode !== InputMode.EXAM && (() => {
+      {!isProjectsTab && state.inputMode !== InputMode.PRACTICE && state.inputMode !== InputMode.EXAM && (() => {
         const filteredHistory = history.filter(item =>
           state.inputMode === InputMode.TUTOR
             ? item.mode === InputMode.TUTOR
@@ -1779,7 +2420,7 @@ const App: React.FC = () => {
                className="text-xs text-red-400 hover:text-red-600 flex items-center gap-1 px-3 py-1.5 rounded-full hover:bg-red-50 transition-colors"
              >
                <Trash2 className="w-3 h-3" />
-               Verlauf löschen
+               Verlauf lÃ¶schen
              </button>
            </div>
            
@@ -1812,7 +2453,7 @@ const App: React.FC = () => {
                         </span>
                       )}
                       <span className="text-xs text-slate-400">
-                        {new Date(item.timestamp).toLocaleDateString()} • {new Date(item.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                        {new Date(item.timestamp).toLocaleDateString()} â€¢ {new Date(item.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
                       </span>
                    </div>
                    
@@ -1828,7 +2469,25 @@ const App: React.FC = () => {
                    </div>
                  </div>
                  
-                  <div className="flex flex-col items-end gap-2">
+                 <div className="flex flex-col items-end gap-2">
+                     <div
+                       className="flex items-center gap-1"
+                       onClick={(e) => e.stopPropagation()}
+                     >
+                       <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Projekt</span>
+                       <select
+                         value={item.projectId ?? ''}
+                         onChange={(e) => assignHistoryItemToProject(item.id, e.target.value || null)}
+                         className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-slate-600 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200"
+                       >
+                         <option value="">Kein</option>
+                         {projects.map(project => (
+                           <option key={project.id} value={project.id}>
+                             {project.name}
+                           </option>
+                         ))}
+                       </select>
+                     </div>
                      {item.mode === InputMode.TUTOR && item.status !== 'processing' && (item.status === 'failed' || hasTutorRetryableSteps(item.solution)) && (
                        <button
                          onClick={(e) => {
@@ -1897,7 +2556,7 @@ const App: React.FC = () => {
                      <button 
                        onClick={(e) => deleteHistoryItem(e, item.id)}
                        className="p-2 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-full transition-colors opacity-100 sm:opacity-0 sm:group-hover:opacity-100"
-                      title="Eintrag löschen"
+                      title="Eintrag lÃ¶schen"
                     >
                       <Trash2 className="w-4 h-4" />
                     </button>
