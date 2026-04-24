@@ -227,6 +227,7 @@ const App: React.FC = () => {
   const [activeSolutionHistoryId, setActiveSolutionHistoryId] = useState<string | null>(null);
   const [solutionOpenView, setSolutionOpenView] = useState<SolutionOpenView>('start');
   const [openHistoryDownloadMenuId, setOpenHistoryDownloadMenuId] = useState<string | null>(null);
+  const [openHistorySettingsMenuId, setOpenHistorySettingsMenuId] = useState<string | null>(null);
   const [retryingHistoryId, setRetryingHistoryId] = useState<string | null>(null);
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const [projectsView, setProjectsView] = useState<ProjectsView>('folders');
@@ -326,6 +327,19 @@ const App: React.FC = () => {
     document.addEventListener('click', handleDocumentClick);
     return () => document.removeEventListener('click', handleDocumentClick);
   }, [openHistoryDownloadMenuId]);
+
+  useEffect(() => {
+    if (!openHistorySettingsMenuId) return;
+
+    const handleDocumentClick = (event: MouseEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target?.closest('[data-history-settings-menu]')) return;
+      setOpenHistorySettingsMenuId(null);
+    };
+
+    document.addEventListener('click', handleDocumentClick);
+    return () => document.removeEventListener('click', handleDocumentClick);
+  }, [openHistorySettingsMenuId]);
 
   useEffect(() => {
     if (selectedProjectId && projects.some(project => project.id === selectedProjectId)) {
@@ -2334,53 +2348,66 @@ const App: React.FC = () => {
                                       </div>
                                     </div>
                                     <div className="flex flex-col items-end gap-1" onClick={(e) => e.stopPropagation()}>
-                                      {canDownloadHistoryItem(item) && (
-                                        <div className="relative" data-history-download-menu>
-                                          <button
-                                            onClick={() => setOpenHistoryDownloadMenuId(prev => (prev === item.id ? null : item.id))}
-                                            className={`${DETAIL_ACTION_BUTTON_BASE_CLASS} bg-indigo-50 text-indigo-700 hover:bg-indigo-100`}
-                                          >
-                                            <Download className="h-3.5 w-3.5" />
-                                            Download
-                                            <ChevronDown className={`h-3.5 w-3.5 transition-transform ${openHistoryDownloadMenuId === item.id ? 'rotate-180' : ''}`} />
-                                          </button>
-                                          {openHistoryDownloadMenuId === item.id && (
-                                            <div className="absolute right-0 z-20 mt-1 w-44 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg">
-                                              <button
-                                                onClick={() => {
-                                                  setOpenHistoryDownloadMenuId(null);
-                                                  handleDownloadHistoryItemMarkdown(item);
-                                                }}
-                                                className="w-full px-3 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                                      <div className="relative" data-history-settings-menu>
+                                        <button
+                                          onClick={() => setOpenHistorySettingsMenuId(prev => prev === item.id ? null : item.id)}
+                                          className={`${DETAIL_ACTION_BUTTON_BASE_CLASS} border border-slate-200 text-slate-600 hover:bg-slate-100`}
+                                          title="Einstellungen"
+                                        >
+                                          <Settings className="h-3.5 w-3.5" />
+                                          Einstellungen
+                                        </button>
+                                        {openHistorySettingsMenuId === item.id && (
+                                          <div className="absolute right-0 z-20 mt-1 w-52 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg">
+                                            {canDownloadHistoryItem(item) && (
+                                              <>
+                                                <button
+                                                  onClick={() => { setOpenHistorySettingsMenuId(null); handleDownloadHistoryItemMarkdown(item); }}
+                                                  className="w-full px-3 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+                                                >
+                                                  <Download className="h-3.5 w-3.5 text-slate-400" />
+                                                  Als Markdown herunterladen
+                                                </button>
+                                                <button
+                                                  onClick={() => { setOpenHistorySettingsMenuId(null); handleDownloadHistoryItemPdf(item); }}
+                                                  className="w-full border-t border-slate-100 px-3 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+                                                >
+                                                  <Download className="h-3.5 w-3.5 text-slate-400" />
+                                                  Als PDF herunterladen
+                                                </button>
+                                                <div className="border-t border-slate-100" />
+                                              </>
+                                            )}
+                                            <button
+                                              onClick={(e) => { setOpenHistorySettingsMenuId(null); openEditHistoryItem(e, item); }}
+                                              className="w-full px-3 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+                                            >
+                                              <Pencil className="h-3.5 w-3.5 text-slate-400" />
+                                              Bearbeiten
+                                            </button>
+                                            <div className="px-3 py-1.5 border-t border-slate-100">
+                                              <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400 mb-1">Projekt</p>
+                                              <select
+                                                value={item.projectId ?? ''}
+                                                onChange={(e) => assignHistoryItemToProject(item.id, e.target.value || null)}
+                                                className="w-full rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700 focus:border-indigo-500"
                                               >
-                                                Als Markdown
-                                              </button>
+                                                <option value="">Kein Projekt</option>
+                                                {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                                              </select>
+                                            </div>
+                                            <div className="border-t border-slate-100">
                                               <button
-                                                onClick={() => {
-                                                  setOpenHistoryDownloadMenuId(null);
-                                                  handleDownloadHistoryItemPdf(item);
-                                                }}
-                                                className="w-full border-t border-slate-100 px-3 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                                                onClick={() => { setOpenHistorySettingsMenuId(null); assignHistoryItemToProject(item.id, null); }}
+                                                className="w-full px-3 py-2 text-left text-xs font-semibold text-red-600 hover:bg-red-50 flex items-center gap-2"
                                               >
-                                                Als PDF
+                                                <Trash2 className="h-3.5 w-3.5" />
+                                                Aus Projekt entfernen
                                               </button>
                                             </div>
-                                          )}
-                                        </div>
-                                      )}
-                                      <button
-                                        onClick={(e) => openEditHistoryItem(e, item)}
-                                        className={`${DETAIL_ACTION_BUTTON_BASE_CLASS} border border-indigo-200 text-indigo-600 hover:bg-indigo-50`}
-                                      >
-                                        <Pencil className="h-3 w-3" />
-                                        Bearbeiten
-                                      </button>
-                                      <button
-                                        onClick={() => assignHistoryItemToProject(item.id, null)}
-                                        className={`${DETAIL_ACTION_BUTTON_BASE_CLASS} border border-slate-200 text-slate-600 hover:bg-slate-100`}
-                                      >
-                                        Entfernen
-                                      </button>
+                                          </div>
+                                        )}
+                                      </div>
                                     </div>
                                   </div>
                                 </div>
@@ -2435,6 +2462,7 @@ const App: React.FC = () => {
                                       <p className="mt-1 line-clamp-2 text-sm text-slate-500">{item.preview}</p>
                                     </div>
                                     <div className="flex flex-col items-end gap-1" onClick={(e) => e.stopPropagation()}>
+                                      {/* Primäraktion: Retry oder Übersicht */}
                                       {item.status !== 'processing' && (item.status === 'failed' || hasTutorRetryableSteps(item.solution)) && (
                                         <button
                                           onClick={() => handleRetryTutorHistory(item)}
@@ -2449,56 +2477,70 @@ const App: React.FC = () => {
                                           onClick={() => handleHistoryRestore(item, 'summary')}
                                           className={`${DETAIL_ACTION_BUTTON_BASE_CLASS} bg-indigo-50 text-indigo-700 hover:bg-indigo-100`}
                                         >
-                                          Uebersicht
+                                          Übersicht
                                         </button>
                                       )}
-                                      {canDownloadHistoryItem(item) && (
-                                        <div className="relative" data-history-download-menu>
-                                          <button
-                                            onClick={() => setOpenHistoryDownloadMenuId(prev => (prev === item.id ? null : item.id))}
-                                            className={`${DETAIL_ACTION_BUTTON_BASE_CLASS} bg-indigo-50 text-indigo-700 hover:bg-indigo-100`}
-                                          >
-                                            <Download className="h-3.5 w-3.5" />
-                                            Download
-                                            <ChevronDown className={`h-3.5 w-3.5 transition-transform ${openHistoryDownloadMenuId === item.id ? 'rotate-180' : ''}`} />
-                                          </button>
-                                          {openHistoryDownloadMenuId === item.id && (
-                                            <div className="absolute right-0 z-20 mt-1 w-44 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg">
-                                              <button
-                                                onClick={() => {
-                                                  setOpenHistoryDownloadMenuId(null);
-                                                  handleDownloadHistoryItemMarkdown(item);
-                                                }}
-                                                className="w-full px-3 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                                      {/* Einstellungen-Dropdown */}
+                                      <div className="relative" data-history-settings-menu>
+                                        <button
+                                          onClick={() => setOpenHistorySettingsMenuId(prev => prev === item.id ? null : item.id)}
+                                          className={`${DETAIL_ACTION_BUTTON_BASE_CLASS} border border-slate-200 text-slate-600 hover:bg-slate-100`}
+                                          title="Einstellungen"
+                                        >
+                                          <Settings className="h-3.5 w-3.5" />
+                                          Einstellungen
+                                        </button>
+                                        {openHistorySettingsMenuId === item.id && (
+                                          <div className="absolute right-0 z-20 mt-1 w-52 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg">
+                                            {canDownloadHistoryItem(item) && (
+                                              <>
+                                                <button
+                                                  onClick={() => { setOpenHistorySettingsMenuId(null); handleDownloadHistoryItemMarkdown(item); }}
+                                                  className="w-full px-3 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+                                                >
+                                                  <Download className="h-3.5 w-3.5 text-slate-400" />
+                                                  Als Markdown herunterladen
+                                                </button>
+                                                <button
+                                                  onClick={() => { setOpenHistorySettingsMenuId(null); handleDownloadHistoryItemPdf(item); }}
+                                                  className="w-full border-t border-slate-100 px-3 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+                                                >
+                                                  <Download className="h-3.5 w-3.5 text-slate-400" />
+                                                  Als PDF herunterladen
+                                                </button>
+                                                <div className="border-t border-slate-100" />
+                                              </>
+                                            )}
+                                            <button
+                                              onClick={(e) => { setOpenHistorySettingsMenuId(null); openEditHistoryItem(e, item); }}
+                                              className="w-full px-3 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+                                            >
+                                              <Pencil className="h-3.5 w-3.5 text-slate-400" />
+                                              Bearbeiten
+                                            </button>
+                                            <div className="px-3 py-1.5 border-t border-slate-100">
+                                              <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400 mb-1">Projekt</p>
+                                              <select
+                                                value={item.projectId ?? ''}
+                                                onChange={(e) => assignHistoryItemToProject(item.id, e.target.value || null)}
+                                                className="w-full rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700 focus:border-indigo-500"
                                               >
-                                                Als Markdown
-                                              </button>
+                                                <option value="">Kein Projekt</option>
+                                                {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                                              </select>
+                                            </div>
+                                            <div className="border-t border-slate-100">
                                               <button
-                                                onClick={() => {
-                                                  setOpenHistoryDownloadMenuId(null);
-                                                  handleDownloadHistoryItemPdf(item);
-                                                }}
-                                                className="w-full border-t border-slate-100 px-3 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                                                onClick={() => { setOpenHistorySettingsMenuId(null); assignHistoryItemToProject(item.id, null); }}
+                                                className="w-full px-3 py-2 text-left text-xs font-semibold text-red-600 hover:bg-red-50 flex items-center gap-2"
                                               >
-                                                Als PDF
+                                                <Trash2 className="h-3.5 w-3.5" />
+                                                Aus Projekt entfernen
                                               </button>
                                             </div>
-                                          )}
-                                        </div>
-                                      )}
-                                      <button
-                                        onClick={(e) => openEditHistoryItem(e, item)}
-                                        className={`${DETAIL_ACTION_BUTTON_BASE_CLASS} border border-indigo-200 text-indigo-600 hover:bg-indigo-50`}
-                                      >
-                                        <Pencil className="h-3 w-3" />
-                                        Bearbeiten
-                                      </button>
-                                      <button
-                                        onClick={() => assignHistoryItemToProject(item.id, null)}
-                                        className={`${DETAIL_ACTION_BUTTON_BASE_CLASS} border border-slate-200 text-slate-600 hover:bg-slate-100`}
-                                      >
-                                        Entfernen
-                                      </button>
+                                          </div>
+                                        )}
+                                      </div>
                                     </div>
                                   </div>
                                 </div>
@@ -2984,107 +3026,88 @@ const App: React.FC = () => {
                    </div>
                  </div>
                  
-                 <div className="flex flex-col items-end gap-2">
-                     <div
-                       className="flex items-center gap-1"
-                       onClick={(e) => e.stopPropagation()}
+                 <div className="flex flex-col items-end gap-2" onClick={(e) => e.stopPropagation()}>
+                   {/* Primäraktion: Übersicht oder Retry (nur Tutor) */}
+                   {item.mode === InputMode.TUTOR && item.status !== 'processing' && (item.status === 'failed' || hasTutorRetryableSteps(item.solution)) && (
+                     <button
+                       onClick={(e) => { e.stopPropagation(); handleRetryTutorHistory(item); }}
+                       disabled={retryingHistoryId === item.id}
+                       className={`${HISTORY_CONTROL_BUTTON_BASE_CLASS} border border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100 disabled:opacity-60 disabled:cursor-not-allowed`}
                      >
-                       <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Projekt</span>
-                       <select
-                         value={item.projectId ?? ''}
-                         onChange={(e) => assignHistoryItemToProject(item.id, e.target.value || null)}
-                         className={HISTORY_PROJECT_SELECT_CLASS}
-                       >
-                         <option value="">Kein</option>
-                         {projects.map(project => (
-                           <option key={project.id} value={project.id}>
-                             {project.name}
-                           </option>
-                         ))}
-                       </select>
-                     </div>
-                     {item.mode === InputMode.TUTOR && item.status !== 'processing' && (item.status === 'failed' || hasTutorRetryableSteps(item.solution)) && (
-                       <button
-                         onClick={(e) => {
-                           e.stopPropagation();
-                           handleRetryTutorHistory(item);
-                         }}
-                         disabled={retryingHistoryId === item.id}
-                         className={`${HISTORY_CONTROL_BUTTON_BASE_CLASS} border border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100 disabled:opacity-60 disabled:cursor-not-allowed`}
-                         title="Ab fehlgeschlagener Lektion fortsetzen"
-                       >
-                         {retryingHistoryId === item.id ? 'Retry laeuft...' : 'Retry'}
-                       </button>
-                     )}
-                     {item.mode === InputMode.TUTOR && item.status === 'completed' && (
-                       <button
-                         onClick={(e) => {
-                           e.stopPropagation();
-                           handleHistoryRestore(item, 'summary');
-                         }}
-                         className={HISTORY_INDIGO_BUTTON_CLASS}
-                         title="Direkt zur Uebersicht"
-                       >
-                         Uebersicht
-                       </button>
-                     )}
-                     {canDownloadHistoryItem(item) && (
-                       <div className="relative" data-history-download-menu>
-                         <button
-                           onClick={(e) => {
-                             e.stopPropagation();
-                             setOpenHistoryDownloadMenuId(prev => (prev === item.id ? null : item.id));
-                           }}
-                           className={HISTORY_INDIGO_BUTTON_CLASS}
-                           title="Export herunterladen"
-                         >
-                           <Download className="w-3.5 h-3.5" />
-                           Download
-                           <ChevronDown className={`w-3.5 h-3.5 transition-transform ${openHistoryDownloadMenuId === item.id ? 'rotate-180' : ''}`} />
-                         </button>
-                         {openHistoryDownloadMenuId === item.id && (
-                           <div className="absolute right-0 mt-1 w-44 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg z-20">
+                       {retryingHistoryId === item.id ? 'Retry läuft...' : 'Retry'}
+                     </button>
+                   )}
+                   {item.mode === InputMode.TUTOR && item.status === 'completed' && (
+                     <button
+                       onClick={(e) => { e.stopPropagation(); handleHistoryRestore(item, 'summary'); }}
+                       className={HISTORY_INDIGO_BUTTON_CLASS}
+                     >
+                       Übersicht
+                     </button>
+                   )}
+                   {/* Einstellungen-Dropdown */}
+                   <div className="relative" data-history-settings-menu>
+                     <button
+                       onClick={(e) => { e.stopPropagation(); setOpenHistorySettingsMenuId(prev => prev === item.id ? null : item.id); }}
+                       className={`${HISTORY_ICON_CHIP_CLASS} text-slate-400 hover:text-slate-700 hover:bg-slate-100`}
+                       title="Einstellungen"
+                     >
+                       <Settings className="w-4 h-4" />
+                     </button>
+                     {openHistorySettingsMenuId === item.id && (
+                       <div className="absolute right-0 mt-1 w-52 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg z-20">
+                         {canDownloadHistoryItem(item) && (
+                           <>
                              <button
-                               onClick={(e) => {
-                                 e.stopPropagation();
-                                 setOpenHistoryDownloadMenuId(null);
-                                 handleDownloadHistoryItemMarkdown(item);
-                               }}
-                               className="w-full px-3 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                               onClick={(e) => { e.stopPropagation(); setOpenHistorySettingsMenuId(null); handleDownloadHistoryItemMarkdown(item); }}
+                               className="w-full px-3 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50 flex items-center gap-2"
                              >
-                               Als Markdown
+                               <Download className="w-3.5 h-3.5 text-slate-400" />
+                               Als Markdown herunterladen
                              </button>
                              <button
-                               onClick={(e) => {
-                                 e.stopPropagation();
-                                 setOpenHistoryDownloadMenuId(null);
-                                 handleDownloadHistoryItemPdf(item);
-                               }}
-                               className="w-full px-3 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50 border-t border-slate-100"
+                               onClick={(e) => { e.stopPropagation(); setOpenHistorySettingsMenuId(null); handleDownloadHistoryItemPdf(item); }}
+                               className="w-full px-3 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50 flex items-center gap-2 border-t border-slate-100"
                              >
-                               Als PDF
+                               <Download className="w-3.5 h-3.5 text-slate-400" />
+                               Als PDF herunterladen
                              </button>
-                           </div>
+                             <div className="border-t border-slate-100" />
+                           </>
                          )}
+                         <button
+                           onClick={(e) => { setOpenHistorySettingsMenuId(null); openEditHistoryItem(e, item); }}
+                           className="w-full px-3 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+                         >
+                           <Pencil className="w-3.5 h-3.5 text-slate-400" />
+                           Bearbeiten
+                         </button>
+                         <div className="px-3 py-1.5 border-t border-slate-100">
+                           <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400 mb-1">Projekt</p>
+                           <select
+                             value={item.projectId ?? ''}
+                             onChange={(e) => assignHistoryItemToProject(item.id, e.target.value || null)}
+                             className="w-full rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700 focus:border-indigo-500"
+                           >
+                             <option value="">Kein Projekt</option>
+                             {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                           </select>
+                         </div>
+                         <div className="border-t border-slate-100">
+                           <button
+                             onClick={(e) => { e.stopPropagation(); setOpenHistorySettingsMenuId(null); deleteHistoryItem(e, item.id); }}
+                             className="w-full px-3 py-2 text-left text-xs font-semibold text-red-600 hover:bg-red-50 flex items-center gap-2"
+                           >
+                             <Trash2 className="w-3.5 h-3.5" />
+                             Löschen
+                           </button>
+                         </div>
                        </div>
                      )}
-                     <button
-                       onClick={(e) => openEditHistoryItem(e, item)}
-                       className={`${HISTORY_ICON_CHIP_CLASS} text-slate-300 hover:text-indigo-500 hover:bg-indigo-50 opacity-100 sm:opacity-0 sm:group-hover:opacity-100`}
-                       title="Beschreibung bearbeiten"
-                     >
-                       <Pencil className="w-4 h-4" />
-                     </button>
-                     <button
-                       onClick={(e) => deleteHistoryItem(e, item.id)}
-                       className={`${HISTORY_ICON_CHIP_CLASS} text-slate-300 hover:text-red-500 hover:bg-red-50 opacity-100 sm:opacity-0 sm:group-hover:opacity-100`}
-                      title="Eintrag löschen"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                    <div className={`${HISTORY_ICON_CHIP_CLASS} text-indigo-300 group-hover:text-indigo-600`}>
-                      <ChevronRight className="w-5 h-5" />
-                    </div>
+                   </div>
+                   <div className={`${HISTORY_ICON_CHIP_CLASS} text-indigo-300 group-hover:text-indigo-600`}>
+                     <ChevronRight className="w-5 h-5" />
+                   </div>
                  </div>
                </div>
              ))}
