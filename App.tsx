@@ -1,4 +1,4 @@
-﻿import React, { useState, useRef, useCallback, useEffect } from 'react';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { solveMathProblem, resumeTutorSolution } from './services/gemini';
 import { generatePracticeTask } from './services/gemini';
 import { checkPracticeSolution, solvePracticeTask } from './services/gemini';
@@ -85,6 +85,14 @@ const DETAIL_ACTION_BUTTON_BASE_CLASS =
 const PROJECT_HEADER_ACTION_BUTTON_CLASS =
   'inline-flex h-9 min-w-[132px] items-center justify-center gap-1.5 rounded-lg px-3 text-xs font-semibold transition-colors';
 const PROJECT_DETAIL_MAX_WIDTH_CLASS = 'max-w-[2100px]';
+const HISTORY_CONTROL_BUTTON_BASE_CLASS =
+  'inline-flex h-8 min-w-[108px] items-center justify-center gap-1.5 rounded-full px-3 text-xs font-semibold transition-colors';
+const HISTORY_INDIGO_BUTTON_CLASS =
+  `${HISTORY_CONTROL_BUTTON_BASE_CLASS} bg-indigo-50 text-indigo-600 hover:bg-indigo-100`;
+const HISTORY_PROJECT_SELECT_CLASS =
+  'h-8 min-w-[108px] rounded-full border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-600 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200';
+const HISTORY_ICON_CHIP_CLASS =
+  'inline-flex h-8 w-8 items-center justify-center rounded-full transition-colors';
 
 const normalizeProjectColor = (value?: string): string => {
   if (!value) return DEFAULT_PROJECT_COLOR;
@@ -224,6 +232,8 @@ const App: React.FC = () => {
   const [projectsView, setProjectsView] = useState<ProjectsView>('folders');
   const [projectModalOpen, setProjectModalOpen] = useState(false);
   const [editingProjectId, setEditingProjectId] = useState<string | null>(null);
+  const [editingHistoryItemId, setEditingHistoryItemId] = useState<string | null>(null);
+  const [editingHistoryDescription, setEditingHistoryDescription] = useState('');
   const [projectForm, setProjectForm] = useState<ProjectFormState>({
     name: '',
     description: '',
@@ -607,6 +617,23 @@ const App: React.FC = () => {
     });
   }, [updateHistoryItem]);
 
+  const openEditHistoryItem = (e: React.MouseEvent, item: HistoryItem) => {
+    e.stopPropagation();
+    setEditingHistoryItemId(item.id);
+    setEditingHistoryDescription(item.prompt);
+  };
+
+  const closeEditHistoryItem = () => {
+    setEditingHistoryItemId(null);
+    setEditingHistoryDescription('');
+  };
+
+  const saveHistoryItemDescription = () => {
+    if (!editingHistoryItemId) return;
+    updateHistoryItem(editingHistoryItemId, (item) => ({ ...item, prompt: editingHistoryDescription }));
+    closeEditHistoryItem();
+  };
+
   const clearHistory = (e: React.MouseEvent) => {
     e.stopPropagation();
     if (!window.confirm("Moechtest du den Verlauf wirklich loeschen?")) return;
@@ -748,7 +775,7 @@ const App: React.FC = () => {
         };
         reader.readAsDataURL(file);
       } else {
-        setState(prev => ({ ...prev, error: "Bitte wÃ¤hle eine gÃ¼ltige Bilddatei." }));
+        setState(prev => ({ ...prev, error: "Bitte wähle eine gültige Bilddatei." }));
       }
     }
   };
@@ -1269,7 +1296,7 @@ const App: React.FC = () => {
     }
   }, [state.isLoading, state.inputMode, state.textInput, state.imagePreview, state.imageFile, state.activeProjectId, saveToHistory, setActiveHistoryId, updateHistoryItem]);
 
-  // â”€â”€ Practice Mode handlers â”€â”€
+  // ── Practice Mode handlers ──
 
   const handlePracticeStart = async (topic: string, difficulty: string, exampleTasks: string[]) => {
     setIsPracticeGenerating(true);
@@ -1362,7 +1389,7 @@ const App: React.FC = () => {
     } catch (err: any) {
       setState(prev => ({
         ...prev,
-        error: err.message || "NÃ¤chste Aufgabe konnte nicht erstellt werden."
+        error: err.message || "Nächste Aufgabe konnte nicht erstellt werden."
       }));
     } finally {
       setIsPracticeGenerating(false);
@@ -1378,7 +1405,7 @@ const App: React.FC = () => {
 
   const handleDeleteRoom = (e: React.MouseEvent, roomId: string) => {
     e.stopPropagation();
-    if (window.confirm("MÃ¶chtest du diesen Lernraum wirklich lÃ¶schen?")) {
+    if (window.confirm("Möchtest du diesen Lernraum wirklich löschen?")) {
       setState(prev => {
         const rooms = prev.practiceRooms.filter(r => r.id !== roomId);
         savePracticeRooms(rooms);
@@ -1420,13 +1447,13 @@ const App: React.FC = () => {
     }
   };
 
-  // â”€â”€ Exam Mode handlers â”€â”€
+  // ── Exam Mode handlers ──
 
   const buildExamSummary = (scorePercent: number, correctCount: number, total: number): string => {
     if (scorePercent >= 90) return `Starke Leistung: $${correctCount}$ von $${total}$ Aufgaben korrekt.`;
     if (scorePercent >= 75) return `Gute Leistung: $${correctCount}$ von $${total}$ Aufgaben korrekt.`;
     if (scorePercent >= 60) return `Solide Basis: $${correctCount}$ von $${total}$ Aufgaben korrekt.`;
-    return `AusbaufÃ¤hig: $${correctCount}$ von $${total}$ Aufgaben korrekt. Wiederhole die schwachen Themen gezielt.`;
+    return `Ausbaufähig: $${correctCount}$ von $${total}$ Aufgaben korrekt. Wiederhole die schwachen Themen gezielt.`;
   };
 
   const handleExamStart = async (config: ExamConfig) => {
@@ -1443,7 +1470,7 @@ const App: React.FC = () => {
           config.difficulty,
           config.exampleTasks,
           previousTasks,
-          `Erstelle Aufgabe ${i + 1} von ${config.taskCount} fÃ¼r eine PrÃ¼fung.`
+          `Erstelle Aufgabe ${i + 1} von ${config.taskCount} für eine Prüfung.`
         );
 
         const task: ExamTask = {
@@ -1490,7 +1517,7 @@ const App: React.FC = () => {
     } catch (err: any) {
       setState(prev => ({
         ...prev,
-        error: err.message || "PrÃ¼fungsaufgaben konnten nicht erstellt werden."
+        error: err.message || "Prüfungsaufgaben konnten nicht erstellt werden."
       }));
     } finally {
       setIsExamGenerating(false);
@@ -1561,7 +1588,7 @@ const App: React.FC = () => {
             return {
               ...task,
               isCorrect: false,
-              aiFeedback: 'Aufgabe konnte nicht vollstÃ¤ndig bewertet werden.',
+              aiFeedback: 'Aufgabe konnte nicht vollständig bewertet werden.',
               evaluationError: error?.message || 'Unbekannter Fehler'
             };
           }
@@ -1588,7 +1615,7 @@ const App: React.FC = () => {
     } catch (err: any) {
       setState(prev => ({
         ...prev,
-        error: err.message || 'PrÃ¼fung konnte nicht vollstÃ¤ndig ausgewertet werden.'
+        error: err.message || 'Prüfung konnte nicht vollständig ausgewertet werden.'
       }));
 
       updateExamSession({
@@ -1627,7 +1654,7 @@ const App: React.FC = () => {
     return <PrintExportPage exportKey={printExportKey} />;
   }
 
-  // â”€â”€ Render: Solution view â”€â”€
+  // ── Render: Solution view ──
   if (state.solution && state.inputMode !== InputMode.PRACTICE) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-purple-50 flex flex-col items-center p-3 sm:p-4 md:p-8">
@@ -1638,7 +1665,7 @@ const App: React.FC = () => {
             </div>
             <div className="min-w-0">
               <h1 className="text-xl sm:text-3xl font-extrabold text-slate-800 tracking-tight leading-tight">Mathe Erklaerer</h1>
-              <p className="text-sm text-slate-500">ZurÃ¼ck zur Ãœbersicht</p>
+              <p className="text-sm text-slate-500">Zurück zur Übersicht</p>
             </div>
           </div>
           <button
@@ -1677,7 +1704,7 @@ const App: React.FC = () => {
     );
   }
 
-  // â”€â”€ Render: Practice session â”€â”€
+  // ── Render: Practice session ──
   if (state.inputMode === InputMode.PRACTICE && practiceView === 'session' && state.activePracticeRoom && currentPracticeTask) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-purple-50 flex flex-col items-center p-3 sm:p-4 md:p-8">
@@ -1688,7 +1715,7 @@ const App: React.FC = () => {
             </div>
             <div className="min-w-0">
               <h1 className="text-xl sm:text-3xl font-extrabold text-slate-800 tracking-tight leading-tight">Mathe Erklaerer</h1>
-              <p className="text-sm text-slate-500">ZurÃ¼ck zur Ãœbersicht</p>
+              <p className="text-sm text-slate-500">Zurück zur Übersicht</p>
             </div>
           </div>
           <button
@@ -1730,7 +1757,7 @@ const App: React.FC = () => {
     );
   }
 
-  // â”€â”€ Render: Practice room detail â”€â”€
+  // ── Render: Practice room detail ──
   if (state.inputMode === InputMode.PRACTICE && practiceView === 'detail' && state.activePracticeRoom) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-purple-50 flex flex-col items-center p-3 sm:p-4 md:p-8">
@@ -1741,7 +1768,7 @@ const App: React.FC = () => {
             </div>
             <div className="min-w-0">
               <h1 className="text-xl sm:text-3xl font-extrabold text-slate-800 tracking-tight leading-tight">Mathe Erklaerer</h1>
-              <p className="text-sm text-slate-500">ZurÃ¼ck zur Ãœbersicht</p>
+              <p className="text-sm text-slate-500">Zurück zur Übersicht</p>
             </div>
           </div>
           <button
@@ -1784,7 +1811,7 @@ const App: React.FC = () => {
     );
   }
 
-  // â”€â”€ Render: Exam session â”€â”€
+  // ── Render: Exam session ──
   if (state.inputMode === InputMode.EXAM && examView === 'session' && state.activeExamSession) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-purple-50 flex flex-col items-center p-3 sm:p-4 md:p-8">
@@ -1795,7 +1822,7 @@ const App: React.FC = () => {
             </div>
             <div className="min-w-0">
               <h1 className="text-xl sm:text-3xl font-extrabold text-slate-800 tracking-tight leading-tight">Mathe Erklaerer</h1>
-              <p className="text-sm text-slate-500">ZurÃ¼ck zur Ãœbersicht</p>
+              <p className="text-sm text-slate-500">Zurück zur Übersicht</p>
             </div>
           </div>
           <button
@@ -1838,7 +1865,7 @@ const App: React.FC = () => {
     );
   }
 
-  // â”€â”€ Render: Exam result â”€â”€
+  // ── Render: Exam result ──
   if (state.inputMode === InputMode.EXAM && examView === 'result' && state.activeExamSession) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-purple-50 flex flex-col items-center p-3 sm:p-4 md:p-8">
@@ -1849,7 +1876,7 @@ const App: React.FC = () => {
             </div>
             <div className="min-w-0">
               <h1 className="text-xl sm:text-3xl font-extrabold text-slate-800 tracking-tight leading-tight">Mathe Erklaerer</h1>
-              <p className="text-sm text-slate-500">ZurÃ¼ck zur Ãœbersicht</p>
+              <p className="text-sm text-slate-500">Zurück zur Übersicht</p>
             </div>
           </div>
           <button
@@ -1892,14 +1919,74 @@ const App: React.FC = () => {
     );
   }
 
-  // â”€â”€ Render: Main input form â”€â”€
+  // ── Render: Main input form ──
   return (
     <div
       className={`min-h-screen bg-gradient-to-br from-indigo-50 via-white to-purple-50 flex flex-col items-center ${
         isProjectDetailView ? 'p-3 sm:p-4 md:p-6' : 'p-3 sm:p-4 md:p-8'
       }`}
     >
-      
+      {editingHistoryItemId && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/55 p-4"
+          onClick={closeEditHistoryItem}
+        >
+          <div
+            className="w-full max-w-lg rounded-2xl border border-slate-200 bg-white p-4 shadow-2xl sm:p-5"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mb-3 flex items-start justify-between gap-3">
+              <div>
+                <h3 className="text-base font-bold text-slate-800">Eintrag bearbeiten</h3>
+                <p className="text-xs text-slate-500">Beschreibung und Projektzuweisung anpassen.</p>
+              </div>
+              <button
+                onClick={closeEditHistoryItem}
+                className="rounded-lg border border-slate-200 p-1.5 text-slate-500 hover:bg-slate-100 transition-colors"
+                title="Schliessen"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 mb-1">Titel / Aufgabe</label>
+            <textarea
+              value={editingHistoryDescription}
+              onChange={(e) => setEditingHistoryDescription(e.target.value)}
+              placeholder="Titel oder Aufgabenstellung"
+              className="h-24 w-full rounded-xl border border-slate-200 bg-white p-2.5 text-sm text-slate-700 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 resize-none"
+            />
+
+            <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 mt-3 mb-1">Projekt</label>
+            <select
+              value={history.find(i => i.id === editingHistoryItemId)?.projectId ?? ''}
+              onChange={(e) => assignHistoryItemToProject(editingHistoryItemId, e.target.value || null)}
+              className="w-full rounded-xl border border-slate-200 bg-white p-2.5 text-sm text-slate-700 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200"
+            >
+              <option value="">Kein Projekt</option>
+              {projects.map(project => (
+                <option key={project.id} value={project.id}>{project.name}</option>
+              ))}
+            </select>
+
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                onClick={closeEditHistoryItem}
+                className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 transition-colors"
+              >
+                Abbrechen
+              </button>
+              <button
+                onClick={saveHistoryItemDescription}
+                className="rounded-lg bg-indigo-600 px-3 py-2 text-xs font-semibold text-white hover:bg-indigo-700 transition-colors"
+              >
+                Speichern
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <header className={`w-full ${pageMaxWidthClass} mb-6 md:mb-8 flex items-start justify-between gap-3 sm:items-center`}>
         <div className="flex min-w-0 flex-1 items-center gap-3">
@@ -1908,7 +1995,7 @@ const App: React.FC = () => {
           </div>
           <div className="min-w-0">
             <h1 className="text-xl sm:text-3xl font-extrabold text-slate-800 tracking-tight leading-tight">Mathe Erklaerer</h1>
-            <p className="text-xs sm:text-sm text-slate-500">Dein persÃ¶nlicher Schritt-fÃ¼r-Schritt Tutor</p>
+            <p className="text-xs sm:text-sm text-slate-500">Dein persönlicher Schritt-für-Schritt Tutor</p>
           </div>
         </div>
         <button
@@ -2235,7 +2322,7 @@ const App: React.FC = () => {
                                           {item.mode === InputMode.IMAGE ? 'Foto' : 'Text'}
                                         </span>
                                         <span className="text-xs text-slate-400">
-                                          {new Date(item.timestamp).toLocaleDateString()} • {new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        {new Date(item.timestamp).toLocaleDateString()} • {new Date(item.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
                                         </span>
                                       </div>
                                       <div className="line-clamp-1 text-sm font-semibold text-slate-800">
@@ -2281,6 +2368,13 @@ const App: React.FC = () => {
                                           )}
                                         </div>
                                       )}
+                                      <button
+                                        onClick={(e) => openEditHistoryItem(e, item)}
+                                        className={`${DETAIL_ACTION_BUTTON_BASE_CLASS} border border-indigo-200 text-indigo-600 hover:bg-indigo-50`}
+                                      >
+                                        <Pencil className="h-3 w-3" />
+                                        Bearbeiten
+                                      </button>
                                       <button
                                         onClick={() => assignHistoryItemToProject(item.id, null)}
                                         className={`${DETAIL_ACTION_BUTTON_BASE_CLASS} border border-slate-200 text-slate-600 hover:bg-slate-100`}
@@ -2334,7 +2428,7 @@ const App: React.FC = () => {
                                           </span>
                                         )}
                                         <span className="text-xs text-slate-400">
-                                          {new Date(item.timestamp).toLocaleDateString()} • {new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        {new Date(item.timestamp).toLocaleDateString()} • {new Date(item.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
                                         </span>
                                       </div>
                                       <p className="line-clamp-1 text-sm font-semibold text-slate-800">{item.prompt}</p>
@@ -2392,6 +2486,13 @@ const App: React.FC = () => {
                                           )}
                                         </div>
                                       )}
+                                      <button
+                                        onClick={(e) => openEditHistoryItem(e, item)}
+                                        className={`${DETAIL_ACTION_BUTTON_BASE_CLASS} border border-indigo-200 text-indigo-600 hover:bg-indigo-50`}
+                                      >
+                                        <Pencil className="h-3 w-3" />
+                                        Bearbeiten
+                                      </button>
                                       <button
                                         onClick={() => assignHistoryItemToProject(item.id, null)}
                                         className={`${DETAIL_ACTION_BUTTON_BASE_CLASS} border border-slate-200 text-slate-600 hover:bg-slate-100`}
@@ -2599,7 +2700,7 @@ const App: React.FC = () => {
                 value={state.textInput}
                 onChange={handleTextChange}
                 onPaste={handlePaste}
-                placeholder="Gib hier deine Matheaufgabe ein (z.B. 'LÃ¶se die Gleichung x^2 - 4 = 0') oder lade ein Foto der Aufgabe hoch â€¦ Tipp: Bild mit Strg+V einfÃ¼gen!"
+                placeholder="Gib hier deine Matheaufgabe ein (z.B. 'Löse die Gleichung x^2 - 4 = 0') oder lade ein Foto der Aufgabe hoch … Tipp: Bild mit Strg+V einfügen!"
                 className="w-full h-36 sm:h-32 p-4 bg-slate-50 rounded-2xl border border-slate-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 focus:bg-white transition-all resize-none text-slate-700 text-base sm:text-lg placeholder:text-slate-400"
               />
               {!state.imagePreview ? (
@@ -2608,8 +2709,8 @@ const App: React.FC = () => {
                   className="w-full h-32 border-2 border-dashed border-slate-300 rounded-2xl flex flex-col items-center justify-center bg-slate-50 hover:bg-indigo-50 hover:border-indigo-400 transition-all cursor-pointer group"
                 >
                   <ImageIcon className="w-6 h-6 text-indigo-500 mb-2 group-hover:scale-110 transition-transform" />
-                  <p className="text-slate-600 text-sm font-medium">Foto anhÃ¤ngen (optional)</p>
-                  <p className="text-xs text-slate-400 mt-0.5">Klicken oder Strg+V Â· JPG, PNG, WEBP</p>
+                  <p className="text-slate-600 text-sm font-medium">Foto anhängen (optional)</p>
+                  <p className="text-xs text-slate-400 mt-0.5">Klicken oder Strg+V · JPG, PNG, WEBP</p>
                 </div>
               ) : (
                 <div className="relative w-full rounded-2xl overflow-hidden border border-slate-200 bg-slate-900 group">
@@ -2644,7 +2745,7 @@ const App: React.FC = () => {
               <textarea
                 value={state.textInput}
                 onChange={handleTextChange}
-                placeholder="Welches Thema soll ich dir beibringen? Beschreibe gerne dein Level (z.B. 'Noch nie gehÃ¶rt', 'Grundlagen bekannt', 'bitte ab Klasse 8 Niveau')."
+                placeholder="Welches Thema soll ich dir beibringen? Beschreibe gerne dein Level (z.B. 'Noch nie gehört', 'Grundlagen bekannt', 'bitte ab Klasse 8 Niveau')."
                 className="w-full h-44 sm:h-40 p-4 bg-slate-50 rounded-2xl border border-slate-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 focus:bg-white transition-all resize-none text-slate-700 text-base sm:text-lg placeholder:text-slate-400"
               />
             </div>
@@ -2687,12 +2788,12 @@ const App: React.FC = () => {
                 {state.isLoading ? (
                   <>
                     <Loader2 className="w-5 h-5 animate-spin" />
-                    <span>{state.inputMode === InputMode.TUTOR ? 'Erstelle Tutor-Lektion...' : 'LÃ¶se Aufgabe...'}</span>
+                    <span>{state.inputMode === InputMode.TUTOR ? 'Erstelle Tutor-Lektion...' : 'Löse Aufgabe...'}</span>
                   </>
                 ) : (
                   <>
                     <Send className="w-5 h-5" />
-                    <span>{state.inputMode === InputMode.TUTOR ? 'Tutor starten' : 'Aufgabe LÃ¶sen'}</span>
+                    <span>{state.inputMode === InputMode.TUTOR ? 'Tutor starten' : 'Aufgabe Lösen'}</span>
                   </>
                 )}
               </button>
@@ -2729,7 +2830,7 @@ const App: React.FC = () => {
           <div className="flex items-center justify-between mb-4 px-1 sm:px-2 gap-2">
             <h3 className="text-xl font-bold text-slate-700 flex items-center gap-2">
               <BookOpen className="w-5 h-5 text-amber-500" />
-              Deine LernrÃ¤ume
+              Deine Lernräume
             </h3>
           </div>
           <div className="grid gap-3 sm:gap-4 md:grid-cols-1">
@@ -2766,7 +2867,7 @@ const App: React.FC = () => {
           <div className="flex items-center justify-between mb-4 px-1 sm:px-2 gap-2">
             <h3 className="text-xl font-bold text-slate-700 flex items-center gap-2">
               <ClipboardCheck className="w-5 h-5 text-rose-500" />
-              Letzte PrÃ¼fungen
+              Letzte Prüfungen
             </h3>
           </div>
           <div className="grid gap-3 sm:gap-4 md:grid-cols-1">
@@ -2834,7 +2935,7 @@ const App: React.FC = () => {
                className="text-xs text-red-400 hover:text-red-600 flex items-center gap-1 px-3 py-1.5 rounded-full hover:bg-red-50 transition-colors"
              >
                <Trash2 className="w-3 h-3" />
-               Verlauf lÃ¶schen
+               Verlauf löschen
              </button>
            </div>
            
@@ -2867,7 +2968,7 @@ const App: React.FC = () => {
                         </span>
                       )}
                       <span className="text-xs text-slate-400">
-                        {new Date(item.timestamp).toLocaleDateString()} â€¢ {new Date(item.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                        {new Date(item.timestamp).toLocaleDateString()} • {new Date(item.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
                       </span>
                    </div>
                    
@@ -2892,7 +2993,7 @@ const App: React.FC = () => {
                        <select
                          value={item.projectId ?? ''}
                          onChange={(e) => assignHistoryItemToProject(item.id, e.target.value || null)}
-                         className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-slate-600 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200"
+                         className={HISTORY_PROJECT_SELECT_CLASS}
                        >
                          <option value="">Kein</option>
                          {projects.map(project => (
@@ -2909,7 +3010,7 @@ const App: React.FC = () => {
                            handleRetryTutorHistory(item);
                          }}
                          disabled={retryingHistoryId === item.id}
-                         className="px-3 py-1.5 text-xs font-semibold text-amber-700 bg-amber-50 hover:bg-amber-100 rounded-full transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                         className={`${HISTORY_CONTROL_BUTTON_BASE_CLASS} border border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100 disabled:opacity-60 disabled:cursor-not-allowed`}
                          title="Ab fehlgeschlagener Lektion fortsetzen"
                        >
                          {retryingHistoryId === item.id ? 'Retry laeuft...' : 'Retry'}
@@ -2921,7 +3022,7 @@ const App: React.FC = () => {
                            e.stopPropagation();
                            handleHistoryRestore(item, 'summary');
                          }}
-                         className="px-3 py-1.5 text-xs font-semibold text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-full transition-colors"
+                         className={HISTORY_INDIGO_BUTTON_CLASS}
                          title="Direkt zur Uebersicht"
                        >
                          Uebersicht
@@ -2934,7 +3035,7 @@ const App: React.FC = () => {
                              e.stopPropagation();
                              setOpenHistoryDownloadMenuId(prev => (prev === item.id ? null : item.id));
                            }}
-                           className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-full transition-colors"
+                           className={HISTORY_INDIGO_BUTTON_CLASS}
                            title="Export herunterladen"
                          >
                            <Download className="w-3.5 h-3.5" />
@@ -2967,14 +3068,21 @@ const App: React.FC = () => {
                          )}
                        </div>
                      )}
-                     <button 
+                     <button
+                       onClick={(e) => openEditHistoryItem(e, item)}
+                       className={`${HISTORY_ICON_CHIP_CLASS} text-slate-300 hover:text-indigo-500 hover:bg-indigo-50 opacity-100 sm:opacity-0 sm:group-hover:opacity-100`}
+                       title="Beschreibung bearbeiten"
+                     >
+                       <Pencil className="w-4 h-4" />
+                     </button>
+                     <button
                        onClick={(e) => deleteHistoryItem(e, item.id)}
-                       className="p-2 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-full transition-colors opacity-100 sm:opacity-0 sm:group-hover:opacity-100"
-                      title="Eintrag lÃ¶schen"
+                       className={`${HISTORY_ICON_CHIP_CLASS} text-slate-300 hover:text-red-500 hover:bg-red-50 opacity-100 sm:opacity-0 sm:group-hover:opacity-100`}
+                      title="Eintrag löschen"
                     >
                       <Trash2 className="w-4 h-4" />
                     </button>
-                    <div className="p-2 text-indigo-300 group-hover:text-indigo-600 transition-colors">
+                    <div className={`${HISTORY_ICON_CHIP_CLASS} text-indigo-300 group-hover:text-indigo-600`}>
                       <ChevronRight className="w-5 h-5" />
                     </div>
                  </div>
