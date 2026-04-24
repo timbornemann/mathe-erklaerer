@@ -816,7 +816,7 @@ const SolutionViewer: React.FC<SolutionViewerProps> = ({
                 className="flex items-center space-x-2 px-6 py-3 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 text-slate-600 font-semibold transition-all"
               >
                 <RotateCcw className="w-4 h-4" />
-                <span>Neue Aufgabe loesen</span>
+                <span>Zurueck zur Uebersicht</span>
               </button>
             </div>
           </div>
@@ -853,10 +853,10 @@ const SolutionViewer: React.FC<SolutionViewerProps> = ({
               <button
                 onClick={onReset}
                 className="flex items-center gap-2 px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-slate-600 hover:text-indigo-600 hover:border-indigo-200 transition-all text-xs font-bold shadow-sm"
-                title="Neue Aufgabe beginnen"
+                title="Zurueck zur Uebersicht"
               >
                 <RotateCcw className="w-3.5 h-3.5" />
-                <span className="hidden md:inline">Neu</span>
+                <span className="hidden md:inline">Zurueck</span>
               </button>
               <span className="bg-indigo-100 text-indigo-700 px-3 py-1.5 rounded-full text-[11px] sm:text-xs font-bold tracking-wide uppercase">
                 Lektion {currentStep + 1} / {totalSteps}
@@ -991,7 +991,7 @@ const SolutionViewer: React.FC<SolutionViewerProps> = ({
             className="flex items-center gap-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 px-4 py-2 rounded-full transition-all text-sm font-medium"
           >
             <RotateCcw className="w-4 h-4" />
-            <span>Abbrechen & Neue Aufgabe</span>
+            <span>Zurueck zur Uebersicht</span>
           </button>
         </div>
       </div>
