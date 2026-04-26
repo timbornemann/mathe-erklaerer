@@ -611,6 +611,14 @@ const mergeFormulaEntry = (current: FormulaEntry, incoming: FormulaEntry): Formu
     status === 'failed'
       ? incoming.generationError || current.generationError
       : undefined;
+  const preferredDetailCards =
+    Array.isArray(preferred.detailCards) && preferred.detailCards.length > 0
+      ? preferred.detailCards
+      : undefined;
+  const fallbackDetailCards =
+    Array.isArray(fallback.detailCards) && fallback.detailCards.length > 0
+      ? fallback.detailCards
+      : undefined;
 
   return {
     ...fallback,
@@ -628,6 +636,7 @@ const mergeFormulaEntry = (current: FormulaEntry, incoming: FormulaEntry): Formu
       (current.sourceRefs ?? []) as FormulaSourceRef[],
       (incoming.sourceRefs ?? []) as FormulaSourceRef[]
     ),
+    detailCards: preferredDetailCards ?? fallbackDetailCards,
     usageCount: Math.max(current.usageCount ?? 0, incoming.usageCount ?? 0),
     status,
     generationError,
