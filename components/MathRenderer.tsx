@@ -1,7 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import ReactMarkdown from 'react-markdown';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
+import { Maximize2, X } from 'lucide-react';
 import 'katex/dist/katex.min.css';
 
 interface MathRendererProps {
@@ -41,6 +43,23 @@ interface FunctionPlotSpec {
   title?: string;
 }
 
+interface ExpandableModalProps {
+  isOpen: boolean;
+  title: string;
+  onClose: () => void;
+  children: React.ReactNode;
+  maxWidthClass?: string;
+}
+
+interface ExpandableBlockProps {
+  title: string;
+  modalTitle: string;
+  children: React.ReactNode;
+  expandedContent: React.ReactNode;
+  className?: string;
+  maxWidthClass?: string;
+}
+
 type MermaidApi = (typeof import('mermaid'))['default'];
 type FunctionPlotFn = (typeof import('function-plot'))['default'];
 
@@ -49,6 +68,111 @@ let mermaidInitialized = false;
 let functionPlotPromise: Promise<FunctionPlotFn> | null = null;
 
 const GRAPH_DEFAULT_DOMAIN: [number, number] = [-10, 10];
+
+const ExpandableModal: React.FC<ExpandableModalProps> = ({
+  isOpen,
+  title,
+  onClose,
+  children,
+  maxWidthClass = 'max-w-6xl'
+}) => {
+  useEffect(() => {
+    if (!isOpen || typeof document === 'undefined') return;
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        onClose();
+      }
+    };
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    document.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isOpen, onClose]);
+
+  if (!isOpen || typeof document === 'undefined') {
+    return null;
+  }
+
+  return createPortal(
+    <div
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/70 p-3 backdrop-blur-sm sm:p-6"
+      onClick={onClose}
+      role="dialog"
+      aria-modal="true"
+      aria-label={title}
+    >
+      <div
+        className={`flex max-h-[92vh] w-full ${maxWidthClass} flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl`}
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="flex items-center justify-between gap-3 border-b border-slate-200 px-4 py-3 sm:px-5">
+          <h3 className="text-sm font-bold text-slate-800 sm:text-base">{title}</h3>
+          <button
+            onClick={onClose}
+            className="inline-flex h-9 w-9 items-center justify-center rounded-full text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-800"
+            title="Schliessen"
+            aria-label="Schliessen"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+        <div className="min-h-0 flex-1 overflow-auto p-4 sm:p-6">
+          {children}
+        </div>
+      </div>
+    </div>,
+    document.body
+  );
+};
+
+const ExpandableButton: React.FC<{ title: string; onClick: () => void }> = ({ title, onClick }) => (
+  <button
+    type="button"
+    onClick={(event) => {
+      event.stopPropagation();
+      onClick();
+    }}
+    className="absolute right-2 top-2 z-10 inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white/95 text-slate-500 opacity-80 shadow-sm transition-all hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-600 hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-indigo-300 print:hidden"
+    title={title}
+    aria-label={title}
+  >
+    <Maximize2 className="h-4 w-4" />
+  </button>
+);
+
+const ExpandableBlock: React.FC<ExpandableBlockProps> = ({
+  title,
+  modalTitle,
+  children,
+  expandedContent,
+  className = '',
+  maxWidthClass
+}) => {
+  const [isOpen, setIsOpen] = useState(false);
+
+  return (
+    <>
+      <div className={`group/expandable relative ${className}`}>
+        {children}
+        <ExpandableButton title={title} onClick={() => setIsOpen(true)} />
+      </div>
+      <ExpandableModal
+        isOpen={isOpen}
+        title={modalTitle}
+        onClose={() => setIsOpen(false)}
+        maxWidthClass={maxWidthClass}
+      >
+        {expandedContent}
+      </ExpandableModal>
+    </>
+  );
+};
 
 const looksLikeMermaidSource = (source: string): boolean => {
   const firstNonEmptyLine = source
@@ -130,6 +254,12 @@ const normalizeEscapedNewlines = (raw: string): string => {
 
   return text;
 };
+
+const normalizeDisplayMathBlocks = (raw: string): string =>
+  raw.replace(
+    /(^|\n)\s*\$\$\s*([^\n]+?)\s*\$\$\s*(?=\n|$)/g,
+    (_match, prefix: string, formula: string) => `${prefix}$$\n${formula.trim()}\n$$`
+  );
 
 const wrapLooseGraphBlocks = (content: string): string => {
   const lines = content.split('\n');
@@ -401,17 +531,35 @@ const MermaidBlock: React.FC<{ code: string }> = ({ code }) => {
   }
 
   return (
-    <div className="my-4 overflow-x-auto rounded-xl border border-slate-200 bg-white p-3">
-      <div
-        className="flex justify-center [&>svg]:block [&>svg]:h-auto [&>svg]:max-w-full [&>svg]:mx-auto"
-        dangerouslySetInnerHTML={{ __html: svg }}
-      />
-    </div>
+    <ExpandableBlock
+      className="my-4"
+      title="Diagramm vergrößern"
+      modalTitle="Diagramm"
+      maxWidthClass="max-w-7xl"
+      expandedContent={
+        <div className="overflow-auto rounded-xl border border-slate-200 bg-white p-4">
+          <div
+            className="flex min-w-[620px] justify-center [&>svg]:block [&>svg]:h-auto [&>svg]:max-h-[74vh] [&>svg]:max-w-full [&>svg]:mx-auto"
+            dangerouslySetInnerHTML={{ __html: svg }}
+          />
+        </div>
+      }
+    >
+      <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white p-3 pr-12">
+        <div
+          className="flex justify-center [&>svg]:block [&>svg]:h-auto [&>svg]:max-w-full [&>svg]:mx-auto"
+          dangerouslySetInnerHTML={{ __html: svg }}
+        />
+      </div>
+    </ExpandableBlock>
   );
 };
 
-const FunctionPlotBlock: React.FC<{ source: string }> = ({ source }) => {
-  const parsed = useMemo(() => parseFunctionPlotSpec(source), [source]);
+const FunctionPlotCanvas: React.FC<{ source: string; spec: FunctionPlotSpec; minHeight?: number }> = ({
+  source,
+  spec,
+  minHeight = 260
+}) => {
   const [runtimeError, setRuntimeError] = useState<string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -420,7 +568,7 @@ const FunctionPlotBlock: React.FC<{ source: string }> = ({ source }) => {
   }, [source]);
 
   useEffect(() => {
-    if (parsed.error || !parsed.spec || !containerRef.current) {
+    if (!containerRef.current) {
       return;
     }
 
@@ -437,17 +585,17 @@ const FunctionPlotBlock: React.FC<{ source: string }> = ({ source }) => {
         chartRoot.innerHTML = '';
 
         const width = Math.max(320, Math.floor(chartRoot.clientWidth || 480));
-        const height = Math.max(240, Math.round(width * 0.62));
+        const height = Math.max(minHeight, Math.round(width * 0.62));
 
         functionPlot({
           target: chartRoot,
           width,
           height,
-          title: parsed.spec.title,
-          grid: parsed.spec.grid ?? true,
-          xAxis: { domain: parsed.spec.xDomain ?? GRAPH_DEFAULT_DOMAIN },
-          yAxis: { domain: parsed.spec.yDomain ?? GRAPH_DEFAULT_DOMAIN },
-          data: parsed.spec.data
+          title: spec.title,
+          grid: spec.grid ?? true,
+          xAxis: { domain: spec.xDomain ?? GRAPH_DEFAULT_DOMAIN },
+          yAxis: { domain: spec.yDomain ?? GRAPH_DEFAULT_DOMAIN },
+          data: spec.data
         });
 
         setRuntimeError(null);
@@ -488,27 +636,89 @@ const FunctionPlotBlock: React.FC<{ source: string }> = ({ source }) => {
       }
       chartRoot.innerHTML = '';
     };
-  }, [parsed.error, parsed.spec, source]);
-
-  if (parsed.error) {
-    return <CodeBlockFallback language="functionplot" code={source} error={parsed.error} />;
-  }
+  }, [minHeight, source, spec]);
 
   if (runtimeError) {
     return <CodeBlockFallback language="functionplot" code={source} error={runtimeError} />;
   }
 
+  return <div ref={containerRef} className="w-full" style={{ minHeight }} />;
+};
+
+const FunctionPlotBlock: React.FC<{ source: string }> = ({ source }) => {
+  const parsed = useMemo(() => parseFunctionPlotSpec(source), [source]);
+
+  if (parsed.error) {
+    return <CodeBlockFallback language="functionplot" code={source} error={parsed.error} />;
+  }
+
+  if (!parsed.spec) {
+    return <CodeBlockFallback language="functionplot" code={source} error="functionplot konnte nicht gelesen werden." />;
+  }
+
   return (
-    <div className="my-4 overflow-x-auto rounded-xl border border-slate-200 bg-white p-3">
-      <div ref={containerRef} className="w-full min-h-[260px]" />
-    </div>
+    <ExpandableBlock
+      className="my-4"
+      title="Diagramm vergrößern"
+      modalTitle="Funktionsdiagramm"
+      maxWidthClass="max-w-7xl"
+      expandedContent={
+        <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white p-4">
+          <div className="min-w-[720px]">
+            <FunctionPlotCanvas source={source} spec={parsed.spec} minHeight={520} />
+          </div>
+        </div>
+      }
+    >
+      <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white p-3 pr-12">
+        <FunctionPlotCanvas source={source} spec={parsed.spec} />
+      </div>
+    </ExpandableBlock>
+  );
+};
+
+const ExpandableFormula: React.FC<React.HTMLAttributes<HTMLSpanElement>> = ({
+  className = '',
+  children,
+  ...props
+}) => {
+  const [isOpen, setIsOpen] = useState(false);
+
+  return (
+    <>
+      <span className="group/formula relative my-4 block overflow-x-auto rounded-xl border border-slate-200 bg-white px-4 py-3 pr-12 text-center shadow-sm">
+        <span
+          className={`block min-w-max text-center [&_.katex-display]:my-0 ${className}`}
+          {...props}
+        >
+          {children}
+        </span>
+        <ExpandableButton title="Formel vergrößern" onClick={() => setIsOpen(true)} />
+      </span>
+      <ExpandableModal
+        isOpen={isOpen}
+        title="Formel"
+        onClose={() => setIsOpen(false)}
+        maxWidthClass="max-w-5xl"
+      >
+        <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white p-5 sm:p-8">
+          <span
+            className={`block min-w-max text-center text-2xl sm:text-3xl [&_.katex-display]:my-0 ${className}`}
+            {...props}
+          >
+            {children}
+          </span>
+        </div>
+      </ExpandableModal>
+    </>
   );
 };
 
 const MathRenderer: React.FC<MathRendererProps> = ({ content }) => {
   const normalizedContent = useMemo(() => {
     const withNormalizedEscapes = normalizeEscapedNewlines(content);
-    return wrapLooseGraphBlocks(withNormalizedEscapes);
+    const withDisplayMathBlocks = normalizeDisplayMathBlocks(withNormalizedEscapes);
+    return wrapLooseGraphBlocks(withDisplayMathBlocks);
   }, [content]);
 
   return (
@@ -519,6 +729,24 @@ const MathRenderer: React.FC<MathRendererProps> = ({ content }) => {
         components={{
           strong: ({ node, ...props }) => <span className="font-bold text-indigo-900" {...props} />,
           a: ({ node, ...props }) => <a className="text-indigo-600 hover:underline" {...props} />,
+          span: ({ node: _node, className, children, ...props }: any) => {
+            const normalizedClassName = typeof className === 'string' ? className : '';
+            const isDisplayFormula = normalizedClassName.split(/\s+/).includes('katex-display');
+
+            if (isDisplayFormula) {
+              return (
+                <ExpandableFormula className={normalizedClassName} {...props}>
+                  {children}
+                </ExpandableFormula>
+              );
+            }
+
+            return (
+              <span className={className} {...props}>
+                {children}
+              </span>
+            );
+          },
           code: ({ node: _node, inline, className, children, ...props }: any) =>
             inline ? (
               <code className="rounded bg-slate-100 px-1 py-0.5 font-mono text-sm text-slate-800" {...props}>
