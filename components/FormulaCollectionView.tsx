@@ -1,10 +1,12 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Download, Loader2, Pencil, Save, Search, Trash2 } from 'lucide-react';
+import { BookOpen, Download, Loader2, Plus, Save, Search, Sparkles, X } from 'lucide-react';
 import MathRenderer from './MathRenderer';
+import FormulaDetailView from './FormulaDetailView';
 import { FormulaEntry, Project } from '../types';
-import { buildFormulaSearchText, normalizeTagList } from '../services/formulaCollection';
+import { buildFormulaSearchText } from '../services/formulaCollection';
 
 type FormulaSortMode = 'newest' | 'most-used' | 'title';
+type UtilityPanelMode = 'none' | 'add' | 'cheat-sheet';
 
 interface FormulaCollectionViewProps {
   formulas: FormulaEntry[];
@@ -20,13 +22,25 @@ interface FormulaCollectionViewProps {
   onDownloadCheatSheetPdf: (formulaIds: string[]) => void;
 }
 
+const statusBadgeClass = (status: FormulaEntry['status']): string => {
+  if (status === 'ready') return 'bg-emerald-50 text-emerald-700 border-emerald-200';
+  if (status === 'failed') return 'bg-red-50 text-red-700 border-red-200';
+  return 'bg-amber-50 text-amber-700 border-amber-200';
+};
+
+const statusLabel = (status: FormulaEntry['status']): string => {
+  if (status === 'ready') return 'Bereit';
+  if (status === 'failed') return 'Fehlgeschlagen';
+  return 'Wird erstellt';
+};
+
 const FormulaCollectionView: React.FC<FormulaCollectionViewProps> = ({
   formulas,
   projects,
   activeProjectId,
   onAddFormulaLatex,
   onAskFormulaPrompt,
-  onUpdateFormula,
+  onUpdateFormula: _onUpdateFormula,
   onDeleteFormula,
   onMarkUsed,
   onRetryFormula,
@@ -37,9 +51,7 @@ const FormulaCollectionView: React.FC<FormulaCollectionViewProps> = ({
   const [tagFilter, setTagFilter] = useState('');
   const [projectFilter, setProjectFilter] = useState<'all' | 'none' | string>('all');
   const [sortMode, setSortMode] = useState<FormulaSortMode>('newest');
-  const [selectedFormulaId, setSelectedFormulaId] = useState<string | null>(null);
-  const [isEditing, setIsEditing] = useState(false);
-  const [editDraft, setEditDraft] = useState<FormulaEntry | null>(null);
+  const [detailFormulaId, setDetailFormulaId] = useState<string | null>(null);
 
   const [newFormulaLatex, setNewFormulaLatex] = useState('');
   const [newFormulaContext, setNewFormulaContext] = useState('');
@@ -47,6 +59,7 @@ const FormulaCollectionView: React.FC<FormulaCollectionViewProps> = ({
   const [isAddingFormula, setIsAddingFormula] = useState(false);
   const [isAskingPrompt, setIsAskingPrompt] = useState(false);
   const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
+  const [activeUtilityPanel, setActiveUtilityPanel] = useState<UtilityPanelMode>('none');
 
   const [cheatSheetTopN, setCheatSheetTopN] = useState(10);
   const [selectedCheatSheetIds, setSelectedCheatSheetIds] = useState<string[]>([]);
@@ -78,30 +91,30 @@ const FormulaCollectionView: React.FC<FormulaCollectionViewProps> = ({
     return next;
   }, [formulas, projectFilter, search, sortMode, tagFilter]);
 
-  const selectedFormula =
-    filteredAndSortedFormulas.find((entry) => entry.id === selectedFormulaId) ??
-    filteredAndSortedFormulas[0] ??
-    null;
-
   const topUsed = useMemo(
-    () => [...formulas].sort((a, b) => b.usageCount - a.usageCount || b.updatedAt - a.updatedAt).slice(0, 10),
+    () => [...formulas].sort((a, b) => b.usageCount - a.usageCount || b.updatedAt - a.updatedAt).slice(0, 20),
     [formulas]
   );
 
   useEffect(() => {
-    if (!selectedFormula) {
-      setSelectedFormulaId(null);
-      setIsEditing(false);
-      setEditDraft(null);
-      return;
+    if (!detailFormulaId) return;
+    if (!formulas.some((entry) => entry.id === detailFormulaId)) {
+      setDetailFormulaId(null);
     }
-    setSelectedFormulaId(selectedFormula.id);
-  }, [selectedFormula]);
+  }, [detailFormulaId, formulas]);
 
   useEffect(() => {
-    if (!selectedFormula || !isEditing) return;
-    setEditDraft(selectedFormula);
-  }, [isEditing, selectedFormula]);
+    if (activeUtilityPanel === 'none') {
+      setFeedbackMessage(null);
+    }
+  }, [activeUtilityPanel]);
+
+  useEffect(() => {
+    if (activeUtilityPanel !== 'cheat-sheet') return;
+    if (selectedCheatSheetIds.length > 0) return;
+    const topIds = topUsed.slice(0, Math.max(1, cheatSheetTopN)).map((entry) => entry.id);
+    setSelectedCheatSheetIds(topIds);
+  }, [activeUtilityPanel, cheatSheetTopN, selectedCheatSheetIds.length, topUsed]);
 
   const handleAddLatex = async () => {
     const formula = newFormulaLatex.trim();
@@ -136,21 +149,6 @@ const FormulaCollectionView: React.FC<FormulaCollectionViewProps> = ({
     }
   };
 
-  const handleSaveEdit = () => {
-    if (!editDraft || !selectedFormula) return;
-    onUpdateFormula(selectedFormula.id, {
-      formula: editDraft.formula,
-      title: editDraft.title,
-      shortExplanation: editDraft.shortExplanation,
-      stepByStepExplanation: editDraft.stepByStepExplanation,
-      examples: editDraft.examples,
-      purpose: editDraft.purpose,
-      tags: normalizeTagList(editDraft.tags),
-      projectIds: editDraft.projectIds
-    });
-    setIsEditing(false);
-  };
-
   const defaultCheatSheetSelection = () => {
     const topIds = topUsed.slice(0, Math.max(1, cheatSheetTopN)).map((entry) => entry.id);
     setSelectedCheatSheetIds(topIds);
@@ -162,110 +160,71 @@ const FormulaCollectionView: React.FC<FormulaCollectionViewProps> = ({
     );
   };
 
+  const detailFormula = detailFormulaId ? formulas.find((entry) => entry.id === detailFormulaId) ?? null : null;
+
+  if (detailFormula) {
+    return (
+      <FormulaDetailView
+        formula={detailFormula}
+        onBack={() => setDetailFormulaId(null)}
+        onGeneratePremium={() => onRetryFormula(detailFormula.id)}
+        onMarkUsed={() => onMarkUsed(detailFormula.id)}
+        onRetryFormula={detailFormula.status === 'failed' ? () => onRetryFormula(detailFormula.id) : undefined}
+        onDelete={() => {
+          onDeleteFormula(detailFormula.id);
+          setDetailFormulaId(null);
+        }}
+      />
+    );
+  }
+
   return (
     <div className="space-y-5">
-      <div className="grid gap-4 lg:grid-cols-[1.2fr_1fr]">
-        <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5 space-y-3">
-          <h3 className="text-base font-bold text-slate-800">Formel hinzufuegen</h3>
-          <textarea
-            value={newFormulaLatex}
-            onChange={(e) => setNewFormulaLatex(e.target.value)}
-            rows={2}
-            placeholder="Formel (LaTeX) eingeben..."
-            className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-200 resize-none"
-          />
-          <textarea
-            value={newFormulaContext}
-            onChange={(e) => setNewFormulaContext(e.target.value)}
-            rows={2}
-            placeholder="Optionaler Kontext zur Formel (Quelle/Anwendungsfall)..."
-            className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-200 resize-none"
-          />
-          <button
-            onClick={handleAddLatex}
-            disabled={!newFormulaLatex.trim() || isAddingFormula}
-            className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-50"
-          >
-            {isAddingFormula ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-            Formel speichern
-          </button>
-          <div className="border-t border-slate-100 pt-3 space-y-2">
-            <textarea
-              value={newFormulaPrompt}
-              onChange={(e) => setNewFormulaPrompt(e.target.value)}
-              rows={2}
-              placeholder="Oder frage nach einer Formel (z. B. Wann nutze ich den Satz des Pythagoras?)"
-              className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-200 resize-none"
-            />
-            <button
-              onClick={handleAskPrompt}
-              disabled={!newFormulaPrompt.trim() || isAskingPrompt}
-              className="inline-flex items-center gap-2 rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-2.5 text-sm font-semibold text-indigo-700 hover:bg-indigo-100 disabled:opacity-50"
-            >
-              {isAskingPrompt ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
-              Formel per KI erstellen
-            </button>
-          </div>
-          {feedbackMessage && <p className="text-xs text-slate-500">{feedbackMessage}</p>}
-        </section>
-
-        <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5 space-y-3">
-          <h3 className="text-base font-bold text-slate-800">Cheat-Sheet</h3>
-          <p className="text-sm text-slate-600">
-            Waehle Formeln aus oder nutze automatisch die meistverwendeten.
-          </p>
-          <div className="flex flex-wrap items-center gap-2">
-            <label className="text-xs font-semibold text-slate-600">Top N</label>
-            <input
-              value={cheatSheetTopN}
-              onChange={(e) => setCheatSheetTopN(Math.max(1, Number(e.target.value) || 1))}
-              type="number"
-              min={1}
-              max={50}
-              className="w-20 rounded-lg border border-slate-200 px-2 py-1.5 text-sm"
-            />
-            <button
-              onClick={defaultCheatSheetSelection}
-              className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100"
-            >
-              Top {Math.max(1, cheatSheetTopN)} waehlen
-            </button>
-          </div>
-          <div className="space-y-1 max-h-36 overflow-y-auto pr-1">
-            {topUsed.map((entry) => (
-              <label key={entry.id} className="flex items-center justify-between gap-2 text-xs rounded-lg border border-slate-100 bg-slate-50 px-2 py-1.5">
-                <span className="truncate">{entry.title}</span>
-                <div className="flex items-center gap-2">
-                  <span className="text-slate-500">{entry.usageCount}x</span>
-                  <input
-                    type="checkbox"
-                    checked={selectedCheatSheetIds.includes(entry.id)}
-                    onChange={() => toggleCheatSheetFormula(entry.id)}
-                  />
-                </div>
-              </label>
-            ))}
+      <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <h2 className="text-lg font-bold text-slate-800">Formelsammlung</h2>
+            <p className="text-sm text-slate-600">
+              Wähle eine Formel und öffne die komplette Detailseite im Lesson-Stil.
+            </p>
           </div>
           <div className="flex flex-wrap gap-2">
             <button
-              onClick={() => onDownloadCheatSheetMarkdown(selectedCheatSheetIds)}
-              disabled={selectedCheatSheetIds.length === 0}
-              className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+              onClick={() => setActiveUtilityPanel('add')}
+              className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
             >
-              <Download className="w-3.5 h-3.5" />
-              Markdown
+              <Plus className="w-3.5 h-3.5" />
+              Neue Formel
             </button>
             <button
-              onClick={() => onDownloadCheatSheetPdf(selectedCheatSheetIds)}
-              disabled={selectedCheatSheetIds.length === 0}
-              className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+              onClick={() => setActiveUtilityPanel('cheat-sheet')}
+              className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
             >
               <Download className="w-3.5 h-3.5" />
-              PDF
+              Cheat-Sheet
             </button>
           </div>
-        </section>
-      </div>
+        </div>
+
+        <div className="mt-4 grid gap-2 sm:grid-cols-3">
+          <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Formeln</p>
+            <p className="text-base font-bold text-slate-800">{formulas.length}</p>
+          </div>
+          <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Premium-Karten</p>
+            <p className="text-base font-bold text-slate-800">
+              {formulas.filter((entry) => (entry.detailCards?.length ?? 0) > 0).length}
+            </p>
+          </div>
+          <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">In Generierung</p>
+            <p className="text-base font-bold text-slate-800">
+              {formulas.filter((entry) => entry.status === 'pending').length}
+            </p>
+          </div>
+        </div>
+      </section>
 
       <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5 space-y-3">
         <div className="grid gap-3 md:grid-cols-4">
@@ -315,234 +274,214 @@ const FormulaCollectionView: React.FC<FormulaCollectionViewProps> = ({
         </div>
       </section>
 
-      <div className="grid gap-4 xl:grid-cols-[1fr_1.2fr]">
-        <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5 space-y-2 max-h-[640px] overflow-y-auto">
+      <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5 space-y-3">
+        <div className="flex items-center justify-between gap-3">
           <h3 className="text-sm font-semibold text-slate-700">{filteredAndSortedFormulas.length} Formeln</h3>
-          {filteredAndSortedFormulas.map((entry) => (
-            <button
-              key={entry.id}
-              onClick={() => {
-                setSelectedFormulaId(entry.id);
-                setIsEditing(false);
-              }}
-              className={`w-full rounded-xl border p-3 text-left transition-colors ${
-                selectedFormula?.id === entry.id
-                  ? 'border-indigo-300 bg-indigo-50'
-                  : 'border-slate-200 bg-white hover:bg-slate-50'
-              }`}
-            >
-              <div className="flex items-center justify-between gap-2">
-                <p className="text-sm font-semibold text-slate-800 truncate">{entry.title}</p>
-                <span className="text-[10px] font-semibold text-slate-500">{entry.usageCount}x</span>
-              </div>
-              <div className="mt-1 text-xs text-slate-700 overflow-x-auto">
-                <MathRenderer content={`$$ ${entry.formula} $$`} />
-              </div>
-              <div className="mt-2 flex flex-wrap gap-1">
-                {entry.tags.slice(0, 3).map((tag) => (
-                  <span key={tag} className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] text-slate-600">
-                    {tag}
+          <p className="text-xs text-slate-500">Alle Details findest du in der Detailseite jeder Formel.</p>
+        </div>
+
+        {filteredAndSortedFormulas.length === 0 ? (
+          <p className="text-sm text-slate-500 rounded-xl border border-dashed border-slate-200 bg-slate-50 p-4">
+            Keine Formeln gefunden.
+          </p>
+        ) : (
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            {filteredAndSortedFormulas.map((entry) => (
+              <article key={entry.id} className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+                <div className="flex items-start justify-between gap-2">
+                  <p className="text-sm font-semibold text-slate-800">{entry.title}</p>
+                  <span className={`text-[10px] px-2 py-0.5 rounded-full border font-semibold ${statusBadgeClass(entry.status)}`}>
+                    {statusLabel(entry.status)}
                   </span>
-                ))}
-              </div>
-            </button>
-          ))}
-          {filteredAndSortedFormulas.length === 0 && (
-            <p className="text-sm text-slate-500 rounded-xl border border-dashed border-slate-200 bg-slate-50 p-4">
-              Keine Formeln gefunden.
-            </p>
-          )}
-        </section>
-
-        <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
-          {!selectedFormula ? (
-            <p className="text-sm text-slate-500">Bitte waehle eine Formel aus.</p>
-          ) : (
-            <div className="space-y-3">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <h3 className="text-lg font-bold text-slate-800">{selectedFormula.title}</h3>
-                <div className="flex flex-wrap gap-2">
-                  {!isEditing && (
-                    <button
-                      onClick={() => {
-                        setEditDraft(selectedFormula);
-                        setIsEditing(true);
-                      }}
-                      className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
-                    >
-                      <Pencil className="w-3.5 h-3.5" />
-                      Bearbeiten
-                    </button>
-                  )}
-                  <button
-                    onClick={() => onMarkUsed(selectedFormula.id)}
-                    className="rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700"
-                  >
-                    Verwendet
-                  </button>
-                  {selectedFormula.status === 'failed' && (
-                    <button
-                      onClick={() => onRetryFormula(selectedFormula.id)}
-                      className="rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-100"
-                    >
-                      Retry
-                    </button>
-                  )}
-                  <button
-                    onClick={() => onDeleteFormula(selectedFormula.id)}
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-100"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                    Loeschen
-                  </button>
                 </div>
-              </div>
 
-              {!isEditing ? (
+                <div className="mt-2 text-xs text-slate-700 overflow-x-auto">
+                  <MathRenderer content={`$$ ${entry.formula} $$`} />
+                </div>
+
+                {entry.shortExplanation && (
+                  <p className="mt-2 text-xs text-slate-600 line-clamp-2">{entry.shortExplanation}</p>
+                )}
+
+                <div className="mt-2 flex flex-wrap gap-1">
+                  {entry.tags.slice(0, 3).map((tag) => (
+                    <span key={tag} className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] text-slate-600">
+                      {tag}
+                    </span>
+                  ))}
+                </div>
+
+                <div className="mt-3 flex items-center justify-between gap-2">
+                  <span className="text-[11px] text-slate-500">{entry.usageCount}x verwendet</span>
+                  <div className="flex flex-wrap gap-1.5">
+                    <button
+                      onClick={() => setDetailFormulaId(entry.id)}
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50 px-2.5 py-1 text-[11px] font-semibold text-indigo-700 hover:bg-indigo-100 transition-colors"
+                    >
+                      <BookOpen className="w-3 h-3" />
+                      Detailseite
+                    </button>
+                    {(entry.detailCards?.length ?? 0) === 0 && entry.status !== 'pending' && (
+                      <button
+                        onClick={() => onRetryFormula(entry.id)}
+                        className="inline-flex items-center gap-1 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1 text-[11px] font-semibold text-amber-700 hover:bg-amber-100 transition-colors"
+                      >
+                        <Sparkles className="w-3 h-3" />
+                        Premium
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </article>
+            ))}
+          </div>
+        )}
+      </section>
+
+      {activeUtilityPanel !== 'none' && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-6">
+          <button
+            className="absolute inset-0 bg-slate-900/45"
+            onClick={() => setActiveUtilityPanel('none')}
+            aria-label="Modal schliessen"
+          />
+
+          <section className="relative z-10 w-full sm:max-w-4xl max-h-[92vh] overflow-y-auto rounded-t-2xl sm:rounded-2xl border border-slate-200 bg-white shadow-2xl">
+            <div className="sticky top-0 z-10 flex items-center justify-between gap-2 border-b border-slate-100 bg-white/95 px-4 py-3 backdrop-blur">
+              <h3 className="text-base font-bold text-slate-800">
+                {activeUtilityPanel === 'add' ? 'Neue Formel erstellen' : 'Cheat-Sheet erstellen'}
+              </h3>
+              <button
+                onClick={() => setActiveUtilityPanel('none')}
+                className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-50"
+              >
+                <X className="w-3.5 h-3.5" />
+                Schliessen
+              </button>
+            </div>
+
+            <div className="p-4 sm:p-5">
+              {activeUtilityPanel === 'add' ? (
+                <div className="grid gap-5 lg:grid-cols-2">
+                  <div className="space-y-3">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Manuell per Formel</p>
+                    <textarea
+                      value={newFormulaLatex}
+                      onChange={(e) => setNewFormulaLatex(e.target.value)}
+                      rows={2}
+                      placeholder="Formel (LaTeX) eingeben..."
+                      className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-200 resize-none"
+                    />
+                    <textarea
+                      value={newFormulaContext}
+                      onChange={(e) => setNewFormulaContext(e.target.value)}
+                      rows={2}
+                      placeholder="Optionaler Kontext zur Formel (Quelle/Anwendungsfall)..."
+                      className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-200 resize-none"
+                    />
+                    <button
+                      onClick={handleAddLatex}
+                      disabled={!newFormulaLatex.trim() || isAddingFormula}
+                      className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-50"
+                    >
+                      {isAddingFormula ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                      Formel speichern
+                    </button>
+                  </div>
+
+                  <div className="space-y-3 border-t border-slate-100 pt-4 lg:border-l lg:border-t-0 lg:pl-5 lg:pt-0">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Per KI-Frage</p>
+                    <textarea
+                      value={newFormulaPrompt}
+                      onChange={(e) => setNewFormulaPrompt(e.target.value)}
+                      rows={4}
+                      placeholder="Frage nach einer Formel (z. B. Wann nutze ich den Satz des Pythagoras?)"
+                      className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-200 resize-none"
+                    />
+                    <button
+                      onClick={handleAskPrompt}
+                      disabled={!newFormulaPrompt.trim() || isAskingPrompt}
+                      className="inline-flex items-center gap-2 rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-2.5 text-sm font-semibold text-indigo-700 hover:bg-indigo-100 disabled:opacity-50"
+                    >
+                      {isAskingPrompt ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
+                      Formel per KI erstellen
+                    </button>
+                  </div>
+                </div>
+              ) : (
                 <div className="space-y-3">
-                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-slate-800 overflow-x-auto">
-                    <MathRenderer content={`$$ ${selectedFormula.formula} $$`} />
-                  </div>
-                  {selectedFormula.shortExplanation && (
-                    <p className="text-sm text-slate-700">{selectedFormula.shortExplanation}</p>
-                  )}
-                  {selectedFormula.stepByStepExplanation && (
-                    <div className="rounded-xl border border-slate-200 bg-white p-3 text-sm text-slate-700 whitespace-pre-wrap">
-                      {selectedFormula.stepByStepExplanation}
-                    </div>
-                  )}
-                  {selectedFormula.examples.length > 0 && (
-                    <div className="rounded-xl border border-slate-200 bg-white p-3">
-                      <p className="text-xs font-semibold text-slate-500 mb-2">Beispiele</p>
-                      <ul className="list-disc pl-5 text-sm text-slate-700 space-y-1">
-                        {selectedFormula.examples.map((example, index) => (
-                          <li key={`${selectedFormula.id}-example-${index}`}>{example}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-                  {selectedFormula.purpose && (
-                    <p className="text-sm text-slate-700">
-                      <span className="font-semibold text-slate-800">Verwendungszweck:</span> {selectedFormula.purpose}
-                    </p>
-                  )}
-                  <div className="flex flex-wrap gap-1">
-                    {selectedFormula.tags.map((tag) => (
-                      <span key={tag} className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600">
-                        {tag}
-                      </span>
-                    ))}
-                  </div>
-                  <p className="text-xs text-slate-500">
-                    Quellen: {selectedFormula.sourceRefs.map((source) => `${source.type} (${source.label})`).join(', ') || 'keine'}
+                  <p className="text-sm text-slate-600">
+                    Wähle Formeln aus oder nutze automatisch die meistverwendeten.
                   </p>
-                </div>
-              ) : editDraft ? (
-                <div className="space-y-3">
-                  <input
-                    value={editDraft.title}
-                    onChange={(e) => setEditDraft({ ...editDraft, title: e.target.value })}
-                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm"
-                  />
-                  <textarea
-                    value={editDraft.formula}
-                    onChange={(e) => setEditDraft({ ...editDraft, formula: e.target.value })}
-                    rows={2}
-                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm resize-none"
-                  />
-                  <textarea
-                    value={editDraft.shortExplanation}
-                    onChange={(e) => setEditDraft({ ...editDraft, shortExplanation: e.target.value })}
-                    rows={2}
-                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm resize-none"
-                  />
-                  <textarea
-                    value={editDraft.stepByStepExplanation}
-                    onChange={(e) => setEditDraft({ ...editDraft, stepByStepExplanation: e.target.value })}
-                    rows={5}
-                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm resize-none"
-                  />
-                  <textarea
-                    value={editDraft.examples.join('\n')}
-                    onChange={(e) =>
-                      setEditDraft({
-                        ...editDraft,
-                        examples: e.target.value
-                          .split('\n')
-                          .map((line) => line.trim())
-                          .filter((line) => line.length > 0)
-                      })
-                    }
-                    rows={4}
-                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm resize-none"
-                  />
-                  <input
-                    value={editDraft.purpose}
-                    onChange={(e) => setEditDraft({ ...editDraft, purpose: e.target.value })}
-                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm"
-                  />
-                  <input
-                    value={editDraft.tags.join(', ')}
-                    onChange={(e) =>
-                      setEditDraft({
-                        ...editDraft,
-                        tags: e.target.value
-                          .split(',')
-                          .map((tag) => tag.trim())
-                          .filter((tag) => tag.length > 0)
-                      })
-                    }
-                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm"
-                  />
-                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-                    <p className="text-xs font-semibold text-slate-600 mb-2">Projekte</p>
-                    <div className="flex flex-wrap gap-2">
-                      {projects.map((project) => {
-                        const isSelected = editDraft.projectIds.includes(project.id);
-                        return (
-                          <label key={project.id} className="inline-flex items-center gap-1.5 text-xs text-slate-700">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <label className="text-xs font-semibold text-slate-600">Top N</label>
+                    <input
+                      value={cheatSheetTopN}
+                      onChange={(e) => setCheatSheetTopN(Math.max(1, Number(e.target.value) || 1))}
+                      type="number"
+                      min={1}
+                      max={50}
+                      className="w-20 rounded-lg border border-slate-200 px-2 py-1.5 text-sm"
+                    />
+                    <button
+                      onClick={defaultCheatSheetSelection}
+                      className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100"
+                    >
+                      Top {Math.max(1, cheatSheetTopN)} waehlen
+                    </button>
+                  </div>
+
+                  {topUsed.length === 0 ? (
+                    <p className="text-sm text-slate-500 rounded-xl border border-dashed border-slate-200 bg-slate-50 p-4">
+                      Noch keine Formeln fuer ein Cheat-Sheet vorhanden.
+                    </p>
+                  ) : (
+                    <div className="space-y-1 max-h-64 overflow-y-auto pr-1">
+                      {topUsed.map((entry) => (
+                        <label
+                          key={entry.id}
+                          className="flex items-center justify-between gap-2 text-xs rounded-lg border border-slate-100 bg-slate-50 px-2 py-1.5"
+                        >
+                          <span className="truncate">{entry.title}</span>
+                          <div className="flex items-center gap-2">
+                            <span className="text-slate-500">{entry.usageCount}x</span>
                             <input
                               type="checkbox"
-                              checked={isSelected}
-                              onChange={(e) =>
-                                setEditDraft({
-                                  ...editDraft,
-                                  projectIds: e.target.checked
-                                    ? [...editDraft.projectIds, project.id]
-                                    : editDraft.projectIds.filter((id) => id !== project.id)
-                                })
-                              }
+                              checked={selectedCheatSheetIds.includes(entry.id)}
+                              onChange={() => toggleCheatSheetFormula(entry.id)}
                             />
-                            {project.name}
-                          </label>
-                        );
-                      })}
+                          </div>
+                        </label>
+                      ))}
                     </div>
-                  </div>
-                  <div className="flex gap-2">
+                  )}
+
+                  <div className="flex flex-wrap gap-2">
                     <button
-                      onClick={handleSaveEdit}
-                      className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700"
+                      onClick={() => onDownloadCheatSheetMarkdown(selectedCheatSheetIds)}
+                      disabled={selectedCheatSheetIds.length === 0}
+                      className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
                     >
-                      <Save className="w-4 h-4" />
-                      Speichern
+                      <Download className="w-3.5 h-3.5" />
+                      Markdown
                     </button>
                     <button
-                      onClick={() => {
-                        setIsEditing(false);
-                        setEditDraft(null);
-                      }}
-                      className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                      onClick={() => onDownloadCheatSheetPdf(selectedCheatSheetIds)}
+                      disabled={selectedCheatSheetIds.length === 0}
+                      className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
                     >
-                      Abbrechen
+                      <Download className="w-3.5 h-3.5" />
+                      PDF
                     </button>
                   </div>
                 </div>
-              ) : null}
+              )}
+
+              {feedbackMessage && <p className="mt-3 text-xs text-slate-500">{feedbackMessage}</p>}
             </div>
-          )}
-        </section>
-      </div>
+          </section>
+        </div>
+      )}
     </div>
   );
 };
