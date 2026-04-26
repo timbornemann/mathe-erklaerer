@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { Send, X, MessageSquare, Loader2, Volume2, VolumeX } from 'lucide-react';
+import { Send, X, MessageSquare, Loader2, Volume2, VolumeX, BookPlus } from 'lucide-react';
 import MathRenderer from './MathRenderer';
 import { SolutionStep } from '../types';
 import { chatWithAI } from '../services/gemini';
@@ -14,6 +14,7 @@ interface SidePanelProps {
   initialPrompt: string; // The original question/task
   isOpen: boolean;
   onToggle: () => void;
+  onExtractFormulasFromMessage?: (message: string, sourceLabel: string) => Promise<{ added: number; extracted: number }> | void;
 }
 
 interface Message {
@@ -41,11 +42,14 @@ const SidePanel: React.FC<SidePanelProps> = ({
   stepScopeKey,
   initialPrompt, 
   isOpen, 
-  onToggle 
+  onToggle,
+  onExtractFormulasFromMessage
 }) => {
   const [chatSessions, setChatSessions] = useState<Record<string, Message[]>>({});
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [extractingMessageIndex, setExtractingMessageIndex] = useState<number | null>(null);
+  const [extractFeedback, setExtractFeedback] = useState<string | null>(null);
   const [isSoundEnabled, setIsSoundEnabled] = useState(false);
   const [ttsError, setTtsError] = useState<string | null>(null);
   
@@ -190,6 +194,24 @@ const SidePanel: React.FC<SidePanelProps> = ({
     }
   };
 
+  const handleExtractFormulas = async (messageContent: string, messageIndex: number) => {
+    if (!onExtractFormulasFromMessage || extractingMessageIndex !== null) return;
+    setExtractingMessageIndex(messageIndex);
+    setExtractFeedback(null);
+    try {
+      const result = await onExtractFormulasFromMessage(messageContent, `${stepLabel}: ${currentStep.title}`);
+      if (result && typeof result === 'object' && 'added' in result && 'extracted' in result) {
+        setExtractFeedback(`${result.added}/${result.extracted} Formeln hinzugefuegt.`);
+      } else {
+        setExtractFeedback('Formeln wurden verarbeitet.');
+      }
+    } catch (error: any) {
+      setExtractFeedback(error?.message || 'Formeln konnten nicht hinzugefuegt werden.');
+    } finally {
+      setExtractingMessageIndex(null);
+    }
+  };
+
   if (!isOpen) {
     return (
       <button
@@ -237,6 +259,11 @@ const SidePanel: React.FC<SidePanelProps> = ({
 
       {/* Messages */}
       <div className="flex-1 overflow-y-auto p-3 sm:p-4 bg-slate-50 space-y-3 sm:space-y-4">
+        {extractFeedback && (
+          <div className="rounded-xl border border-indigo-100 bg-indigo-50 px-3 py-2 text-xs text-indigo-700">
+            {extractFeedback}
+          </div>
+        )}
         {messages.map((msg, idx) => (
           <div 
             key={idx} 
@@ -250,8 +277,26 @@ const SidePanel: React.FC<SidePanelProps> = ({
               }`}
             >
               {msg.role === 'model' ? (
-                <div className="prose prose-sm max-w-none text-inherit dark:prose-invert">
-                  <MathRenderer content={msg.content} />
+                <div className="space-y-2">
+                  <div className="prose prose-sm max-w-none text-inherit dark:prose-invert">
+                    <MathRenderer content={msg.content} />
+                  </div>
+                  {onExtractFormulasFromMessage && (
+                    <button
+                      onClick={() => {
+                        void handleExtractFormulas(msg.content, idx);
+                      }}
+                      disabled={extractingMessageIndex !== null}
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50 px-2 py-1 text-xs font-semibold text-indigo-700 hover:bg-indigo-100 disabled:opacity-50"
+                    >
+                      {extractingMessageIndex === idx ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <BookPlus className="w-3.5 h-3.5" />
+                      )}
+                      Formeln hinzufuegen
+                    </button>
+                  )}
                 </div>
               ) : (
                 <p className="whitespace-pre-wrap">{msg.content}</p>
