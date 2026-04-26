@@ -17,6 +17,12 @@ export interface FormulaSourceRef {
   createdAt: number;
 }
 
+export interface FormulaDetailCard {
+  title: string;
+  explanation: string;
+  formulas: string[];
+}
+
 export interface FormulaGenerationPayload {
   formula: string;
   title: string;
@@ -25,6 +31,7 @@ export interface FormulaGenerationPayload {
   examples: string[];
   purpose: string;
   tags: string[];
+  detailCards?: FormulaDetailCard[];
 }
 
 export interface FormulaEntry {
@@ -42,6 +49,7 @@ export interface FormulaEntry {
   sourceRefs: FormulaSourceRef[];
   status: FormulaStatus;
   generationError?: string;
+  detailCards?: FormulaDetailCard[];
   createdAt: number;
   updatedAt: number;
 }
