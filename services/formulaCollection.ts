@@ -1,4 +1,4 @@
-import { FormulaEntry, FormulaGenerationPayload, FormulaSourceRef, FormulaStatus } from '../types';
+import { FormulaDetailCard, FormulaEntry, FormulaGenerationPayload, FormulaSourceRef, FormulaStatus } from '../types';
 
 export const FORMULA_COLLECTION_STORAGE_KEY = 'mathFormulaCollection';
 
@@ -74,8 +74,24 @@ export const buildFallbackFormulaPayload = (formula: string): FormulaGenerationP
   stepByStepExplanation: '',
   examples: [],
   purpose: '',
-  tags: []
+  tags: [],
+  detailCards: undefined
 });
+
+const sanitizeDetailCards = (value: unknown): FormulaDetailCard[] | undefined => {
+  if (!Array.isArray(value)) return undefined;
+  const cards = value
+    .filter((item): item is Record<string, unknown> => !!item && typeof item === 'object')
+    .map((item) => ({
+      title: typeof item.title === 'string' ? item.title.trim() : '',
+      explanation: typeof item.explanation === 'string' ? item.explanation.trim() : '',
+      formulas: (Array.isArray(item.formulas)
+        ? item.formulas.filter((f): f is string => typeof f === 'string').map((f) => f.trim()).filter((f) => f.length > 0)
+        : [])
+    }))
+    .filter((card) => card.title || card.explanation);
+  return cards.length > 0 ? cards : undefined;
+};
 
 export const sanitizeFormulaPayload = (
   payload: Partial<FormulaGenerationPayload> & { formula: string }
@@ -88,7 +104,8 @@ export const sanitizeFormulaPayload = (
     stepByStepExplanation: trimOrFallback(payload.stepByStepExplanation, fallback.stepByStepExplanation),
     examples: toStringArray(payload.examples),
     purpose: trimOrFallback(payload.purpose, fallback.purpose),
-    tags: normalizeTagList(toStringArray(payload.tags))
+    tags: normalizeTagList(toStringArray(payload.tags)),
+    detailCards: sanitizeDetailCards(payload.detailCards)
   };
 };
 
@@ -145,6 +162,7 @@ export const sanitizeFormulaEntry = (value: unknown): FormulaEntry | null => {
       .filter((source): source is FormulaSourceRef => source !== null),
     status: sanitizeFormulaStatus(raw.status),
     generationError: typeof raw.generationError === 'string' ? raw.generationError : undefined,
+    detailCards: sanitizeDetailCards(raw.detailCards),
     createdAt,
     updatedAt
   };
@@ -183,7 +201,10 @@ export const buildFormulaSearchText = (entry: FormulaEntry): string =>
     entry.stepByStepExplanation,
     entry.examples.join(' '),
     entry.purpose,
-    entry.tags.join(' ')
+    entry.tags.join(' '),
+    (entry.detailCards ?? [])
+      .map((card) => [card.title, card.explanation, card.formulas.join(' ')].join(' '))
+      .join(' ')
   ]
     .join(' ')
     .toLowerCase();
