@@ -4,7 +4,7 @@ import {
   CheckCircle2, XCircle, Eye, Loader2, RotateCcw
 } from 'lucide-react';
 import MathRenderer from './MathRenderer';
-import { PracticeRoom, PracticeTask, MathSolution } from '../types';
+import { FormulaEntry, PracticeRoom, PracticeTask, MathSolution } from '../types';
 import SolutionViewer from './SolutionViewer';
 import { solvePracticeTask } from '../services/gemini';
 
@@ -18,6 +18,13 @@ interface PracticeRoomDetailProps {
   onTaskUpdated: (task: PracticeTask) => void;
   onBack: () => void;
   isLoading: boolean;
+  formulas?: FormulaEntry[];
+  onAddFormulaFromSolution?: (formula: string, sourceLabel: string, contextText?: string) => Promise<void> | void;
+  onExtractFormulasFromChatMessage?: (message: string, sourceLabel: string) => Promise<{ added: number; extracted: number }> | void;
+  onAddFormulaManual?: (formula: string, contextText?: string) => Promise<void> | void;
+  onAskFormulaPrompt?: (prompt: string) => Promise<void> | void;
+  onIncrementFormulaUsage?: (formulaId: string) => void;
+  onRetryFormulaGeneration?: (formulaId: string) => void;
 }
 
 const PracticeRoomDetail: React.FC<PracticeRoomDetailProps> = ({
@@ -27,7 +34,14 @@ const PracticeRoomDetail: React.FC<PracticeRoomDetailProps> = ({
   onUpdateExamples,
   onTaskUpdated,
   onBack,
-  isLoading
+  isLoading,
+  formulas = [],
+  onAddFormulaFromSolution,
+  onExtractFormulasFromChatMessage,
+  onAddFormulaManual,
+  onAskFormulaPrompt,
+  onIncrementFormulaUsage,
+  onRetryFormulaGeneration
 }) => {
   const [activeTab, setActiveTab] = useState<DetailTab>('continue');
   const [additionalPrompt, setAdditionalPrompt] = useState('');
@@ -81,6 +95,13 @@ const PracticeRoomDetail: React.FC<PracticeRoomDetailProps> = ({
             setViewingTaskText('');
           }}
           initialPrompt={viewingTaskText}
+          formulas={formulas}
+          onAddFormulaFromSolution={onAddFormulaFromSolution}
+          onExtractFormulasFromChatMessage={onExtractFormulasFromChatMessage}
+          onAddFormulaManual={onAddFormulaManual}
+          onAskFormulaPrompt={onAskFormulaPrompt}
+          onIncrementFormulaUsage={onIncrementFormulaUsage}
+          onRetryFormulaGeneration={onRetryFormulaGeneration}
         />
       </div>
     );
