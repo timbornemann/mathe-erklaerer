@@ -1,7 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { BookOpen, Download, Loader2, Plus, Save, Search, Sparkles, X } from 'lucide-react';
 import MathRenderer from './MathRenderer';
-import FormulaDetailView from './FormulaDetailView';
 import { FormulaEntry, Project } from '../types';
 import { buildFormulaSearchText } from '../services/formulaCollection';
 
@@ -20,6 +19,7 @@ interface FormulaCollectionViewProps {
   onRetryFormula: (formulaId: string) => void;
   onDownloadCheatSheetMarkdown: (formulaIds: string[]) => void;
   onDownloadCheatSheetPdf: (formulaIds: string[]) => void;
+  onOpenFormulaDetail: (formulaId: string) => void;
 }
 
 const statusBadgeClass = (status: FormulaEntry['status']): string => {
@@ -41,18 +41,17 @@ const FormulaCollectionView: React.FC<FormulaCollectionViewProps> = ({
   onAddFormulaLatex,
   onAskFormulaPrompt,
   onUpdateFormula: _onUpdateFormula,
-  onDeleteFormula,
-  onMarkUsed,
+  onDeleteFormula: _onDeleteFormula,
+  onMarkUsed: _onMarkUsed,
   onRetryFormula,
   onDownloadCheatSheetMarkdown,
-  onDownloadCheatSheetPdf
+  onDownloadCheatSheetPdf,
+  onOpenFormulaDetail
 }) => {
   const [search, setSearch] = useState('');
   const [tagFilter, setTagFilter] = useState('');
   const [projectFilter, setProjectFilter] = useState<'all' | 'none' | string>('all');
   const [sortMode, setSortMode] = useState<FormulaSortMode>('newest');
-  const [detailFormulaId, setDetailFormulaId] = useState<string | null>(null);
-
   const [newFormulaLatex, setNewFormulaLatex] = useState('');
   const [newFormulaContext, setNewFormulaContext] = useState('');
   const [newFormulaPrompt, setNewFormulaPrompt] = useState('');
@@ -95,13 +94,6 @@ const FormulaCollectionView: React.FC<FormulaCollectionViewProps> = ({
     () => [...formulas].sort((a, b) => b.usageCount - a.usageCount || b.updatedAt - a.updatedAt).slice(0, 20),
     [formulas]
   );
-
-  useEffect(() => {
-    if (!detailFormulaId) return;
-    if (!formulas.some((entry) => entry.id === detailFormulaId)) {
-      setDetailFormulaId(null);
-    }
-  }, [detailFormulaId, formulas]);
 
   useEffect(() => {
     if (activeUtilityPanel === 'none') {
@@ -159,24 +151,6 @@ const FormulaCollectionView: React.FC<FormulaCollectionViewProps> = ({
       prev.includes(formulaId) ? prev.filter((id) => id !== formulaId) : [...prev, formulaId]
     );
   };
-
-  const detailFormula = detailFormulaId ? formulas.find((entry) => entry.id === detailFormulaId) ?? null : null;
-
-  if (detailFormula) {
-    return (
-      <FormulaDetailView
-        formula={detailFormula}
-        onBack={() => setDetailFormulaId(null)}
-        onGeneratePremium={() => onRetryFormula(detailFormula.id)}
-        onMarkUsed={() => onMarkUsed(detailFormula.id)}
-        onRetryFormula={detailFormula.status === 'failed' ? () => onRetryFormula(detailFormula.id) : undefined}
-        onDelete={() => {
-          onDeleteFormula(detailFormula.id);
-          setDetailFormulaId(null);
-        }}
-      />
-    );
-  }
 
   return (
     <div className="space-y-5">
@@ -315,7 +289,7 @@ const FormulaCollectionView: React.FC<FormulaCollectionViewProps> = ({
                   <span className="text-[11px] text-slate-500">{entry.usageCount}x verwendet</span>
                   <div className="flex flex-wrap gap-1.5">
                     <button
-                      onClick={() => setDetailFormulaId(entry.id)}
+                      onClick={() => onOpenFormulaDetail(entry.id)}
                       className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50 px-2.5 py-1 text-[11px] font-semibold text-indigo-700 hover:bg-indigo-100 transition-colors"
                     >
                       <BookOpen className="w-3 h-3" />
