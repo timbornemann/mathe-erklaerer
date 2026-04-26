@@ -1,4 +1,4 @@
-import { ExamSession, MathSolution, SolutionStep } from '../types';
+import { ExamSession, FormulaEntry, MathSolution, SolutionStep } from '../types';
 
 const createTimestamp = (): string => {
   const now = new Date();
@@ -185,4 +185,57 @@ export const downloadExamAsPdf = (session: ExamSession): void => {
   const markdown = buildExamMarkdown(session);
   const title = `Pruefung: ${session.topic || 'Mathe'}`;
   openPrintDialog(title, markdown);
+};
+
+export const buildFormulaCheatSheetMarkdown = (formulas: FormulaEntry[]): string => {
+  const lines: string[] = [
+    '# Mathe Erklaerer - Formel-Cheat-Sheet',
+    '',
+    `- Erstellt: ${new Date().toLocaleString('de-DE')}`,
+    `- Anzahl Formeln: ${formulas.length}`,
+    '',
+    '## Formeln',
+    ''
+  ];
+
+  formulas.forEach((entry, index) => {
+    lines.push(`### ${index + 1}. ${entry.title || 'Formel'}`);
+    lines.push('');
+    lines.push(`- Nutzung: ${entry.usageCount}x`);
+    if (entry.tags.length > 0) {
+      lines.push(`- Tags: ${entry.tags.join(', ')}`);
+    }
+    lines.push('');
+    lines.push(`$$${entry.formula}$$`);
+    lines.push('');
+
+    if (entry.shortExplanation.trim()) {
+      lines.push(entry.shortExplanation.trim());
+      lines.push('');
+    }
+
+    if (entry.purpose.trim()) {
+      lines.push(`Verwendungszweck: ${entry.purpose.trim()}`);
+      lines.push('');
+    }
+
+    if (entry.examples.length > 0) {
+      lines.push('Beispiele:');
+      entry.examples.forEach((example) => lines.push(`- ${example}`));
+      lines.push('');
+    }
+  });
+
+  return lines.join('\n');
+};
+
+export const downloadFormulaCheatSheetAsMarkdown = (formulas: FormulaEntry[]): void => {
+  const markdown = buildFormulaCheatSheetMarkdown(formulas);
+  const fileName = buildFileName('mathe-formel-cheatsheet', 'formeln', 'md');
+  triggerTextDownload(markdown, fileName, 'text/markdown;charset=utf-8');
+};
+
+export const downloadFormulaCheatSheetAsPdf = (formulas: FormulaEntry[]): void => {
+  const markdown = buildFormulaCheatSheetMarkdown(formulas);
+  openPrintDialog('Formel-Cheat-Sheet', markdown);
 };
