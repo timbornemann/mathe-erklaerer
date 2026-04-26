@@ -261,6 +261,556 @@ const normalizeDisplayMathBlocks = (raw: string): string =>
     (_match, prefix: string, formula: string) => `${prefix}$$\n${formula.trim()}\n$$`
   );
 
+const decodeCommonHtmlEntities = (value: string): string =>
+  value
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/&apos;/gi, "'")
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&');
+
+const extractSpanBlock = (
+  content: string,
+  startIndex: number
+): { block: string; endIndex: number } | null => {
+  const openingTagEnd = content.indexOf('>', startIndex);
+  if (openingTagEnd === -1) {
+    return null;
+  }
+
+  let depth = 1;
+  let cursor = openingTagEnd + 1;
+
+  while (cursor < content.length) {
+    const nextOpen = content.indexOf('<span', cursor);
+    const nextClose = content.indexOf('</span>', cursor);
+
+    if (nextClose === -1) {
+      return null;
+    }
+
+    if (nextOpen !== -1 && nextOpen < nextClose) {
+      depth += 1;
+      cursor = nextOpen + 5;
+      continue;
+    }
+
+    depth -= 1;
+    cursor = nextClose + 7;
+
+    if (depth === 0) {
+      return {
+        block: content.slice(startIndex, cursor),
+        endIndex: cursor
+      };
+    }
+  }
+
+  return null;
+};
+
+const isLikelyMathExpression = (value: string): boolean =>
+  /\\[A-Za-z]+/.test(value) ||
+  /[=+\-*/^_]/.test(value) ||
+  /\b(?:frac|text|sqrt|sum|prod|int|lim|sin|cos|tan|log|ln|var)\b/i.test(value);
+
+const recoverLeakedKatexMarkup = (raw: string): string => {
+  if (!/(katex-html|katex-mathml|class\s*=\s*["'][^"']*katex[^"']*["'])/i.test(raw) &&
+      !/&lt;span[^&]*katex/i.test(raw)) {
+    return raw;
+  }
+
+  const decoded = /&lt;span[^&]*katex/i.test(raw) ? decodeCommonHtmlEntities(raw) : raw;
+  let output = '';
+  let cursor = 0;
+
+  while (cursor < decoded.length) {
+    const spanStart = decoded.indexOf('<span', cursor);
+    if (spanStart === -1) {
+      output += decoded.slice(cursor);
+      break;
+    }
+
+    output += decoded.slice(cursor, spanStart);
+    const openingTagEnd = decoded.indexOf('>', spanStart);
+    if (openingTagEnd === -1) {
+      output += decoded.slice(spanStart);
+      break;
+    }
+
+    const openingTag = decoded.slice(spanStart, openingTagEnd + 1);
+    const isKatexSpan = /class\s*=\s*["'][^"']*katex[^"']*["']/i.test(openingTag);
+
+    if (!isKatexSpan) {
+      output += openingTag;
+      cursor = openingTagEnd + 1;
+      continue;
+    }
+
+    const block = extractSpanBlock(decoded, spanStart);
+    if (!block) {
+      output += decoded.slice(spanStart);
+      break;
+    }
+
+    const annotationMatch = block.block.match(
+      /<annotation[^>]*encoding=["']application\/x-tex["'][^>]*>([\s\S]*?)<\/annotation>/i
+    );
+    const stripped = block.block.replace(/<[^>]+>/g, ' ');
+    const plainText = decodeCommonHtmlEntities(annotationMatch?.[1] ?? stripped)
+      .replace(/[\u200B-\u200D\uFEFF]/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    if (plainText) {
+      output += isLikelyMathExpression(plainText) ? `$${plainText}$` : plainText;
+    }
+
+    cursor = block.endIndex;
+  }
+
+  return output;
+};
+
+const escapeRegexToken = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+const collapseSpacedKeyword = (input: string, keyword: string): string => {
+  const spacedPattern = keyword
+    .split('')
+    .map((character) => `${escapeRegexToken(character)}\\s*`)
+    .join('');
+  const pattern = new RegExp(spacedPattern, 'gi');
+  return input.replace(pattern, keyword);
+};
+
+const collapseSpacedKeywords = (input: string, keywords: string[]): string => {
+  let next = input;
+  for (const keyword of keywords) {
+    next = collapseSpacedKeyword(next, keyword);
+  }
+  return next;
+};
+
+const normalizeCommandBackslashRuns = (input: string): string =>
+  // Some model outputs contain doubled escapes (e.g. "\\frac"), which KaTeX reads as a newline command.
+  // For command names we normalize any run of "\" to a single "\".
+  input.replace(/\\+(?=[A-Za-z])/g, '\\');
+
+const normalizeBrokenJsonEscapes = (input: string): string =>
+  input
+    .replace(/\u0008(?=[A-Za-z])/g, '\\b')
+    .replace(/\u000c(?=[A-Za-z])/g, '\\f')
+    .replace(/\r(?=[A-Za-z])/g, '\\r')
+    .replace(/\t(?=[A-Za-z])/g, '\\t')
+    .replace(
+      /\n(?=(?:eq|eqslant|eqq|infty|neq|nabla|notin|subseteq|supseteq|rightarrow|leftarrow|to|mid|parallel|leq|geq|sim|simeq|approx)\b)/gi,
+      '\\n'
+    );
+
+const repairTextCommand = (input: string): string => {
+  let next = input;
+  next = next.replace(/\\text([A-Za-z][A-Za-z0-9]*)/g, (_match, word: string) => `\\text{${word}}`);
+  next = next.replace(/(^|[^\\A-Za-z])text(?=\s*\{)/g, (_match, prefix: string) => `${prefix}\\text`);
+  next = next.replace(
+    /(^|[^\\A-Za-z])text([A-Za-z][A-Za-z0-9]*)/g,
+    (_match, prefix: string, word: string) => `${prefix}\\text{${word}}`
+  );
+  return next;
+};
+
+const MATH_COMMANDS_TO_REPAIR = [
+  'frac',
+  'sqrt',
+  'left',
+  'right',
+  'mathbb',
+  'operatorname',
+  'partial',
+  'cdot',
+  'times',
+  'leq',
+  'geq',
+  'neq',
+  'approx',
+  'infty',
+  'sum',
+  'prod',
+  'int',
+  'lim',
+  'sin',
+  'cos',
+  'tan',
+  'log',
+  'ln',
+  'alpha',
+  'beta',
+  'gamma',
+  'delta',
+  'theta',
+  'lambda',
+  'mu',
+  'pi',
+  'sigma',
+  'bar'
+];
+
+const repairMissingCommandBackslashes = (input: string): string => {
+  let next = input;
+
+  for (const command of MATH_COMMANDS_TO_REPAIR) {
+    const pattern = new RegExp(`(^|[^\\\\A-Za-z])(${escapeRegexToken(command)})(?=\\b)`, 'g');
+    next = next.replace(pattern, (_match, prefix: string, token: string) => `${prefix}\\${token}`);
+  }
+
+  return next;
+};
+
+const normalizeMathbbSymbols = (input: string): string =>
+  input.replace(/\\mathbb([A-Za-z])/g, (_match, symbol: string) => `\\mathbb{${symbol}}`);
+
+const normalizeCompactFracHints = (input: string): string =>
+  input
+    .replace(/\\frac(\d+)(?=[A-Za-z\\])/g, (_match, numerator: string) => `\\frac ${numerator} `)
+    .replace(/\\frac(\\(?:sigma|lambda|theta|mu|alpha|beta|gamma|delta)(?:\^\{?[\dA-Za-z]+\}?)?)(?=[A-Za-z\\(])/g, (_match, numerator: string) => `\\frac ${numerator} `)
+    .replace(/\\frac(\\partial(?:\^\{?[\dA-Za-z]+\}?)?)(?=\\partial)/g, (_match, numerator: string) => `\\frac ${numerator} `);
+
+const normalizeSpecialMathNames = (input: string): string => {
+  let next = input;
+
+  next = next
+    .replace(/\\operatorname([A-Za-z]+)\s*\(/g, (_match, name: string) => `\\operatorname{${name}}(`)
+    .replace(/(^|[^\\A-Za-z])operatorname([A-Za-z]+)\s*\(/gi, (_match, prefix: string, name: string) => `${prefix}\\operatorname{${name}}(`)
+    .replace(/\\text\s*\{\s*\\?var\s*\}\s*\(/gi, '\\operatorname{Var}(')
+    .replace(/\\text\s*\{\s*var\s*\}\s*\(/gi, '\\operatorname{Var}(')
+    .replace(/\\text\s*\{\s*\\?eff\s*\}\s*\(/gi, '\\operatorname{eff}(')
+    .replace(/\\text\s*\{\s*eff\s*\}\s*\(/gi, '\\operatorname{eff}(')
+    .replace(/\\text\\var\s*\(/gi, '\\operatorname{Var}(')
+    .replace(/(^|[^\\A-Za-z])text\\var\s*\(/gi, (_match, prefix: string) => `${prefix}\\operatorname{Var}(`)
+    .replace(/\\text\{var\}\s*\(/gi, '\\operatorname{Var}(')
+    .replace(/\\var\s*\(/gi, '\\operatorname{Var}(')
+    .replace(/(^|[^\\A-Za-z])var\s*\(/gi, (_match, prefix: string) => `${prefix}\\operatorname{Var}(`)
+    .replace(/\\text\\eff\s*\(/gi, '\\operatorname{eff}(')
+    .replace(/(^|[^\\A-Za-z])text\\eff\s*\(/gi, (_match, prefix: string) => `${prefix}\\operatorname{eff}(`)
+    .replace(/\\text\{eff\}\s*\(/gi, '\\operatorname{eff}(')
+    .replace(/\\eff\s*\(/g, '\\operatorname{eff}(')
+    .replace(/(^|[^\\A-Za-z])eff\s*\(/gi, (_match, prefix: string) => `${prefix}\\operatorname{eff}(`);
+
+  return next;
+};
+
+const normalizeOperatorAttachments = (input: string): string => {
+  let next = input;
+
+  // Common glued forms from malformed output.
+  next = next
+    .replace(/\\partialtheta/g, '\\partial\\theta')
+    .replace(/\\partiallambda/g, '\\partial\\lambda')
+    .replace(/\\partialsigma/g, '\\partial\\sigma')
+    .replace(/\\lnf(?=\s*\()/g, '\\ln f')
+    .replace(/\\lnx(?=\b|\s)/g, '\\ln x');
+
+  return next;
+};
+
+const normalizeAccentCommands = (input: string): string =>
+  input.replace(
+    /\\(bar|hat|tilde|vec|dot|ddot|breve|check)([A-Za-z0-9])(?![A-Za-z])/g,
+    (_match, accent: string, symbol: string) => `\\${accent}{${symbol}}`
+  );
+
+const splitLeadingScript = (token: string): { script: string; rest: string } | null => {
+  if (!token || (token[0] !== '^' && token[0] !== '_')) {
+    return null;
+  }
+
+  const marker = token[0];
+  if (token.length < 2) {
+    return null;
+  }
+
+  if (token[1] === '{') {
+    let depth = 0;
+    for (let index = 1; index < token.length; index += 1) {
+      const char = token[index];
+      if (char === '{') depth += 1;
+      if (char === '}') {
+        depth -= 1;
+        if (depth === 0) {
+          return {
+            script: token.slice(0, index + 1),
+            rest: token.slice(index + 1)
+          };
+        }
+      }
+    }
+    return null;
+  }
+
+  if (token[1] === '\\') {
+    let endIndex = 2;
+    while (endIndex < token.length && /[A-Za-z]/.test(token[endIndex])) {
+      endIndex += 1;
+    }
+    return {
+      script: token.slice(0, endIndex),
+      rest: token.slice(endIndex)
+    };
+  }
+
+  return {
+    script: `${marker}${token[1]}`,
+    rest: token.slice(2)
+  };
+};
+
+const readBalancedGroup = (
+  source: string,
+  startIndex: number,
+  openChar: '{' | '(',
+  closeChar: '}' | ')'
+): number => {
+  if (source[startIndex] !== openChar) return -1;
+
+  let depth = 0;
+  for (let index = startIndex; index < source.length; index += 1) {
+    const char = source[index];
+    if (char === openChar) depth += 1;
+    if (char === closeChar) {
+      depth -= 1;
+      if (depth === 0) {
+        return index + 1;
+      }
+    }
+  }
+
+  return -1;
+};
+
+const readLooseMathToken = (
+  source: string,
+  startIndex: number
+): { token: string; nextIndex: number } | null => {
+  let index = startIndex;
+  while (index < source.length && /\s/.test(source[index])) {
+    index += 1;
+  }
+
+  if (index >= source.length) {
+    return null;
+  }
+
+  const first = source[index];
+
+  if (first === '{') {
+    const endIndex = readBalancedGroup(source, index, '{', '}');
+    if (endIndex === -1) return null;
+    return { token: source.slice(index, endIndex), nextIndex: endIndex };
+  }
+
+  if (first === '(') {
+    const endIndex = readBalancedGroup(source, index, '(', ')');
+    if (endIndex === -1) return null;
+    return { token: source.slice(index, endIndex), nextIndex: endIndex };
+  }
+
+  if (first === '\\') {
+    let endIndex = index + 1;
+    while (endIndex < source.length && /[A-Za-z]/.test(source[endIndex])) {
+      endIndex += 1;
+    }
+
+    if (source.slice(index, endIndex) === '\\text' && source[endIndex] === '{') {
+      const textGroupEnd = readBalancedGroup(source, endIndex, '{', '}');
+      if (textGroupEnd !== -1) {
+        endIndex = textGroupEnd;
+      }
+    }
+
+    while (endIndex < source.length && /\s/.test(source[endIndex])) {
+      endIndex += 1;
+    }
+
+    if (source[endIndex] === '(') {
+      const parenEnd = readBalancedGroup(source, endIndex, '(', ')');
+      if (parenEnd !== -1) {
+        endIndex = parenEnd;
+      }
+    }
+
+    return { token: source.slice(index, endIndex), nextIndex: endIndex };
+  }
+
+  let endIndex = index;
+  while (
+    endIndex < source.length &&
+    !/\s/.test(source[endIndex]) &&
+    source[endIndex] !== '$' &&
+    source[endIndex] !== '}' &&
+    source[endIndex] !== ')'
+  ) {
+    endIndex += 1;
+  }
+
+  if (endIndex === index) {
+    return null;
+  }
+
+  return { token: source.slice(index, endIndex), nextIndex: endIndex };
+};
+
+const normalizeLooseFractions = (input: string): string => {
+  let output = '';
+  let cursor = 0;
+
+  while (cursor < input.length) {
+    const fracIndex = input.indexOf('\\frac', cursor);
+
+    if (fracIndex === -1) {
+      output += input.slice(cursor);
+      break;
+    }
+
+    output += input.slice(cursor, fracIndex);
+    const afterFrac = fracIndex + 5;
+    let probe = afterFrac;
+    while (probe < input.length && /\s/.test(input[probe])) {
+      probe += 1;
+    }
+
+    if (input[probe] === '{') {
+      output += '\\frac';
+      cursor = afterFrac;
+      continue;
+    }
+
+    const numerator = readLooseMathToken(input, afterFrac);
+    if (!numerator) {
+      output += '\\frac';
+      cursor = afterFrac;
+      continue;
+    }
+
+    const denominator = readLooseMathToken(input, numerator.nextIndex);
+    if (!denominator) {
+      output += input.slice(fracIndex, numerator.nextIndex);
+      cursor = numerator.nextIndex;
+      continue;
+    }
+
+    let numeratorToken = numerator.token.trim();
+    let denominatorToken = denominator.token.trim();
+
+    const leadingScript = splitLeadingScript(denominatorToken);
+    if (leadingScript && leadingScript.rest.trim().length > 0) {
+      numeratorToken = `${numeratorToken}${leadingScript.script}`;
+      denominatorToken = leadingScript.rest.trim();
+    }
+
+    output += `\\frac{${numeratorToken}}{${denominatorToken}}`;
+    cursor = denominator.nextIndex;
+  }
+
+  return output;
+};
+
+const repairLatexExpression = (rawExpression: string): string => {
+  let next = rawExpression
+    .normalize('NFKD')
+    .replace(/\u00a0/g, ' ')
+    .replace(/[\u200B-\u200D\uFEFF]/g, '');
+
+  next = normalizeCommandBackslashRuns(next);
+  next = collapseSpacedKeywords(next, [
+    'text',
+    'frac',
+    'sqrt',
+    'var',
+    'eff',
+    'left',
+    'right',
+    'mathbb',
+    'partial',
+    'theta',
+    'lambda',
+    'sigma',
+    'geq',
+    'leq',
+    'ln'
+  ]);
+  next = normalizeBrokenJsonEscapes(next);
+  next = next.replace(/\s*\n+\s*/g, ' ');
+  next = repairTextCommand(next);
+  next = repairMissingCommandBackslashes(next);
+  next = normalizeSpecialMathNames(next);
+  next = normalizeMathbbSymbols(next);
+  next = normalizeOperatorAttachments(next);
+  next = normalizeAccentCommands(next);
+  next = normalizeCompactFracHints(next);
+  next = normalizeLooseFractions(next);
+
+  return next.replace(/\s{2,}/g, ' ').trim();
+};
+
+const isEscapedCharacterAt = (value: string, index: number): boolean => {
+  let backslashCount = 0;
+  for (let cursor = index - 1; cursor >= 0 && value[cursor] === '\\'; cursor -= 1) {
+    backslashCount += 1;
+  }
+  return backslashCount % 2 === 1;
+};
+
+const findMathSegmentEnd = (content: string, startIndex: number, delimiter: '$' | '$$'): number => {
+  let cursor = startIndex;
+
+  while (cursor < content.length) {
+    if (delimiter === '$$') {
+      if (content[cursor] === '$' && content[cursor + 1] === '$' && !isEscapedCharacterAt(content, cursor)) {
+        return cursor;
+      }
+      cursor += 1;
+      continue;
+    }
+
+    if (content[cursor] === '$' && content[cursor + 1] !== '$' && !isEscapedCharacterAt(content, cursor)) {
+      return cursor;
+    }
+    cursor += 1;
+  }
+
+  return -1;
+};
+
+const repairLatexInMathSegments = (raw: string): string => {
+  let output = '';
+  let cursor = 0;
+
+  while (cursor < raw.length) {
+    if (raw[cursor] !== '$' || isEscapedCharacterAt(raw, cursor)) {
+      output += raw[cursor];
+      cursor += 1;
+      continue;
+    }
+
+    const delimiter: '$' | '$$' = raw[cursor + 1] === '$' ? '$$' : '$';
+    const segmentStart = cursor + delimiter.length;
+    const segmentEnd = findMathSegmentEnd(raw, segmentStart, delimiter);
+
+    if (segmentEnd === -1) {
+      output += raw.slice(cursor);
+      break;
+    }
+
+    const segment = raw.slice(segmentStart, segmentEnd);
+    const repairedSegment = repairLatexExpression(segment);
+    output += `${delimiter}${repairedSegment}${delimiter}`;
+    cursor = segmentEnd + delimiter.length;
+  }
+
+  return output;
+};
+
 const wrapLooseGraphBlocks = (content: string): string => {
   const lines = content.split('\n');
   const output: string[] = [];
@@ -718,7 +1268,9 @@ const MathRenderer: React.FC<MathRendererProps> = ({ content }) => {
   const normalizedContent = useMemo(() => {
     const withNormalizedEscapes = normalizeEscapedNewlines(content);
     const withDisplayMathBlocks = normalizeDisplayMathBlocks(withNormalizedEscapes);
-    return wrapLooseGraphBlocks(withDisplayMathBlocks);
+    const withRecoveredKatex = recoverLeakedKatexMarkup(withDisplayMathBlocks);
+    const withWrappedGraphBlocks = wrapLooseGraphBlocks(withRecoveredKatex);
+    return repairLatexInMathSegments(withWrappedGraphBlocks);
   }, [content]);
 
   return (
