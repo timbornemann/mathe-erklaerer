@@ -467,6 +467,45 @@ const repairMissingCommandBackslashes = (input: string): string => {
   return next;
 };
 
+const GREEK_COMMANDS_WITH_IMPLICIT_MULTIPLICATION = [
+  'alpha',
+  'beta',
+  'gamma',
+  'delta',
+  'epsilon',
+  'varepsilon',
+  'zeta',
+  'eta',
+  'theta',
+  'vartheta',
+  'iota',
+  'kappa',
+  'lambda',
+  'mu',
+  'nu',
+  'xi',
+  'pi',
+  'rho',
+  'sigma',
+  'tau',
+  'phi',
+  'varphi',
+  'chi',
+  'psi',
+  'omega'
+];
+
+const normalizeGluedGreekProducts = (input: string): string => {
+  let next = input;
+
+  for (const command of GREEK_COMMANDS_WITH_IMPLICIT_MULTIPLICATION) {
+    const pattern = new RegExp(`\\\\${command}(?=[A-Za-z])`, 'g');
+    next = next.replace(pattern, `\\${command} `);
+  }
+
+  return next;
+};
+
 const normalizeMathbbSymbols = (input: string): string =>
   input.replace(/\\mathbb([A-Za-z])/g, (_match, symbol: string) => `\\mathbb{${symbol}}`);
 
@@ -742,6 +781,7 @@ const repairLatexExpression = (rawExpression: string): string => {
   next = normalizeBrokenJsonEscapes(next);
   next = next.replace(/\s*\n+\s*/g, ' ');
   next = repairTextCommand(next);
+  next = normalizeGluedGreekProducts(next);
   next = repairMissingCommandBackslashes(next);
   next = normalizeSpecialMathNames(next);
   next = normalizeMathbbSymbols(next);
