@@ -64,18 +64,64 @@ const looksLikeMermaidSource = (source: string): boolean => {
   return GRAPH_START_KEYWORDS.some((keyword) => normalized.startsWith(keyword.toLowerCase()));
 };
 
+const stripLooseGraphLanguagePrefix = (language: string, source: string): string | null => {
+  const trimmed = source.trim();
+  const prefixMatch = trimmed.match(/^(mermaid|functionplot)\s+([\s\S]+)$/i);
+
+  if (!prefixMatch || prefixMatch[1].toLowerCase() !== language) {
+    return null;
+  }
+
+  const remainder = prefixMatch[2].trim();
+  if (language === 'mermaid' && looksLikeMermaidSource(remainder)) {
+    return remainder;
+  }
+  if (language === 'functionplot' && remainder.startsWith('{')) {
+    return remainder;
+  }
+
+  return null;
+};
+
+const parseLooseGraphMarker = (line: string): { language: 'mermaid' | 'functionplot'; firstSourceLine?: string } | null => {
+  const trimmed = line.trim();
+  const inlineCodeMatch = trimmed.match(/^`{1,3}\s*([\s\S]*?)\s*`{1,3}$/);
+  const candidate = inlineCodeMatch ? inlineCodeMatch[1].trim() : trimmed;
+  const lower = candidate.toLowerCase();
+
+  if (lower === 'mermaid' || lower === 'functionplot') {
+    return { language: lower };
+  }
+
+  const languageMatch = lower.match(/^(mermaid|functionplot)\b/);
+  if (!languageMatch) {
+    return null;
+  }
+
+  const language = languageMatch[1] as 'mermaid' | 'functionplot';
+  const firstSourceLine = stripLooseGraphLanguagePrefix(language, candidate);
+  if (!firstSourceLine) {
+    return null;
+  }
+
+  return { language, firstSourceLine };
+};
+
 const normalizeEscapedNewlines = (raw: string): string => {
   let text = raw;
 
   // Convert common double-escaped line breaks that appear in model JSON strings.
   // This deliberately avoids blanket replacement to not corrupt LaTeX commands like \neq.
   text = text
+    .replace(/(?:\\n\s*)+(?=(?:`{1,3})?\s*(?:mermaid|functionplot)\b)/gi, '\n\n')
     .replace(/\\n(?=mermaid\b|functionplot\b)/gi, '\n')
     .replace(/(mermaid|functionplot)\\n/gi, '$1\n')
     .replace(/\\n(?=\d+\.)/g, '\n')
     .replace(/\\n(?=\{)/g, '\n')
     .replace(/\\n(?=\s)/g, '\n')
-    .replace(/\\n(?=[A-ZÄÖÜ])/g, '\n');
+    .replace(/\\n(?=[A-ZÄÖÜ])/g, '\n')
+    .replace(/\\n(?=\s*`{1,3}\s*$)/g, '\n')
+    .replace(/\\n$/g, '\n');
 
   for (const keyword of GRAPH_START_KEYWORDS) {
     const escapedStarter = new RegExp(`\\\\n(?=${keyword}\\b)`, 'gi');
@@ -91,16 +137,15 @@ const wrapLooseGraphBlocks = (content: string): string => {
 
   let i = 0;
   while (i < lines.length) {
-    const marker = lines[i].trim().toLowerCase();
-    const isGraphMarker = marker === 'mermaid' || marker === 'functionplot';
+    const marker = parseLooseGraphMarker(lines[i]);
 
-    if (!isGraphMarker) {
+    if (!marker) {
       output.push(lines[i]);
       i += 1;
       continue;
     }
 
-    const blockLines: string[] = [];
+    const blockLines: string[] = marker.firstSourceLine ? [marker.firstSourceLine] : [];
     i += 1;
 
     while (i < lines.length) {
@@ -111,11 +156,11 @@ const wrapLooseGraphBlocks = (content: string): string => {
     }
 
     if (blockLines.length === 0) {
-      output.push(lines[i - 1] ?? marker);
+      output.push(lines[i - 1] ?? marker.language);
       continue;
     }
 
-    output.push(`\`\`\`${marker}`);
+    output.push(`\`\`\`${marker.language}`);
     output.push(...blockLines);
     output.push('```');
   }
