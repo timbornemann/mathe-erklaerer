@@ -86,20 +86,28 @@ export const useFormulaCollection = () => {
   const [pendingDuplicateDecision, setPendingDuplicateDecision] = useState<PendingDuplicateDecision | null>(null);
   const duplicateQueueRef = useRef<PendingDuplicateDecision[]>([]);
   const inFlightGenerationRef = useRef<Set<string>>(new Set());
+  const hasLoadedFromStorageRef = useRef(false);
 
   useEffect(() => {
     const raw = localStorage.getItem(FORMULA_COLLECTION_STORAGE_KEY);
-    if (!raw) return;
+    if (!raw) {
+      hasLoadedFromStorageRef.current = true;
+      return;
+    }
 
     try {
       const parsed = JSON.parse(raw);
       setFormulas(sanitizeFormulaList(parsed));
     } catch (error) {
       console.error('Failed to parse formula collection', error);
+    } finally {
+      hasLoadedFromStorageRef.current = true;
     }
   }, []);
 
   useEffect(() => {
+    // Prevent first render from overwriting stored formulas with [] before hydration finished.
+    if (!hasLoadedFromStorageRef.current) return;
     localStorage.setItem(FORMULA_COLLECTION_STORAGE_KEY, JSON.stringify(formulas));
   }, [formulas]);
 
