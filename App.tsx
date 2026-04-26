@@ -12,9 +12,23 @@ import ExamSetup, { ExamConfig } from './components/ExamSetup';
 import ExamSession from './components/ExamSession';
 import ExamResultView from './components/ExamResultView';
 import PrintExportPage from './components/PrintExportPage';
-import { MathState, InputMode, HistoryItem, MathSolution, PracticeRoom, PracticeTask, ExamSession as ExamSessionType, ExamTask, HistoryStatus, Project } from './types';
+import FormulaCollectionView from './components/FormulaCollectionView';
+import {
+  MathState,
+  InputMode,
+  HistoryItem,
+  MathSolution,
+  PracticeRoom,
+  PracticeTask,
+  ExamSession as ExamSessionType,
+  ExamTask,
+  HistoryStatus,
+  Project
+} from './types';
 import { buildExportData, serializeExportData, parseAndValidateExport, applyImportData, ImportStrategy } from './services/exportImport';
 import {
+  downloadFormulaCheatSheetAsMarkdown,
+  downloadFormulaCheatSheetAsPdf,
   downloadExamAsMarkdown,
   downloadExamAsPdf,
   downloadSolutionAsMarkdown,
@@ -31,17 +45,19 @@ import {
   Trash2,
   Download,
   ChevronDown,
-  ChevronRight,
-  GraduationCap,
-  Dumbbell,
-  BookOpen,
-  Folder,
-  Plus,
-  Pencil,
-  Settings,
-  ClipboardCheck
+    ChevronRight,
+    GraduationCap,
+    Dumbbell,
+    BookOpen,
+    BookOpenText,
+    Folder,
+    Plus,
+    Pencil,
+    Settings,
+    ClipboardCheck
 } from 'lucide-react';
 import SettingsModal from './components/SettingsModal';
+import { useFormulaCollection } from './hooks/useFormulaCollection';
 
 const PRACTICE_ROOMS_KEY = 'mathPracticeRooms';
 const EXAM_SESSIONS_KEY = 'mathExamSessions';
@@ -70,7 +86,7 @@ const generateId = (): string => {
 type PracticeView = 'setup' | 'detail' | 'session';
 type ExamView = 'setup' | 'session' | 'result';
 type SolutionOpenView = 'start' | 'summary';
-type MainTab = InputMode.TEXT | InputMode.TUTOR | InputMode.PRACTICE | InputMode.EXAM | 'PROJECTS';
+type MainTab = InputMode.TEXT | InputMode.TUTOR | InputMode.PRACTICE | InputMode.EXAM | 'PROJECTS' | 'FORMULAS';
 type ProjectsView = 'folders' | 'detail';
 type SolutionReturnTarget = { type: 'project-detail'; projectId: string } | null;
 
@@ -220,6 +236,20 @@ const App: React.FC = () => {
   });
 
   const [activeMainTab, setActiveMainTab] = useState<MainTab>(InputMode.TEXT);
+  const {
+    formulas,
+    pendingDuplicateDecision,
+    addFormulaFromLatex,
+    addFormulaFromPrompt,
+    addFormulasFromChatMessage,
+    resolveDuplicateDecision,
+    updateFormula,
+    deleteFormula,
+    incrementFormulaUsage,
+    retryFormulaGeneration,
+    replaceAllFormulas,
+    removeProjectReference
+  } = useFormulaCollection();
   const [practiceView, setPracticeView] = useState<PracticeView>('setup');
   const [currentPracticeTask, setCurrentPracticeTask] = useState<PracticeTask | null>(null);
   const [isPracticeGenerating, setIsPracticeGenerating] = useState(false);
@@ -584,6 +614,7 @@ const App: React.FC = () => {
           : prev.activeExamSession
       };
     });
+    removeProjectReference(projectId);
 
     if (selectedProjectId === projectId) {
       setSelectedProjectId(null);
@@ -730,6 +761,23 @@ const App: React.FC = () => {
     }
   };
 
+  const handleFormulasTabOpen = () => {
+    setActiveMainTab('FORMULAS');
+    setProjectsView('folders');
+    setProjectModalOpen(false);
+    setActiveHistoryId(null);
+    setSolutionOpenView('start');
+    setSolutionReturnTarget(null);
+    setOpenHistoryDownloadMenuId(null);
+    setOpenHistorySettingsMenuId(null);
+    setState(prev => ({
+      ...prev,
+      isLoading: false,
+      solution: null,
+      error: null
+    }));
+  };
+
   const openProjectDetail = (projectId: string) => {
     setSelectedProjectId(projectId);
     setProjectsView('detail');
@@ -738,6 +786,70 @@ const App: React.FC = () => {
   const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setState(prev => ({ ...prev, textInput: e.target.value }));
   };
+
+  const handleAddFormulaManual = useCallback(
+    async (formula: string, contextText?: string) => {
+      await addFormulaFromLatex({
+        formula,
+        source: {
+          type: 'manual',
+          label: contextText?.trim() ? 'Manuelle Eingabe (mit Kontext)' : 'Manuelle Eingabe'
+        },
+        projectId: state.activeProjectId ?? undefined,
+        contextText
+      });
+    },
+    [addFormulaFromLatex, state.activeProjectId]
+  );
+
+  const handleAskFormulaPrompt = useCallback(
+    async (question: string) => {
+      await addFormulaFromPrompt(
+        question,
+        { type: 'prompt', label: 'Prompt in Formelsammlung' },
+        state.activeProjectId ?? undefined
+      );
+    },
+    [addFormulaFromPrompt, state.activeProjectId]
+  );
+
+  const handleAddFormulaFromSolution = useCallback(
+    async (formula: string, sourceLabel: string, contextText?: string) => {
+      await addFormulaFromLatex({
+        formula,
+        source: { type: 'solution-step', label: sourceLabel },
+        projectId: state.activeProjectId ?? undefined,
+        contextText
+      });
+    },
+    [addFormulaFromLatex, state.activeProjectId]
+  );
+
+  const handleExtractFormulasFromChatMessage = useCallback(
+    async (message: string, sourceLabel: string) =>
+      addFormulasFromChatMessage(message, sourceLabel, state.activeProjectId ?? undefined),
+    [addFormulasFromChatMessage, state.activeProjectId]
+  );
+
+  const handleDownloadFormulaCheatSheetMarkdown = useCallback(
+    (formulaIds: string[]) => {
+      const byId = new Set(formulaIds);
+      const selected = formulas.filter((entry) => byId.has(entry.id));
+      if (selected.length === 0) return;
+      downloadFormulaCheatSheetAsMarkdown(selected);
+    },
+    [formulas]
+  );
+
+  const handleDownloadFormulaCheatSheetPdf = useCallback(
+    (formulaIds: string[]) => {
+      const byId = new Set(formulaIds);
+      const selected = formulas.filter((entry) => byId.has(entry.id));
+      if (selected.length === 0) return;
+      downloadFormulaCheatSheetAsPdf(selected);
+    },
+    [formulas]
+  );
 
   const handleReset = () => {
     const nextMode = state.inputMode === InputMode.IMAGE ? InputMode.TEXT : state.inputMode;
@@ -872,7 +984,8 @@ const App: React.FC = () => {
       projects,
       state.activeProjectId ?? null,
       practiceRooms,
-      state.examSessions ?? []
+      state.examSessions ?? [],
+      formulas
     );
     const json = serializeExportData(exportData);
     const blob = new Blob([json], { type: 'application/json' });
@@ -922,7 +1035,10 @@ const App: React.FC = () => {
         const hasExamConflicts = (state.examSessions ?? []).some(existing =>
           imported.examSessions.some(session => session.id === existing.id)
         );
-        const hasConflicts = hasHistoryConflicts || hasProjectConflicts || hasRoomConflicts || hasExamConflicts;
+        const hasFormulaConflicts = formulas.some(existing =>
+          imported.formulas.some(formula => formula.id === existing.id || formula.normalizedFormula === existing.normalizedFormula)
+        );
+        const hasConflicts = hasHistoryConflicts || hasProjectConflicts || hasRoomConflicts || hasExamConflicts || hasFormulaConflicts;
 
         const message = hasConflicts
           ? 'Beim Import wurden ueberschneidende Daten gefunden.\n\nOK = Daten intelligent ZUSAMMENFUEHREN (Duplikate vermeiden).\nAbbrechen = aktuelle Daten komplett durch Import ERSETZEN.'
@@ -937,13 +1053,15 @@ const App: React.FC = () => {
             projects: newProjects,
             activeProjectId: newActiveProjectId,
             practiceRooms: newPracticeRooms,
-            examSessions: newExamSessions
+            examSessions: newExamSessions,
+            formulas: newFormulas
           } = applyImportData(
             prev.history ?? [],
             prev.projects ?? [],
             prev.activeProjectId ?? null,
             prev.practiceRooms ?? [],
             prev.examSessions ?? [],
+            formulas,
             imported,
             strategy
           );
@@ -953,6 +1071,7 @@ const App: React.FC = () => {
           localStorage.setItem(PRACTICE_ROOMS_KEY, JSON.stringify(newPracticeRooms));
           localStorage.setItem(EXAM_SESSIONS_KEY, JSON.stringify(newExamSessions));
           saveActiveProjectId(newActiveProjectId);
+          replaceAllFormulas(newFormulas);
 
           let newActivePracticeRoom = prev.activePracticeRoom;
           if (newActivePracticeRoom) {
@@ -1702,6 +1821,7 @@ const App: React.FC = () => {
   };
 
   const isProjectsTab = activeMainTab === 'PROJECTS';
+  const isFormulasTab = activeMainTab === 'FORMULAS';
   const selectedProject = projects.find(project => project.id === selectedProjectId) ?? null;
   const selectedProjectHistory = history.filter(item => item.projectId === selectedProjectId);
   const selectedProjectSolutionHistory = selectedProjectHistory.filter(
@@ -1763,6 +1883,15 @@ const App: React.FC = () => {
           initialPrompt={state.textInput || (state.inputMode === InputMode.IMAGE ? "Foto-Analyse" : "Dein Mathe-Problem")}
           onDownloadMarkdown={handleDownloadSolutionMarkdown}
           onDownloadPdf={handleDownloadSolutionPdf}
+          formulas={formulas}
+          onAddFormulaFromSolution={handleAddFormulaFromSolution}
+          onExtractFormulasFromChatMessage={handleExtractFormulasFromChatMessage}
+          onAddFormulaManual={handleAddFormulaManual}
+          onAskFormulaPrompt={handleAskFormulaPrompt}
+          onIncrementFormulaUsage={incrementFormulaUsage}
+          onRetryFormulaGeneration={(formulaId) => {
+            void retryFormulaGeneration(formulaId);
+          }}
         />
       </div>
     );
@@ -1812,6 +1941,15 @@ const App: React.FC = () => {
           onNextTask={handlePracticeNextTask}
           onBack={handlePracticeBack}
           isGenerating={isPracticeGenerating}
+          formulas={formulas}
+          onAddFormulaFromSolution={handleAddFormulaFromSolution}
+          onExtractFormulasFromChatMessage={handleExtractFormulasFromChatMessage}
+          onAddFormulaManual={handleAddFormulaManual}
+          onAskFormulaPrompt={handleAskFormulaPrompt}
+          onIncrementFormulaUsage={incrementFormulaUsage}
+          onRetryFormulaGeneration={(formulaId) => {
+            void retryFormulaGeneration(formulaId);
+          }}
         />
 
         <footer className="mt-8 md:mt-12 text-slate-400 text-xs sm:text-sm text-center px-4">
@@ -1866,6 +2004,15 @@ const App: React.FC = () => {
           onTaskUpdated={handlePracticeTaskUpdated}
           onBack={handlePracticeBack}
           isLoading={isPracticeGenerating}
+          formulas={formulas}
+          onAddFormulaFromSolution={handleAddFormulaFromSolution}
+          onExtractFormulasFromChatMessage={handleExtractFormulasFromChatMessage}
+          onAddFormulaManual={handleAddFormulaManual}
+          onAskFormulaPrompt={handleAskFormulaPrompt}
+          onIncrementFormulaUsage={incrementFormulaUsage}
+          onRetryFormulaGeneration={(formulaId) => {
+            void retryFormulaGeneration(formulaId);
+          }}
         />
 
         <footer className="mt-8 md:mt-12 text-slate-400 text-xs sm:text-sm text-center px-4">
@@ -1920,6 +2067,11 @@ const App: React.FC = () => {
           onBack={() => setExamView('setup')}
           onDownloadMarkdown={() => handleDownloadExamMarkdown(state.activeExamSession!)}
           onDownloadPdf={() => handleDownloadExamPdf(state.activeExamSession!)}
+          formulas={formulas}
+          onIncrementFormulaUsage={incrementFormulaUsage}
+          onRetryFormulaGeneration={(formulaId) => {
+            void retryFormulaGeneration(formulaId);
+          }}
         />
 
         <footer className="mt-8 md:mt-12 text-slate-400 text-xs sm:text-sm text-center px-4">
@@ -2051,6 +2203,54 @@ const App: React.FC = () => {
         </div>
       )}
 
+      {pendingDuplicateDecision && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/55 p-4">
+          <div className="w-full max-w-lg rounded-2xl border border-slate-200 bg-white p-4 shadow-2xl sm:p-5">
+            <h3 className="text-base font-bold text-slate-800">Doppelte Formel erkannt</h3>
+            <p className="mt-1 text-sm text-slate-600">
+              Diese Formel existiert bereits in deiner Sammlung.
+            </p>
+            <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700 overflow-x-auto">
+              <MathRenderer content={`$$ ${pendingDuplicateDecision.incoming.formula} $$`} />
+            </div>
+            <div className="mt-3 space-y-2">
+              {pendingDuplicateDecision.matches.slice(0, 3).map((entry) => (
+                <div key={entry.id} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600">
+                  <p className="font-semibold text-slate-700">{entry.title}</p>
+                  <p>{entry.usageCount}x verwendet</p>
+                </div>
+              ))}
+            </div>
+            <div className="mt-4 flex flex-wrap justify-end gap-2">
+              <button
+                onClick={() => {
+                  void resolveDuplicateDecision('merge');
+                }}
+                className="rounded-lg bg-indigo-600 px-3 py-2 text-xs font-semibold text-white hover:bg-indigo-700"
+              >
+                Mit bestehender Formel zusammenfuehren
+              </button>
+              <button
+                onClick={() => {
+                  void resolveDuplicateDecision('create');
+                }}
+                className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-100"
+              >
+                Trotzdem neu anlegen
+              </button>
+              <button
+                onClick={() => {
+                  void resolveDuplicateDecision('cancel');
+                }}
+                className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700 hover:bg-red-100"
+              >
+                Abbrechen
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <header className={`w-full ${pageMaxWidthClass} mb-6 md:mb-8 flex items-start justify-between gap-3 sm:items-center`}>
         <div className="flex min-w-0 flex-1 items-center gap-3">
@@ -2120,7 +2320,7 @@ const App: React.FC = () => {
               </div>
 
               {/* Tabs */}
-              <div className="grid grid-cols-2 sm:grid-cols-5 gap-1.5 sm:gap-2 mb-5 sm:mb-6 bg-slate-100 p-1 rounded-xl w-full">
+              <div className="grid grid-cols-2 sm:grid-cols-6 gap-1.5 sm:gap-2 mb-5 sm:mb-6 bg-slate-100 p-1 rounded-xl w-full">
                 <button
                   onClick={() => handleModeChange(InputMode.TEXT)}
                   className={`flex items-center justify-center gap-1.5 sm:gap-2 px-2 sm:px-4 py-2.5 sm:py-3 rounded-lg text-xs sm:text-sm font-semibold transition-all duration-200 ${
@@ -2180,6 +2380,18 @@ const App: React.FC = () => {
                   <Folder className="w-4 h-4" />
                   <span className="sm:hidden">Projekte</span>
                   <span className="hidden sm:inline">Projekte</span>
+                </button>
+                <button
+                  onClick={handleFormulasTabOpen}
+                  className={`flex items-center justify-center gap-1.5 sm:gap-2 px-2 sm:px-4 py-2.5 sm:py-3 rounded-lg text-xs sm:text-sm font-semibold transition-all duration-200 ${
+                    isFormulasTab
+                      ? 'bg-white text-indigo-600 shadow-sm'
+                      : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200/50'
+                  }`}
+                >
+                  <BookOpenText className="w-4 h-4" />
+                  <span className="sm:hidden">Formeln</span>
+                  <span className="hidden sm:inline">Formelsammlung</span>
                 </button>
               </div>
             </>
@@ -2783,8 +2995,26 @@ const App: React.FC = () => {
             </div>
           )}
 
+          {isFormulasTab && (
+            <FormulaCollectionView
+              formulas={formulas}
+              projects={projects}
+              activeProjectId={state.activeProjectId}
+              onAddFormulaLatex={handleAddFormulaManual}
+              onAskFormulaPrompt={handleAskFormulaPrompt}
+              onUpdateFormula={updateFormula}
+              onDeleteFormula={deleteFormula}
+              onMarkUsed={incrementFormulaUsage}
+              onRetryFormula={(formulaId) => {
+                void retryFormulaGeneration(formulaId);
+              }}
+              onDownloadCheatSheetMarkdown={handleDownloadFormulaCheatSheetMarkdown}
+              onDownloadCheatSheetPdf={handleDownloadFormulaCheatSheetPdf}
+            />
+          )}
+
           {/* Aufgabe (Text + optional Foto) */}
-          {!isProjectsTab && state.inputMode === InputMode.TEXT && (
+          {!isProjectsTab && !isFormulasTab && state.inputMode === InputMode.TEXT && (
             <div className="space-y-4">
               <textarea
                 value={state.textInput}
@@ -2830,7 +3060,7 @@ const App: React.FC = () => {
           )}
 
           {/* Tutor Input Mode */}
-          {!isProjectsTab && state.inputMode === InputMode.TUTOR && (
+          {!isProjectsTab && !isFormulasTab && state.inputMode === InputMode.TUTOR && (
             <div className="space-y-4">
               <textarea
                 value={state.textInput}
@@ -2842,14 +3072,14 @@ const App: React.FC = () => {
           )}
 
           {/* Practice Input Mode */}
-          {!isProjectsTab && state.inputMode === InputMode.PRACTICE && (
+          {!isProjectsTab && !isFormulasTab && state.inputMode === InputMode.PRACTICE && (
             <PracticeSetup
               onStart={handlePracticeStart}
               isLoading={isPracticeGenerating}
             />
           )}
 
-          {!isProjectsTab && state.inputMode === InputMode.EXAM && (
+          {!isProjectsTab && !isFormulasTab && state.inputMode === InputMode.EXAM && (
             <ExamSetup
               onStart={handleExamStart}
               isLoading={isExamGenerating}
@@ -2857,7 +3087,7 @@ const App: React.FC = () => {
           )}
 
           {/* Error Message */}
-          {!isProjectsTab && state.error && state.inputMode !== InputMode.PRACTICE && state.inputMode !== InputMode.EXAM && (
+          {!isProjectsTab && !isFormulasTab && state.error && state.inputMode !== InputMode.PRACTICE && state.inputMode !== InputMode.EXAM && (
             <div className="mt-4 p-3 bg-red-50 border border-red-100 rounded-lg flex items-center space-x-2 text-red-600 text-sm">
               <X className="w-4 h-4" />
               <span>{state.error}</span>
@@ -2865,7 +3095,7 @@ const App: React.FC = () => {
           )}
 
           {/* Submit Button (only for TEXT and TUTOR) */}
-          {!isProjectsTab && state.inputMode !== InputMode.PRACTICE && state.inputMode !== InputMode.EXAM && (
+          {!isProjectsTab && !isFormulasTab && state.inputMode !== InputMode.PRACTICE && state.inputMode !== InputMode.EXAM && (
             <div className="mt-6 flex justify-end">
               <button
                 onClick={handleSubmit}
@@ -2891,7 +3121,7 @@ const App: React.FC = () => {
           )}
 
           {/* Practice error (shown inside PracticeSetup area) */}
-          {!isProjectsTab && state.error && (state.inputMode === InputMode.PRACTICE || state.inputMode === InputMode.EXAM) && (
+          {!isProjectsTab && !isFormulasTab && state.error && (state.inputMode === InputMode.PRACTICE || state.inputMode === InputMode.EXAM) && (
             <div className="mt-4 p-3 bg-red-50 border border-red-100 rounded-lg flex items-center space-x-2 text-red-600 text-sm">
               <X className="w-4 h-4" />
               <span>{state.error}</span>
@@ -2900,7 +3130,7 @@ const App: React.FC = () => {
         </div>
         
         {/* Loading State Visualization */}
-        {!isProjectsTab && state.isLoading && state.inputMode === InputMode.TEXT && (
+        {!isProjectsTab && !isFormulasTab && state.isLoading && state.inputMode === InputMode.TEXT && (
           <div className="p-8 sm:p-12 text-center bg-slate-50/50 border-t border-slate-100">
              <div className="inline-block relative w-20 h-20">
                <div className="absolute top-0 left-0 w-full h-full border-4 border-indigo-100 rounded-full animate-pulse"></div>
@@ -2915,7 +3145,7 @@ const App: React.FC = () => {
       </main>
 
       {/* Practice Rooms Section */}
-      {!isProjectsTab && state.inputMode === InputMode.PRACTICE && practiceRooms.length > 0 && !isPracticeGenerating && (
+      {!isProjectsTab && !isFormulasTab && state.inputMode === InputMode.PRACTICE && practiceRooms.length > 0 && !isPracticeGenerating && (
         <section className="w-full max-w-4xl animate-in slide-in-from-bottom-8 fade-in duration-500 mb-8">
           <div className="flex items-center justify-between mb-4 px-1 sm:px-2 gap-2">
             <h3 className="text-xl font-bold text-slate-700 flex items-center gap-2">
@@ -2952,7 +3182,7 @@ const App: React.FC = () => {
         </section>
       )}
 
-      {!isProjectsTab && state.inputMode === InputMode.EXAM && state.examSessions.length > 0 && !isExamGenerating && (
+      {!isProjectsTab && !isFormulasTab && state.inputMode === InputMode.EXAM && state.examSessions.length > 0 && !isExamGenerating && (
         <section className="w-full max-w-4xl animate-in slide-in-from-bottom-8 fade-in duration-500 mb-8">
           <div className="flex items-center justify-between mb-4 px-1 sm:px-2 gap-2">
             <h3 className="text-xl font-bold text-slate-700 flex items-center gap-2">
@@ -3007,7 +3237,7 @@ const App: React.FC = () => {
       )}
 
       {/* History Section */}
-      {!isProjectsTab && state.inputMode !== InputMode.PRACTICE && state.inputMode !== InputMode.EXAM && (() => {
+      {!isProjectsTab && !isFormulasTab && state.inputMode !== InputMode.PRACTICE && state.inputMode !== InputMode.EXAM && (() => {
         const filteredHistory = history.filter(item =>
           state.inputMode === InputMode.TUTOR
             ? item.mode === InputMode.TUTOR
