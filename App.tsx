@@ -72,6 +72,7 @@ type ExamView = 'setup' | 'session' | 'result';
 type SolutionOpenView = 'start' | 'summary';
 type MainTab = InputMode.TEXT | InputMode.TUTOR | InputMode.PRACTICE | InputMode.EXAM | 'PROJECTS';
 type ProjectsView = 'folders' | 'detail';
+type SolutionReturnTarget = { type: 'project-detail'; projectId: string } | null;
 
 interface ProjectFormState {
   name: string;
@@ -82,6 +83,8 @@ interface ProjectFormState {
 const DEFAULT_PROJECT_COLOR = '#4f46e5';
 const DETAIL_ACTION_BUTTON_BASE_CLASS =
   'inline-flex h-8 w-28 items-center justify-center gap-1.5 rounded-lg px-3 text-[11px] font-semibold transition-colors';
+const DETAIL_ICON_BUTTON_CLASS =
+  'inline-flex h-8 w-8 items-center justify-center rounded-lg transition-colors';
 const PROJECT_HEADER_ACTION_BUTTON_CLASS =
   'inline-flex h-9 min-w-[132px] items-center justify-center gap-1.5 rounded-lg px-3 text-xs font-semibold transition-colors';
 const PROJECT_DETAIL_MAX_WIDTH_CLASS = 'max-w-[2100px]';
@@ -226,6 +229,7 @@ const App: React.FC = () => {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [activeSolutionHistoryId, setActiveSolutionHistoryId] = useState<string | null>(null);
   const [solutionOpenView, setSolutionOpenView] = useState<SolutionOpenView>('start');
+  const [solutionReturnTarget, setSolutionReturnTarget] = useState<SolutionReturnTarget>(null);
   const [openHistoryDownloadMenuId, setOpenHistoryDownloadMenuId] = useState<string | null>(null);
   const [openHistorySettingsMenuId, setOpenHistorySettingsMenuId] = useState<string | null>(null);
   const [retryingHistoryId, setRetryingHistoryId] = useState<string | null>(null);
@@ -693,6 +697,7 @@ const App: React.FC = () => {
     setProjectModalOpen(false);
     setActiveHistoryId(null);
     setSolutionOpenView('start');
+    setSolutionReturnTarget(null);
     setOpenHistoryDownloadMenuId(null);
     setState(prev => ({
       ...prev,
@@ -716,6 +721,7 @@ const App: React.FC = () => {
     setProjectsView('folders');
     setActiveHistoryId(null);
     setSolutionOpenView('start');
+    setSolutionReturnTarget(null);
     setOpenHistoryDownloadMenuId(null);
     setState(prev => ({ ...prev, solution: null, error: null }));
     setProjectModalOpen(false);
@@ -735,6 +741,37 @@ const App: React.FC = () => {
 
   const handleReset = () => {
     const nextMode = state.inputMode === InputMode.IMAGE ? InputMode.TEXT : state.inputMode;
+    const returnProjectId =
+      solutionReturnTarget?.type === 'project-detail' ? solutionReturnTarget.projectId : null;
+
+    if (returnProjectId) {
+      const projectStillExists = projects.some(project => project.id === returnProjectId);
+
+      setActiveMainTab('PROJECTS');
+      setSelectedProjectId(projectStillExists ? returnProjectId : projects[0]?.id ?? null);
+      setProjectsView(projectStillExists ? 'detail' : 'folders');
+      setProjectModalOpen(false);
+      setState(prev => ({
+        ...prev,
+        isLoading: false,
+        inputMode: nextMode,
+        textInput: '',
+        imageFile: null,
+        imagePreview: null,
+        solution: null,
+        error: null,
+        activePracticeRoom: null,
+        activeExamSession: null
+      }));
+      setPracticeView('setup');
+      setCurrentPracticeTask(null);
+      setExamView('setup');
+      setActiveHistoryId(null);
+      setSolutionOpenView('start');
+      setSolutionReturnTarget(null);
+      setOpenHistoryDownloadMenuId(null);
+      return;
+    }
 
     setActiveMainTab(nextMode);
     setProjectsView('folders');
@@ -756,14 +793,21 @@ const App: React.FC = () => {
     setExamView('setup');
     setActiveHistoryId(null);
     setSolutionOpenView('start');
+    setSolutionReturnTarget(null);
     setOpenHistoryDownloadMenuId(null);
   };
 
   const handleHistoryRestore = (item: HistoryItem, openView: SolutionOpenView = 'start') => {
+    const shouldReturnToProjectDetail = activeMainTab === 'PROJECTS' && projectsView === 'detail' && selectedProjectId;
+
     setOpenHistoryDownloadMenuId(null);
+    setOpenHistorySettingsMenuId(null);
     setActiveHistoryId(item.id);
     setSolutionOpenView(openView);
-    setActiveMainTab(item.mode);
+    setSolutionReturnTarget(
+      shouldReturnToProjectDetail ? { type: 'project-detail', projectId: selectedProjectId } : null
+    );
+    setActiveMainTab(item.mode === InputMode.IMAGE ? InputMode.TEXT : item.mode);
     setState(prev => ({
       ...prev,
       solution: item.solution,
@@ -1045,6 +1089,7 @@ const App: React.FC = () => {
     if (item.mode !== InputMode.TUTOR) return;
     if (retryingHistoryId === item.id) return;
 
+    const shouldReturnToProjectDetail = activeMainTab === 'PROJECTS' && projectsView === 'detail' && selectedProjectId;
     const currentItem = (state.history ?? []).find(entry => entry.id === item.id) ?? item;
     const topic = (currentItem.prompt || '').trim() || 'Tutor-Lektion';
     const baseSolution = currentItem.solution ?? createTutorPlaceholderSolution(topic);
@@ -1057,6 +1102,9 @@ const App: React.FC = () => {
     setRetryingHistoryId(item.id);
     setActiveHistoryId(item.id);
     setSolutionOpenView('start');
+    setSolutionReturnTarget(
+      shouldReturnToProjectDetail ? { type: 'project-detail', projectId: selectedProjectId } : null
+    );
     setActiveMainTab(InputMode.TUTOR);
     setState(prev => ({
       ...prev,
@@ -1145,7 +1193,7 @@ const App: React.FC = () => {
       .finally(() => {
         setRetryingHistoryId((current) => (current === item.id ? null : current));
       });
-  }, [retryingHistoryId, setActiveHistoryId, state.history, updateHistoryItem]);
+  }, [activeMainTab, projectsView, retryingHistoryId, selectedProjectId, setActiveHistoryId, state.history, updateHistoryItem]);
 
   const handleSubmit = useCallback(async () => {
     if (state.isLoading && state.inputMode !== InputMode.TUTOR) return;
@@ -1179,6 +1227,7 @@ const App: React.FC = () => {
       saveToHistory(pendingItem);
       setActiveHistoryId(historyId);
       setSolutionOpenView('start');
+      setSolutionReturnTarget(null);
       setState(prev => ({
         ...prev,
         isLoading: false,
@@ -1299,6 +1348,7 @@ const App: React.FC = () => {
       saveToHistory(historyItem);
       setActiveHistoryId(historyItem.id);
       setSolutionOpenView('start');
+      setSolutionReturnTarget(null);
 
       setState(prev => ({ ...prev, solution, isLoading: false }));
     } catch (err: any) {
@@ -2347,15 +2397,14 @@ const App: React.FC = () => {
                                         <MathRenderer content={item.preview} />
                                       </div>
                                     </div>
-                                    <div className="flex flex-col items-end gap-1" onClick={(e) => e.stopPropagation()}>
+                                    <div className="flex shrink-0 flex-col items-end gap-2" onClick={(e) => e.stopPropagation()}>
                                       <div className="relative" data-history-settings-menu>
                                         <button
                                           onClick={() => setOpenHistorySettingsMenuId(prev => prev === item.id ? null : item.id)}
-                                          className={`${DETAIL_ACTION_BUTTON_BASE_CLASS} border border-slate-200 text-slate-600 hover:bg-slate-100`}
+                                          className={`${DETAIL_ICON_BUTTON_CLASS} border border-slate-200 text-slate-500 hover:bg-slate-100 hover:text-slate-700`}
                                           title="Einstellungen"
                                         >
                                           <Settings className="h-3.5 w-3.5" />
-                                          Einstellungen
                                         </button>
                                         {openHistorySettingsMenuId === item.id && (
                                           <div className="absolute right-0 z-20 mt-1 w-52 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg">
@@ -2461,34 +2510,15 @@ const App: React.FC = () => {
                                       <p className="line-clamp-1 text-sm font-semibold text-slate-800">{item.prompt}</p>
                                       <p className="mt-1 line-clamp-2 text-sm text-slate-500">{item.preview}</p>
                                     </div>
-                                    <div className="flex flex-col items-end gap-1" onClick={(e) => e.stopPropagation()}>
-                                      {/* Primäraktion: Retry oder Übersicht */}
-                                      {item.status !== 'processing' && (item.status === 'failed' || hasTutorRetryableSteps(item.solution)) && (
-                                        <button
-                                          onClick={() => handleRetryTutorHistory(item)}
-                                          disabled={retryingHistoryId === item.id}
-                                          className={`${DETAIL_ACTION_BUTTON_BASE_CLASS} bg-amber-50 text-amber-700 hover:bg-amber-100 disabled:opacity-60`}
-                                        >
-                                          {retryingHistoryId === item.id ? 'Retry...' : 'Retry'}
-                                        </button>
-                                      )}
-                                      {item.status === 'completed' && (
-                                        <button
-                                          onClick={() => handleHistoryRestore(item, 'summary')}
-                                          className={`${DETAIL_ACTION_BUTTON_BASE_CLASS} bg-indigo-50 text-indigo-700 hover:bg-indigo-100`}
-                                        >
-                                          Übersicht
-                                        </button>
-                                      )}
+                                    <div className="flex shrink-0 flex-col items-end gap-2" onClick={(e) => e.stopPropagation()}>
                                       {/* Einstellungen-Dropdown */}
                                       <div className="relative" data-history-settings-menu>
                                         <button
                                           onClick={() => setOpenHistorySettingsMenuId(prev => prev === item.id ? null : item.id)}
-                                          className={`${DETAIL_ACTION_BUTTON_BASE_CLASS} border border-slate-200 text-slate-600 hover:bg-slate-100`}
+                                          className={`${DETAIL_ICON_BUTTON_CLASS} border border-slate-200 text-slate-500 hover:bg-slate-100 hover:text-slate-700`}
                                           title="Einstellungen"
                                         >
                                           <Settings className="h-3.5 w-3.5" />
-                                          Einstellungen
                                         </button>
                                         {openHistorySettingsMenuId === item.id && (
                                           <div className="absolute right-0 z-20 mt-1 w-52 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg">
@@ -2541,6 +2571,24 @@ const App: React.FC = () => {
                                           </div>
                                         )}
                                       </div>
+                                      {/* Primäraktion: Retry oder Übersicht */}
+                                      {item.status !== 'processing' && (item.status === 'failed' || hasTutorRetryableSteps(item.solution)) && (
+                                        <button
+                                          onClick={() => handleRetryTutorHistory(item)}
+                                          disabled={retryingHistoryId === item.id}
+                                          className={`${DETAIL_ACTION_BUTTON_BASE_CLASS} bg-amber-50 text-amber-700 hover:bg-amber-100 disabled:opacity-60`}
+                                        >
+                                          {retryingHistoryId === item.id ? 'Retry...' : 'Retry'}
+                                        </button>
+                                      )}
+                                      {item.status === 'completed' && (
+                                        <button
+                                          onClick={() => handleHistoryRestore(item, 'summary')}
+                                          className={`${DETAIL_ACTION_BUTTON_BASE_CLASS} bg-indigo-50 text-indigo-700 hover:bg-indigo-100`}
+                                        >
+                                          Übersicht
+                                        </button>
+                                      )}
                                     </div>
                                   </div>
                                 </div>
@@ -3046,7 +3094,7 @@ const App: React.FC = () => {
                      </button>
                    )}
                    {/* Einstellungen-Dropdown */}
-                   <div className="relative" data-history-settings-menu>
+                   <div className="relative order-first" data-history-settings-menu>
                      <button
                        onClick={(e) => { e.stopPropagation(); setOpenHistorySettingsMenuId(prev => prev === item.id ? null : item.id); }}
                        className={`${HISTORY_ICON_CHIP_CLASS} text-slate-400 hover:text-slate-700 hover:bg-slate-100`}
