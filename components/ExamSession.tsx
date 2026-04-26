@@ -1,7 +1,8 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+﻿import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, ArrowRight, Clock3, Download, FileText, FileWarning, ImageIcon, Loader2, Send, X } from 'lucide-react';
-import { ExamSession as ExamSessionType, ExamTask } from '../types';
+import { ExamSession as ExamSessionType, ExamTask, FormulaEntry } from '../types';
 import MathRenderer from './MathRenderer';
+import FormulaSidebar from './FormulaSidebar';
 
 interface ExamSessionProps {
   session: ExamSessionType;
@@ -11,6 +12,9 @@ interface ExamSessionProps {
   onBack: () => void;
   onDownloadMarkdown: () => void;
   onDownloadPdf: () => void;
+  formulas: FormulaEntry[];
+  onIncrementFormulaUsage: (formulaId: string) => void;
+  onRetryFormulaGeneration: (formulaId: string) => void;
 }
 
 const formatClock = (seconds: number) => {
@@ -27,15 +31,20 @@ const ExamSession: React.FC<ExamSessionProps> = ({
   onSubmit,
   onBack,
   onDownloadMarkdown,
-  onDownloadPdf
+  onDownloadPdf,
+  formulas,
+  onIncrementFormulaUsage,
+  onRetryFormulaGeneration
 }) => {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [remainingSeconds, setRemainingSeconds] = useState(() =>
     Math.max(0, Math.floor((session.endsAt - Date.now()) / 1000))
   );
   const [error, setError] = useState<string | null>(null);
+  const [isFormulaSidebarOpen, setIsFormulaSidebarOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const timeoutSubmissionStarted = useRef(false);
+  const sidebarOffsetClass = isFormulaSidebarOpen ? 'md:pl-[430px]' : '';
 
   const currentTask = session.tasks[currentIndex];
   const answeredCount = useMemo(
@@ -69,7 +78,7 @@ const ExamSession: React.FC<ExamSessionProps> = ({
     const file = e.target.files?.[0];
     if (!file) return;
     if (!file.type.startsWith('image/')) {
-      setError('Bitte eine gültige Bilddatei auswählen.');
+      setError('Bitte eine gÃ¼ltige Bilddatei auswÃ¤hlen.');
       return;
     }
 
@@ -110,7 +119,7 @@ const ExamSession: React.FC<ExamSessionProps> = ({
 
   const handleManualSubmit = () => {
     if (isSubmitting) return;
-    const confirmSubmit = window.confirm('Prüfung jetzt abgeben? Danach sind keine Änderungen mehr möglich.');
+    const confirmSubmit = window.confirm('PrÃ¼fung jetzt abgeben? Danach sind keine Ã„nderungen mehr mÃ¶glich.');
     if (!confirmSubmit) return;
     onSubmit('manual');
   };
@@ -119,21 +128,33 @@ const ExamSession: React.FC<ExamSessionProps> = ({
 
   if (!currentTask) {
     return (
-      <div className="w-full max-w-4xl bg-white rounded-2xl sm:rounded-3xl shadow-xl border border-slate-100 p-8">
-        <p className="text-slate-600">Keine Prüfungsaufgaben verfügbar.</p>
+      <>
+      <div className={`w-full max-w-4xl ${sidebarOffsetClass} bg-white rounded-2xl sm:rounded-3xl shadow-xl border border-slate-100 p-8 transition-all duration-300`}>
+        <p className="text-slate-600">Keine PrÃ¼fungsaufgaben verfÃ¼gbar.</p>
       </div>
+      <FormulaSidebar
+        formulas={formulas}
+        isOpen={isFormulaSidebarOpen}
+        onToggle={() => setIsFormulaSidebarOpen((prev) => !prev)}
+        onMarkUsed={onIncrementFormulaUsage}
+        onRetryFormula={onRetryFormulaGeneration}
+        readOnly
+        title="Formeln (Klausur)"
+      />
+      </>
     );
   }
 
   return (
-    <div className="w-full max-w-4xl space-y-4">
+    <>
+    <div className={`w-full max-w-4xl space-y-4 ${sidebarOffsetClass} transition-all duration-300`}>
       <div className="flex flex-col gap-2 px-1 sm:flex-row sm:items-center sm:justify-between">
         <button
           onClick={onBack}
           className="flex items-center gap-1.5 text-sm text-slate-500 hover:text-indigo-600 transition-colors"
         >
           <ArrowLeft className="w-4 h-4" />
-          Zurück
+          ZurÃ¼ck
         </button>
         <div className="flex flex-wrap items-center gap-2 sm:justify-end">
           <button
@@ -161,8 +182,8 @@ const ExamSession: React.FC<ExamSessionProps> = ({
         <div className="bg-gradient-to-r from-indigo-500 to-purple-500 px-5 sm:px-7 py-4 text-white">
           <div className="flex items-start justify-between gap-3">
             <div>
-              <p className="text-xs uppercase tracking-wider text-white/70 font-medium">Prüfung läuft</p>
-              <p className="text-sm text-white/80 mt-0.5">{session.topic} · {session.difficulty}</p>
+              <p className="text-xs uppercase tracking-wider text-white/70 font-medium">PrÃ¼fung lÃ¤uft</p>
+              <p className="text-sm text-white/80 mt-0.5">{session.topic} Â· {session.difficulty}</p>
             </div>
             <div className="text-right text-xs text-white/80">
               <div>{answeredCount}/{session.taskCount} beantwortet</div>
@@ -186,12 +207,12 @@ const ExamSession: React.FC<ExamSessionProps> = ({
           </div>
 
           <div className="space-y-3 border-t border-slate-100 pt-4">
-            <label className="block text-sm font-semibold text-slate-700">Deine Lösung</label>
+            <label className="block text-sm font-semibold text-slate-700">Deine LÃ¶sung</label>
             <textarea
               value={currentTask.userSolution ?? ''}
               onChange={e => handleUpdateCurrentTask({ userSolution: e.target.value })}
               onPaste={handlePaste}
-              placeholder="Rechenweg/Lösung hier eingeben ... oder Bild einfügen (Strg+V)"
+              placeholder="Rechenweg/LÃ¶sung hier eingeben ... oder Bild einfÃ¼gen (Strg+V)"
               className="w-full h-32 p-4 bg-slate-50 rounded-2xl border border-slate-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 focus:bg-white transition-all resize-none text-slate-700 text-base placeholder:text-slate-400"
               disabled={isSubmitting}
             />
@@ -202,12 +223,12 @@ const ExamSession: React.FC<ExamSessionProps> = ({
                 className="w-full h-24 border-2 border-dashed border-slate-300 rounded-2xl flex flex-col items-center justify-center bg-slate-50 hover:bg-indigo-50 hover:border-indigo-400 transition-all cursor-pointer group"
               >
                 <ImageIcon className="w-5 h-5 text-indigo-500 mb-1.5 group-hover:scale-110 transition-transform" />
-                <p className="text-slate-600 text-sm font-medium">Foto der Lösung hochladen</p>
+                <p className="text-slate-600 text-sm font-medium">Foto der LÃ¶sung hochladen</p>
                 <p className="text-xs text-slate-400 mt-0.5">Klicken oder Strg+V</p>
               </div>
             ) : (
               <div className="relative w-full rounded-2xl overflow-hidden border border-slate-200 bg-slate-900 group">
-                <img src={currentTask.userSolutionImage} alt="Lösung" className="w-full h-40 object-contain opacity-90" />
+                <img src={currentTask.userSolutionImage} alt="LÃ¶sung" className="w-full h-40 object-contain opacity-90" />
                 <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
                   <button
                     onClick={removeImage}
@@ -243,7 +264,7 @@ const ExamSession: React.FC<ExamSessionProps> = ({
               >
                 <span className="inline-flex items-center gap-1">
                   <ArrowLeft className="w-4 h-4" />
-                  Zurück
+                  ZurÃ¼ck
                 </span>
               </button>
               <button
@@ -279,7 +300,19 @@ const ExamSession: React.FC<ExamSessionProps> = ({
         </div>
       </div>
     </div>
+    <FormulaSidebar
+      formulas={formulas}
+      isOpen={isFormulaSidebarOpen}
+      onToggle={() => setIsFormulaSidebarOpen((prev) => !prev)}
+      onMarkUsed={onIncrementFormulaUsage}
+      onRetryFormula={onRetryFormulaGeneration}
+      readOnly
+      title="Formeln (Klausur)"
+    />
+    </>
   );
 };
 
 export default ExamSession;
+
+

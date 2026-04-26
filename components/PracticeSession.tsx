@@ -5,7 +5,8 @@ import {
 } from 'lucide-react';
 import MathRenderer from './MathRenderer';
 import SolutionViewer from './SolutionViewer';
-import { PracticeRoom, PracticeTask, MathSolution } from '../types';
+import FormulaSidebar from './FormulaSidebar';
+import { FormulaEntry, PracticeRoom, PracticeTask, MathSolution } from '../types';
 import { checkPracticeSolution, solvePracticeTask } from '../services/gemini';
 
 type SessionPhase = 
@@ -25,6 +26,13 @@ interface PracticeSessionProps {
   onNextTask: (additionalPrompt?: string) => void;
   onBack: () => void;
   isGenerating: boolean;
+  formulas: FormulaEntry[];
+  onAddFormulaFromSolution?: (formula: string, sourceLabel: string, contextText?: string) => Promise<void> | void;
+  onExtractFormulasFromChatMessage?: (message: string, sourceLabel: string) => Promise<{ added: number; extracted: number }> | void;
+  onAddFormulaManual: (formula: string, contextText?: string) => Promise<void> | void;
+  onAskFormulaPrompt: (prompt: string) => Promise<void> | void;
+  onIncrementFormulaUsage: (formulaId: string) => void;
+  onRetryFormulaGeneration: (formulaId: string) => void;
 }
 
 const PracticeSession: React.FC<PracticeSessionProps> = ({
@@ -33,7 +41,14 @@ const PracticeSession: React.FC<PracticeSessionProps> = ({
   onTaskUpdated,
   onNextTask,
   onBack,
-  isGenerating
+  isGenerating,
+  formulas,
+  onAddFormulaFromSolution,
+  onExtractFormulasFromChatMessage,
+  onAddFormulaManual,
+  onAskFormulaPrompt,
+  onIncrementFormulaUsage,
+  onRetryFormulaGeneration
 }) => {
   const [phase, setPhase] = useState<SessionPhase>(isGenerating ? 'generating' : 'task_display');
   const [solutionText, setSolutionText] = useState('');
@@ -45,6 +60,8 @@ const PracticeSession: React.FC<PracticeSessionProps> = ({
   const [additionalPrompt, setAdditionalPrompt] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [showHistory, setShowHistory] = useState(false);
+  const [isFormulaSidebarOpen, setIsFormulaSidebarOpen] = useState(false);
+  const sidebarOffsetClass = isFormulaSidebarOpen ? 'md:pl-[430px]' : '';
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   React.useEffect(() => {
@@ -186,7 +203,8 @@ const PracticeSession: React.FC<PracticeSessionProps> = ({
 
   if (phase === 'generating') {
     return (
-      <div className="w-full max-w-4xl">
+      <>
+      <div className={`w-full max-w-4xl ${sidebarOffsetClass} transition-all duration-300`}>
         <div className="bg-white rounded-2xl sm:rounded-3xl shadow-xl border border-slate-100 p-8 sm:p-12 text-center">
           <div className="inline-block relative w-20 h-20 mb-6">
             <div className="absolute top-0 left-0 w-full h-full border-4 border-indigo-100 rounded-full animate-pulse" />
@@ -197,12 +215,23 @@ const PracticeSession: React.FC<PracticeSessionProps> = ({
           </p>
         </div>
       </div>
+      <FormulaSidebar
+        formulas={formulas}
+        isOpen={isFormulaSidebarOpen}
+        onToggle={() => setIsFormulaSidebarOpen((prev) => !prev)}
+        onMarkUsed={onIncrementFormulaUsage}
+        onRetryFormula={onRetryFormulaGeneration}
+        onAddFormulaLatex={onAddFormulaManual}
+        onAskFormulaPrompt={onAskFormulaPrompt}
+      />
+      </>
     );
   }
 
   if (phase === 'loading_solution') {
     return (
-      <div className="w-full max-w-4xl space-y-4">
+      <>
+      <div className={`w-full max-w-4xl space-y-4 ${sidebarOffsetClass} transition-all duration-300`}>
         <div className="flex items-center justify-between px-1">
           <button
             onClick={onBack}
@@ -242,6 +271,16 @@ const PracticeSession: React.FC<PracticeSessionProps> = ({
           </div>
         </div>
       </div>
+      <FormulaSidebar
+        formulas={formulas}
+        isOpen={isFormulaSidebarOpen}
+        onToggle={() => setIsFormulaSidebarOpen((prev) => !prev)}
+        onMarkUsed={onIncrementFormulaUsage}
+        onRetryFormula={onRetryFormulaGeneration}
+        onAddFormulaLatex={onAddFormulaManual}
+        onAskFormulaPrompt={onAskFormulaPrompt}
+      />
+      </>
     );
   }
 
@@ -252,13 +291,21 @@ const PracticeSession: React.FC<PracticeSessionProps> = ({
           solution={fullSolution}
           onReset={() => handleNextTask()}
           initialPrompt={currentTask.taskText}
+          formulas={formulas}
+          onAddFormulaFromSolution={onAddFormulaFromSolution}
+          onExtractFormulasFromChatMessage={onExtractFormulasFromChatMessage}
+          onAddFormulaManual={onAddFormulaManual}
+          onAskFormulaPrompt={onAskFormulaPrompt}
+          onIncrementFormulaUsage={onIncrementFormulaUsage}
+          onRetryFormulaGeneration={onRetryFormulaGeneration}
         />
       </div>
     );
   }
 
   return (
-    <div className="w-full max-w-4xl space-y-4">
+    <>
+    <div className={`w-full max-w-4xl space-y-4 ${sidebarOffsetClass} transition-all duration-300`}>
       {/* Stats bar */}
       <div className="flex items-center justify-between px-1">
         <button
@@ -513,6 +560,16 @@ const PracticeSession: React.FC<PracticeSessionProps> = ({
         </div>
       </div>
     </div>
+    <FormulaSidebar
+      formulas={formulas}
+      isOpen={isFormulaSidebarOpen}
+      onToggle={() => setIsFormulaSidebarOpen((prev) => !prev)}
+      onMarkUsed={onIncrementFormulaUsage}
+      onRetryFormula={onRetryFormulaGeneration}
+      onAddFormulaLatex={onAddFormulaManual}
+      onAskFormulaPrompt={onAskFormulaPrompt}
+    />
+    </>
   );
 };
 
