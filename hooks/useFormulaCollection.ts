@@ -140,6 +140,7 @@ export const useFormulaCollection = () => {
                 examples: sanitized.examples,
                 purpose: sanitized.purpose,
                 tags: sanitized.tags,
+                detailCards: sanitized.detailCards,
                 status: 'ready',
                 generationError: undefined,
                 updatedAt: Date.now()
@@ -185,7 +186,8 @@ export const useFormulaCollection = () => {
           payload.stepByStepExplanation.trim().length > 0 ||
           payload.examples.length > 0 ||
           payload.purpose.trim().length > 0 ||
-          payload.tags.length > 0);
+          payload.tags.length > 0 ||
+          (payload.detailCards?.length ?? 0) > 0);
       const status: FormulaEntry['status'] = autoGenerate && !hasPrefilledData ? 'pending' : 'ready';
 
       return {
@@ -198,6 +200,7 @@ export const useFormulaCollection = () => {
         examples: payload.examples,
         purpose: payload.purpose,
         tags: payload.tags,
+        detailCards: payload.detailCards,
         usageCount: 0,
         projectIds: normalizeProjectIds(options.projectId ? [options.projectId] : []),
         sourceRefs: [sourceRef],
