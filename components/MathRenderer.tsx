@@ -542,13 +542,20 @@ const normalizeSpecialMathNames = (input: string): string => {
 const normalizeOperatorAttachments = (input: string): string => {
   let next = input;
 
-  // Common glued forms from malformed output.
+  // Greek-letter-specific glued forms (must run before the general single-letter rule below).
   next = next
     .replace(/\\partialtheta/g, '\\partial\\theta')
     .replace(/\\partiallambda/g, '\\partial\\lambda')
-    .replace(/\\partialsigma/g, '\\partial\\sigma')
-    .replace(/\\lnf(?=\s*\()/g, '\\ln f')
-    .replace(/\\lnx(?=\b|\s)/g, '\\ln x');
+    .replace(/\\partialsigma/g, '\\partial\\sigma');
+
+  // \partial glued to a single letter, e.g. \partiall -> \partial l (but not \partialtheta which is already handled above).
+  next = next.replace(/\\partial([A-Za-z])(?![A-Za-z])/g, (_m, letter: string) => `\\partial ${letter}`);
+
+  // Operator commands glued to a single following letter, e.g. \lnL -> \ln L, \lnf -> \ln f.
+  next = next.replace(
+    /\\(ln|log|sin|cos|tan|exp|det|dim|ker|deg)([A-Za-z])(?![A-Za-z])/g,
+    (_m, cmd: string, letter: string) => `\\${cmd} ${letter}`
+  );
 
   return next;
 };
