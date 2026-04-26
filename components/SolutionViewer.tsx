@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { MathSolution } from '../types';
+import { FormulaEntry, MathSolution } from '../types';
 import MathRenderer from './MathRenderer';
 import SidePanel from './SidePanel';
+import FormulaSidebar from './FormulaSidebar';
 import { ChevronLeft, ChevronRight, List, CheckCircle2, RotateCcw, Loader2, X, Download, FileText, Play, Square, Volume2, VolumeX } from 'lucide-react';
 import { speakText } from '../services/tts';
 
@@ -10,8 +11,15 @@ interface SolutionViewerProps {
   initialPrompt: string;
   onReset: () => void;
   initialView?: 'start' | 'summary';
-  onDownloadMarkdown: () => void;
-  onDownloadPdf: () => void;
+  onDownloadMarkdown?: () => void;
+  onDownloadPdf?: () => void;
+  formulas?: FormulaEntry[];
+  onAddFormulaFromSolution?: (formula: string, sourceLabel: string, contextText?: string) => Promise<void> | void;
+  onExtractFormulasFromChatMessage?: (message: string, sourceLabel: string) => Promise<{ added: number; extracted: number }> | void;
+  onAddFormulaManual?: (formula: string, contextText?: string) => Promise<void> | void;
+  onAskFormulaPrompt?: (prompt: string) => Promise<void> | void;
+  onIncrementFormulaUsage?: (formulaId: string) => void;
+  onRetryFormulaGeneration?: (formulaId: string) => void;
 }
 
 const looksTechnicalTutorFinalAnswer = (text: string): boolean =>
@@ -200,13 +208,21 @@ const SolutionViewer: React.FC<SolutionViewerProps> = ({
   initialPrompt,
   onReset,
   initialView = 'start',
-  onDownloadMarkdown,
-  onDownloadPdf
+  onDownloadMarkdown = () => {},
+  onDownloadPdf = () => {},
+  formulas = [],
+  onAddFormulaFromSolution,
+  onExtractFormulasFromChatMessage,
+  onAddFormulaManual,
+  onAskFormulaPrompt,
+  onIncrementFormulaUsage,
+  onRetryFormulaGeneration
 }) => {
   const [currentStep, setCurrentStep] = useState(0);
   const [currentSubstepIndex, setCurrentSubstepIndex] = useState(0);
   const [showSummary, setShowSummary] = useState(initialView === 'summary');
   const [isSidePanelOpen, setIsSidePanelOpen] = useState(false);
+  const [isFormulaSidebarOpen, setIsFormulaSidebarOpen] = useState(false);
   const [isTocOpenMobile, setIsTocOpenMobile] = useState(false);
   const [isStepNarratorEnabled, setIsStepNarratorEnabled] = useState(false);
   const [isStepNarratorLoading, setIsStepNarratorLoading] = useState(false);
@@ -265,6 +281,11 @@ const SolutionViewer: React.FC<SolutionViewerProps> = ({
 
   const currentUnitIndex = unitsBeforeCurrentLesson + (hasSubsteps ? currentSubstepIndex : 0);
   const activeStepFormulas = getVisibleFormulas(activeStep?.formulas);
+
+  const addFormulaToCollection = async (formula: string, sourceLabel: string, contextText?: string) => {
+    if (!onAddFormulaFromSolution) return;
+    await onAddFormulaFromSolution(formula, sourceLabel, contextText);
+  };
 
   const clearPreloadedStepNarration = () => {
     preloadingStepNarrationKeyRef.current = null;
@@ -712,7 +733,8 @@ const SolutionViewer: React.FC<SolutionViewerProps> = ({
   }
 
   if (showSummary) {
-    const desktopLayoutClass = isSidePanelOpen ? 'lg:pl-[320px] md:pr-[400px]' : 'lg:pl-[320px]';
+    const leftOffsetClass = isFormulaSidebarOpen ? 'md:pl-[430px]' : 'lg:pl-[320px]';
+    const desktopLayoutClass = `${leftOffsetClass} ${isSidePanelOpen ? 'md:pr-[400px]' : ''}`.trim();
     return (
       <div className={`w-full relative px-0 sm:px-2 md:px-0 ${desktopLayoutClass}`}>
         {renderMobileTocButton()}
@@ -775,7 +797,23 @@ const SolutionViewer: React.FC<SolutionViewerProps> = ({
                           {getVisibleFormulas(substep.formulas).length > 0 && (
                             <div className="bg-slate-50 p-3 rounded-xl border border-slate-200">
                               {getVisibleFormulas(substep.formulas).map((formula, fIdx) => (
-                                <MathRenderer key={fIdx} content={toDisplayMathContent(formula)} />
+                                <div key={fIdx} className="space-y-2">
+                                  <MathRenderer content={toDisplayMathContent(formula)} />
+                                  {onAddFormulaFromSolution && (
+                                    <button
+                                      onClick={() =>
+                                        void addFormulaToCollection(
+                                          formula,
+                                          `Zusammenfassung: Lektion ${idx + 1}, Schritt ${sIdx + 1}`,
+                                          substep.explanation
+                                        )
+                                      }
+                                      className="rounded-lg border border-indigo-200 bg-white px-2 py-1 text-xs font-semibold text-indigo-700 hover:bg-indigo-50"
+                                    >
+                                      Zur Formelsammlung
+                                    </button>
+                                  )}
+                                </div>
                               ))}
                             </div>
                           )}
@@ -790,7 +828,23 @@ const SolutionViewer: React.FC<SolutionViewerProps> = ({
                       {getVisibleFormulas(step.formulas).length > 0 && (
                         <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
                           {getVisibleFormulas(step.formulas).map((formula, fIdx) => (
-                            <MathRenderer key={fIdx} content={toDisplayMathContent(formula)} />
+                            <div key={fIdx} className="space-y-2">
+                              <MathRenderer content={toDisplayMathContent(formula)} />
+                              {onAddFormulaFromSolution && (
+                                <button
+                                  onClick={() =>
+                                    void addFormulaToCollection(
+                                      formula,
+                                      `Zusammenfassung: Schritt ${idx + 1}`,
+                                      step.explanation
+                                    )
+                                  }
+                                  className="rounded-lg border border-indigo-200 bg-white px-2 py-1 text-xs font-semibold text-indigo-700 hover:bg-indigo-50"
+                                >
+                                  Zur Formelsammlung
+                                </button>
+                              )}
+                            </div>
                           ))}
                         </div>
                       )}
@@ -831,7 +885,8 @@ const SolutionViewer: React.FC<SolutionViewerProps> = ({
   const progressContainerClass = 'mb-4 sm:mb-6 w-full bg-slate-200 rounded-full h-2.5 overflow-hidden';
 
   const containerClass = 'bg-white rounded-2xl md:rounded-3xl shadow-xl overflow-hidden border border-slate-100 min-h-[400px] flex flex-col transition-all duration-300';
-  const desktopLayoutClass = isSidePanelOpen ? 'lg:pl-[320px] md:pr-[400px]' : 'lg:pl-[320px]';
+  const leftOffsetClass = isFormulaSidebarOpen ? 'md:pl-[430px]' : 'lg:pl-[320px]';
+  const desktopLayoutClass = `${leftOffsetClass} ${isSidePanelOpen ? 'md:pr-[400px]' : ''}`.trim();
 
   return (
     <div className={`w-full relative px-0 sm:px-2 md:px-0 ${desktopLayoutClass}`}>
@@ -937,8 +992,22 @@ const SolutionViewer: React.FC<SolutionViewerProps> = ({
                 {activeStepFormulas.length > 0 && (
                   <div className="bg-indigo-50/50 rounded-2xl p-4 sm:p-6 border border-indigo-100 flex-1 flex flex-col justify-center items-center space-y-3 sm:space-y-4 shadow-inner overflow-x-auto">
                     {activeStepFormulas.map((formula, idx) => (
-                      <div key={idx} className="w-full transition-all duration-500 animate-in fade-in slide-in-from-bottom-4">
+                      <div key={idx} className="w-full transition-all duration-500 animate-in fade-in slide-in-from-bottom-4 space-y-2">
                         <MathRenderer content={toDisplayMathContent(formula)} />
+                        {onAddFormulaFromSolution && (
+                          <button
+                            onClick={() =>
+                              void addFormulaToCollection(
+                                formula,
+                                `${chatStepLabel}: ${activeStep.title || currentLesson.title}`,
+                                activeStep.explanation
+                              )
+                            }
+                            className="rounded-lg border border-indigo-200 bg-white px-2 py-1 text-xs font-semibold text-indigo-700 hover:bg-indigo-50"
+                          >
+                            Zur Formelsammlung
+                          </button>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -1007,6 +1076,17 @@ const SolutionViewer: React.FC<SolutionViewerProps> = ({
         stepLabel={chatStepLabel}
         stepScopeKey={chatStepScopeKey}
         initialPrompt={initialPrompt}
+        onExtractFormulasFromMessage={onExtractFormulasFromChatMessage}
+      />
+
+      <FormulaSidebar
+        formulas={formulas}
+        isOpen={isFormulaSidebarOpen}
+        onToggle={() => setIsFormulaSidebarOpen((prev) => !prev)}
+        onMarkUsed={(formulaId) => onIncrementFormulaUsage?.(formulaId)}
+        onRetryFormula={(formulaId) => onRetryFormulaGeneration?.(formulaId)}
+        onAddFormulaLatex={onAddFormulaManual}
+        onAskFormulaPrompt={onAskFormulaPrompt}
       />
     </div>
   );
