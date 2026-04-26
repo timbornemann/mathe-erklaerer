@@ -6,6 +6,46 @@ export enum InputMode {
   EXAM = 'EXAM'
 }
 
+export type FormulaStatus = 'pending' | 'ready' | 'failed';
+
+export type FormulaSourceType = 'solution-step' | 'chat-message' | 'manual' | 'prompt';
+
+export interface FormulaSourceRef {
+  id: string;
+  type: FormulaSourceType;
+  label: string;
+  createdAt: number;
+}
+
+export interface FormulaGenerationPayload {
+  formula: string;
+  title: string;
+  shortExplanation: string;
+  stepByStepExplanation: string;
+  examples: string[];
+  purpose: string;
+  tags: string[];
+}
+
+export interface FormulaEntry {
+  id: string;
+  formula: string;
+  normalizedFormula: string;
+  title: string;
+  shortExplanation: string;
+  stepByStepExplanation: string;
+  examples: string[];
+  purpose: string;
+  tags: string[];
+  usageCount: number;
+  projectIds: string[];
+  sourceRefs: FormulaSourceRef[];
+  status: FormulaStatus;
+  generationError?: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
 export interface SolutionStep {
   title: string;
   explanation: string;
@@ -134,6 +174,8 @@ export interface ExportStatistics {
   totalTasksCompleted: number;
   examSessionsCount: number;
   examTasksCompleted: number;
+  formulasCount: number;
+  formulasUsageTotal: number;
 }
 
 export interface ExportData {
@@ -144,5 +186,6 @@ export interface ExportData {
   activeProjectId: string | null;
   practiceRooms: PracticeRoom[];
   examSessions: ExamSession[];
+  formulas: FormulaEntry[];
   statistics: ExportStatistics;
 }
