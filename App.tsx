@@ -13,6 +13,7 @@ import ExamSession from './components/ExamSession';
 import ExamResultView from './components/ExamResultView';
 import PrintExportPage from './components/PrintExportPage';
 import FormulaCollectionView from './components/FormulaCollectionView';
+import FormulaDetailView from './components/FormulaDetailView';
 import {
   MathState,
   InputMode,
@@ -265,6 +266,7 @@ const App: React.FC = () => {
   const [retryingHistoryId, setRetryingHistoryId] = useState<string | null>(null);
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const [projectsView, setProjectsView] = useState<ProjectsView>('folders');
+  const [activeFormulaDetailId, setActiveFormulaDetailId] = useState<string | null>(null);
   const [projectModalOpen, setProjectModalOpen] = useState(false);
   const [editingProjectId, setEditingProjectId] = useState<string | null>(null);
   const [editingHistoryItemId, setEditingHistoryItemId] = useState<string | null>(null);
@@ -389,6 +391,12 @@ const App: React.FC = () => {
       setProjectsView('folders');
     }
   }, [activeMainTab, projects, projectsView, selectedProjectId]);
+
+  useEffect(() => {
+    if (!activeFormulaDetailId) return;
+    if (formulas.some((formula) => formula.id === activeFormulaDetailId)) return;
+    setActiveFormulaDetailId(null);
+  }, [activeFormulaDetailId, formulas]);
 
   const savePracticeRooms = useCallback((rooms: PracticeRoom[]) => {
     localStorage.setItem(PRACTICE_ROOMS_KEY, JSON.stringify(rooms));
@@ -725,6 +733,7 @@ const App: React.FC = () => {
   const handleModeChange = (mode: InputMode) => {
     setActiveMainTab(mode);
     setProjectsView('folders');
+    setActiveFormulaDetailId(null);
     setProjectModalOpen(false);
     setActiveHistoryId(null);
     setSolutionOpenView('start');
@@ -750,6 +759,7 @@ const App: React.FC = () => {
   const handleProjectsTabOpen = () => {
     setActiveMainTab('PROJECTS');
     setProjectsView('folders');
+    setActiveFormulaDetailId(null);
     setActiveHistoryId(null);
     setSolutionOpenView('start');
     setSolutionReturnTarget(null);
@@ -764,6 +774,7 @@ const App: React.FC = () => {
   const handleFormulasTabOpen = () => {
     setActiveMainTab('FORMULAS');
     setProjectsView('folders');
+    setActiveFormulaDetailId(null);
     setProjectModalOpen(false);
     setActiveHistoryId(null);
     setSolutionOpenView('start');
@@ -1822,6 +1833,9 @@ const App: React.FC = () => {
 
   const isProjectsTab = activeMainTab === 'PROJECTS';
   const isFormulasTab = activeMainTab === 'FORMULAS';
+  const activeFormulaDetail = activeFormulaDetailId
+    ? formulas.find(formula => formula.id === activeFormulaDetailId) ?? null
+    : null;
   const selectedProject = projects.find(project => project.id === selectedProjectId) ?? null;
   const selectedProjectHistory = history.filter(item => item.projectId === selectedProjectId);
   const selectedProjectSolutionHistory = selectedProjectHistory.filter(
@@ -1831,7 +1845,8 @@ const App: React.FC = () => {
   const selectedProjectPracticeRooms = practiceRooms.filter(room => room.projectId === selectedProjectId);
   const selectedProjectExamSessions = (state.examSessions ?? []).filter(session => session.projectId === selectedProjectId);
   const isProjectDetailView = isProjectsTab && projectsView === 'detail';
-  const pageMaxWidthClass = isProjectDetailView ? PROJECT_DETAIL_MAX_WIDTH_CLASS : 'max-w-4xl';
+  const isFormulaDetailView = isFormulasTab && !!activeFormulaDetail;
+  const pageMaxWidthClass = isProjectDetailView || isFormulaDetailView ? PROJECT_DETAIL_MAX_WIDTH_CLASS : 'max-w-4xl';
   const projectDetailListClass = 'space-y-2 xl:max-h-[520px] xl:overflow-y-auto xl:pr-1';
 
   if (printExportKey) {
@@ -2288,16 +2303,16 @@ const App: React.FC = () => {
       {/* Main Area */}
       <main
         className={
-          isProjectDetailView
+          isProjectDetailView || isFormulaDetailView
             ? `w-full ${PROJECT_DETAIL_MAX_WIDTH_CLASS} mb-8 md:mb-12`
             : 'w-full max-w-4xl bg-white rounded-2xl sm:rounded-3xl shadow-xl overflow-hidden border border-slate-100 transition-all mb-8 md:mb-12'
         }
       >
         
         {/* Input Section */}
-        <div className={isProjectDetailView ? 'space-y-6' : 'p-4 sm:p-6 md:p-8 bg-white'}>
+        <div className={isProjectDetailView || isFormulaDetailView ? 'space-y-6' : 'p-4 sm:p-6 md:p-8 bg-white'}>
           
-          {!isProjectDetailView && (
+          {!isProjectDetailView && !isFormulaDetailView && (
             <>
               <div className="mb-4 sm:mb-5">
                 <div className="space-y-1">
@@ -2995,23 +3010,45 @@ const App: React.FC = () => {
             </div>
           )}
 
-          {isFormulasTab && (
-            <FormulaCollectionView
-              formulas={formulas}
-              projects={projects}
-              activeProjectId={state.activeProjectId}
-              onAddFormulaLatex={handleAddFormulaManual}
-              onAskFormulaPrompt={handleAskFormulaPrompt}
-              onUpdateFormula={updateFormula}
-              onDeleteFormula={deleteFormula}
-              onMarkUsed={incrementFormulaUsage}
-              onRetryFormula={(formulaId) => {
-                void retryFormulaGeneration(formulaId);
-              }}
-              onDownloadCheatSheetMarkdown={handleDownloadFormulaCheatSheetMarkdown}
-              onDownloadCheatSheetPdf={handleDownloadFormulaCheatSheetPdf}
-            />
-          )}
+          {isFormulasTab &&
+            (activeFormulaDetail ? (
+              <FormulaDetailView
+                formula={activeFormulaDetail}
+                onBack={() => setActiveFormulaDetailId(null)}
+                onGeneratePremium={() => {
+                  void retryFormulaGeneration(activeFormulaDetail.id);
+                }}
+                onMarkUsed={() => incrementFormulaUsage(activeFormulaDetail.id)}
+                onRetryFormula={
+                  activeFormulaDetail.status === 'failed'
+                    ? () => {
+                        void retryFormulaGeneration(activeFormulaDetail.id);
+                      }
+                    : undefined
+                }
+                onDelete={() => {
+                  deleteFormula(activeFormulaDetail.id);
+                  setActiveFormulaDetailId(null);
+                }}
+              />
+            ) : (
+              <FormulaCollectionView
+                formulas={formulas}
+                projects={projects}
+                activeProjectId={state.activeProjectId}
+                onAddFormulaLatex={handleAddFormulaManual}
+                onAskFormulaPrompt={handleAskFormulaPrompt}
+                onUpdateFormula={updateFormula}
+                onDeleteFormula={deleteFormula}
+                onMarkUsed={incrementFormulaUsage}
+                onRetryFormula={(formulaId) => {
+                  void retryFormulaGeneration(formulaId);
+                }}
+                onDownloadCheatSheetMarkdown={handleDownloadFormulaCheatSheetMarkdown}
+                onDownloadCheatSheetPdf={handleDownloadFormulaCheatSheetPdf}
+                onOpenFormulaDetail={setActiveFormulaDetailId}
+              />
+            ))}
 
           {/* Aufgabe (Text + optional Foto) */}
           {!isProjectsTab && !isFormulasTab && state.inputMode === InputMode.TEXT && (
