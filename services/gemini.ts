@@ -1,5 +1,11 @@
 import { GoogleGenAI, Type } from "@google/genai";
-import { InputMode, MathSolution, SolutionStep, PracticeTask } from "../types";
+import {
+  FormulaGenerationPayload,
+  InputMode,
+  MathSolution,
+  PracticeTask,
+  SolutionStep
+} from "../types";
 
 const GRAPH_INSTRUCTIONS = `
 GRAPH-OPTIONEN (nur wenn didaktisch sinnvoll):
@@ -534,6 +540,86 @@ ${GRAPH_INSTRUCTIONS}
 6. Das Ausgabeformat muss striktes JSON sein.
 `;
 
+const FORMULA_EXTRACT_PROMPT = `
+Du extrahierst mathematische Formeln aus einer Chatnachricht.
+
+REGELN:
+1. Erkenne mathematische Formeln robust, auch wenn sie in normalem Text stehen.
+2. Gib Formeln als reinen LaTeX-Text ohne Dollarzeichen aus.
+3. Keine Duplikate.
+4. Keine Erklaerung, nur JSON.
+5. Format:
+   {
+     "formulas": ["..."]
+   }
+`;
+
+const FORMULA_FROM_LATEX_PROMPT = `
+Du erstellst eine hochwertige Lernkarte zu EINER mathematischen Formel.
+
+REGELN:
+1. Erstelle didaktisch klare Inhalte auf Deutsch.
+2. Die Formel selbst bleibt als roher LaTeX-String ohne Dollarzeichen.
+3. Felder:
+   - title: kurzer, praeziser Titel
+   - shortExplanation: 1-2 Saetze
+   - stepByStepExplanation: ausfuehrliche Schritt-fuer-Schritt-Erklaerung
+   - examples: 2-4 konkrete Beispiele
+   - purpose: wann und wofuer nutzt man die Formel
+   - tags: 3-8 thematische Tags (kleingeschrieben)
+4. Gib strikt JSON aus.
+`;
+
+const FORMULA_FROM_PROMPT_PROMPT = `
+Du beantwortest eine Nutzerfrage nach einer Formel und erzeugst eine komplette Lernkarte.
+
+REGELN:
+1. Liefere genau EINE Hauptformel (roher LaTeX ohne Dollarzeichen).
+2. Erstelle alle Felder fuer eine Lernkarte:
+   - formula
+   - title
+   - shortExplanation
+   - stepByStepExplanation
+   - examples
+   - purpose
+   - tags
+3. Schreibe auf Deutsch.
+4. Ausgabe nur als valides JSON.
+`;
+
+const sanitizeFormulaPayload = (raw: any): FormulaGenerationPayload => {
+  const toStringArray = (value: unknown): string[] =>
+    Array.isArray(value)
+      ? value
+          .filter((entry): entry is string => typeof entry === 'string')
+          .map((entry) => entry.trim())
+          .filter((entry) => entry.length > 0)
+      : [];
+
+  const normalizeTags = (tags: string[]): string[] => {
+    const seen = new Set<string>();
+    const normalized: string[] = [];
+    for (const tag of tags) {
+      const value = tag.trim().toLowerCase();
+      if (!value || seen.has(value)) continue;
+      seen.add(value);
+      normalized.push(value);
+    }
+    return normalized;
+  };
+
+  const formula = typeof raw?.formula === 'string' ? raw.formula.trim() : '';
+  return {
+    formula,
+    title: typeof raw?.title === 'string' && raw.title.trim() ? raw.title.trim() : 'Neue Formel',
+    shortExplanation: typeof raw?.shortExplanation === 'string' ? raw.shortExplanation.trim() : '',
+    stepByStepExplanation: typeof raw?.stepByStepExplanation === 'string' ? raw.stepByStepExplanation.trim() : '',
+    examples: toStringArray(raw?.examples),
+    purpose: typeof raw?.purpose === 'string' ? raw.purpose.trim() : '',
+    tags: normalizeTags(toStringArray(raw?.tags))
+  };
+};
+
 export const generatePracticeTask = async (
   topic: string,
   difficulty: string,
@@ -658,6 +744,162 @@ export const solvePracticeTask = async (
   } catch (error: any) {
     console.error("Practice Solve Error:", error);
     throw new Error(error?.message || "Lösung konnte nicht erstellt werden.");
+  }
+};
+
+export const extractFormulasFromMessage = async (message: string): Promise<string[]> => {
+  try {
+    const text = message.trim();
+    if (!text) return [];
+
+    const ai = new GoogleGenAI({ apiKey: getApiKey() });
+    const modelId = 'gemini-3-pro-preview';
+
+    const parsed = await generateStructuredJson(
+      ai,
+      modelId,
+      {
+        role: 'user',
+        parts: [{ text }]
+      },
+      {
+        systemInstruction: FORMULA_EXTRACT_PROMPT,
+        thinkingConfig: { thinkingBudget: 1024 },
+        maxOutputTokens: 4096,
+        responseMimeType: 'application/json',
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            formulas: {
+              type: Type.ARRAY,
+              items: { type: Type.STRING }
+            }
+          },
+          required: ['formulas']
+        }
+      }
+    );
+
+    const formulas = Array.isArray(parsed?.formulas)
+      ? parsed.formulas
+          .filter((entry: unknown): entry is string => typeof entry === 'string')
+          .map((entry: string) => entry.trim())
+          .filter((entry: string) => entry.length > 0)
+      : [];
+
+    return Array.from(new Set(formulas));
+  } catch (error: any) {
+    console.error('Extract Formula Error:', error);
+    throw new Error(error?.message || 'Formeln konnten nicht aus der Nachricht extrahiert werden.');
+  }
+};
+
+export const generateFormulaFromLatex = async (
+  formula: string,
+  contextText?: string
+): Promise<FormulaGenerationPayload> => {
+  try {
+    const latex = formula.trim();
+    if (!latex) {
+      throw new Error('Leere Formel kann nicht verarbeitet werden.');
+    }
+
+    const ai = new GoogleGenAI({ apiKey: getApiKey() });
+    const modelId = 'gemini-3-pro-preview';
+    const prompt = contextText?.trim()
+      ? `Formel: ${latex}\n\nZusatzkontext:\n${contextText.trim()}`
+      : `Formel: ${latex}`;
+
+    const parsed = await generateStructuredJson(
+      ai,
+      modelId,
+      {
+        role: 'user',
+        parts: [{ text: prompt }]
+      },
+      {
+        systemInstruction: FORMULA_FROM_LATEX_PROMPT,
+        thinkingConfig: { thinkingBudget: 2048 },
+        maxOutputTokens: 4096,
+        responseMimeType: 'application/json',
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            title: { type: Type.STRING },
+            shortExplanation: { type: Type.STRING },
+            stepByStepExplanation: { type: Type.STRING },
+            examples: {
+              type: Type.ARRAY,
+              items: { type: Type.STRING }
+            },
+            purpose: { type: Type.STRING },
+            tags: {
+              type: Type.ARRAY,
+              items: { type: Type.STRING }
+            }
+          },
+          required: ['title', 'shortExplanation', 'stepByStepExplanation', 'examples', 'purpose', 'tags']
+        }
+      }
+    );
+
+    return sanitizeFormulaPayload({ ...parsed, formula: latex });
+  } catch (error: any) {
+    console.error('Generate Formula From Latex Error:', error);
+    throw new Error(error?.message || 'Formelkarte konnte nicht erzeugt werden.');
+  }
+};
+
+export const generateFormulaFromPrompt = async (
+  question: string
+): Promise<FormulaGenerationPayload> => {
+  try {
+    const prompt = question.trim();
+    if (!prompt) {
+      throw new Error('Bitte gib eine Frage ein.');
+    }
+
+    const ai = new GoogleGenAI({ apiKey: getApiKey() });
+    const modelId = 'gemini-3-pro-preview';
+
+    const parsed = await generateStructuredJson(
+      ai,
+      modelId,
+      {
+        role: 'user',
+        parts: [{ text: prompt }]
+      },
+      {
+        systemInstruction: FORMULA_FROM_PROMPT_PROMPT,
+        thinkingConfig: { thinkingBudget: 2048 },
+        maxOutputTokens: 4096,
+        responseMimeType: 'application/json',
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            formula: { type: Type.STRING },
+            title: { type: Type.STRING },
+            shortExplanation: { type: Type.STRING },
+            stepByStepExplanation: { type: Type.STRING },
+            examples: {
+              type: Type.ARRAY,
+              items: { type: Type.STRING }
+            },
+            purpose: { type: Type.STRING },
+            tags: {
+              type: Type.ARRAY,
+              items: { type: Type.STRING }
+            }
+          },
+          required: ['formula', 'title', 'shortExplanation', 'stepByStepExplanation', 'examples', 'purpose', 'tags']
+        }
+      }
+    );
+
+    return sanitizeFormulaPayload(parsed);
+  } catch (error: any) {
+    console.error('Generate Formula From Prompt Error:', error);
+    throw new Error(error?.message || 'Formel konnte aus der Frage nicht erzeugt werden.');
   }
 };
 
