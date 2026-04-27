@@ -199,9 +199,16 @@ export const buildFormulaCheatSheetMarkdown = (formulas: FormulaEntry[]): string
   ];
 
   formulas.forEach((entry, index) => {
+    const totalCards = entry.learningPath.reduce((sum, lesson) => sum + lesson.cards.length, 0);
+    const topTakeaways = entry.learningPath
+      .map((lesson) => lesson.takeaway.trim())
+      .filter((takeaway) => takeaway.length > 0)
+      .slice(0, 2);
+
     lines.push(`### ${index + 1}. ${entry.title || 'Formel'}`);
     lines.push('');
     lines.push(`- Nutzung: ${entry.usageCount}x`);
+    lines.push(`- Lernpfad: ${entry.learningPath.length} Lektionen, ${totalCards} Karten`);
     if (entry.tags.length > 0) {
       lines.push(`- Tags: ${entry.tags.join(', ')}`);
     }
@@ -209,19 +216,14 @@ export const buildFormulaCheatSheetMarkdown = (formulas: FormulaEntry[]): string
     lines.push(`$$${entry.formula}$$`);
     lines.push('');
 
-    if (entry.shortExplanation.trim()) {
-      lines.push(entry.shortExplanation.trim());
+    if (entry.summary.trim()) {
+      lines.push(entry.summary.trim());
       lines.push('');
     }
 
-    if (entry.purpose.trim()) {
-      lines.push(`Verwendungszweck: ${entry.purpose.trim()}`);
-      lines.push('');
-    }
-
-    if (entry.examples.length > 0) {
-      lines.push('Beispiele:');
-      entry.examples.forEach((example) => lines.push(`- ${example}`));
+    if (topTakeaways.length > 0) {
+      lines.push('Merkpunkte aus dem Lernpfad:');
+      topTakeaways.forEach((takeaway) => lines.push(`- ${takeaway}`));
       lines.push('');
     }
   });

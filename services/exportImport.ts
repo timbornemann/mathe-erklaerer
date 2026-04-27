@@ -17,7 +17,7 @@ import {
   sanitizeFormulaList
 } from './formulaCollection';
 
-export const CURRENT_EXPORT_VERSION = 3;
+export const CURRENT_EXPORT_VERSION = 4;
 
 export type ImportStrategy = 'replace' | 'merge' | 'skipConflicts';
 
@@ -611,13 +611,13 @@ const mergeFormulaEntry = (current: FormulaEntry, incoming: FormulaEntry): Formu
     status === 'failed'
       ? incoming.generationError || current.generationError
       : undefined;
-  const preferredDetailCards =
-    Array.isArray(preferred.detailCards) && preferred.detailCards.length > 0
-      ? preferred.detailCards
+  const preferredLearningPath =
+    Array.isArray(preferred.learningPath) && preferred.learningPath.length > 0
+      ? preferred.learningPath
       : undefined;
-  const fallbackDetailCards =
-    Array.isArray(fallback.detailCards) && fallback.detailCards.length > 0
-      ? fallback.detailCards
+  const fallbackLearningPath =
+    Array.isArray(fallback.learningPath) && fallback.learningPath.length > 0
+      ? fallback.learningPath
       : undefined;
 
   return {
@@ -626,17 +626,14 @@ const mergeFormulaEntry = (current: FormulaEntry, incoming: FormulaEntry): Formu
     formula: preferred.formula || fallback.formula,
     normalizedFormula: preferred.normalizedFormula || fallback.normalizedFormula,
     title: preferred.title || fallback.title,
-    shortExplanation: preferred.shortExplanation || fallback.shortExplanation,
-    stepByStepExplanation: preferred.stepByStepExplanation || fallback.stepByStepExplanation,
-    examples: mergeTextLists(preferred.examples ?? [], fallback.examples ?? []),
-    purpose: preferred.purpose || fallback.purpose,
+    summary: preferred.summary || fallback.summary,
     tags: normalizeTagList([...(preferred.tags ?? []), ...(fallback.tags ?? [])]),
     projectIds: normalizeProjectIds([...(preferred.projectIds ?? []), ...(fallback.projectIds ?? [])]),
     sourceRefs: mergeSourceRefs(
       (current.sourceRefs ?? []) as FormulaSourceRef[],
       (incoming.sourceRefs ?? []) as FormulaSourceRef[]
     ),
-    detailCards: preferredDetailCards ?? fallbackDetailCards,
+    learningPath: preferredLearningPath ?? fallbackLearningPath ?? [],
     usageCount: Math.max(current.usageCount ?? 0, incoming.usageCount ?? 0),
     status,
     generationError,
