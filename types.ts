@@ -17,21 +17,25 @@ export interface FormulaSourceRef {
   createdAt: number;
 }
 
-export interface FormulaDetailCard {
+export interface FormulaLessonCard {
   title: string;
   explanation: string;
   formulas: string[];
 }
 
+export interface FormulaLesson {
+  title: string;
+  goal: string;
+  cards: FormulaLessonCard[];
+  takeaway: string;
+}
+
 export interface FormulaGenerationPayload {
   formula: string;
   title: string;
-  shortExplanation: string;
-  stepByStepExplanation: string;
-  examples: string[];
-  purpose: string;
+  summary: string;
   tags: string[];
-  detailCards?: FormulaDetailCard[];
+  learningPath: FormulaLesson[];
 }
 
 export interface FormulaEntry {
@@ -39,17 +43,14 @@ export interface FormulaEntry {
   formula: string;
   normalizedFormula: string;
   title: string;
-  shortExplanation: string;
-  stepByStepExplanation: string;
-  examples: string[];
-  purpose: string;
+  summary: string;
   tags: string[];
+  learningPath: FormulaLesson[];
   usageCount: number;
   projectIds: string[];
   sourceRefs: FormulaSourceRef[];
   status: FormulaStatus;
   generationError?: string;
-  detailCards?: FormulaDetailCard[];
   createdAt: number;
   updatedAt: number;
 }
