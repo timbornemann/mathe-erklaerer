@@ -73,13 +73,14 @@ const sanitizeIncomingPayload = (
   });
   return {
     ...payload,
-    tags: normalizeTagList(payload.tags),
-    examples: payload.examples
+    tags: normalizeTagList(payload.tags)
   };
 };
 
 const sortByUpdatedAt = (entries: FormulaEntry[]): FormulaEntry[] =>
   [...entries].sort((a, b) => b.updatedAt - a.updatedAt);
+
+const createPromptPlaceholderFormula = (id: string): string => `\\text{Formel\\ wird\\ erstellt\\ (${id.slice(0, 8)})}`;
 
 export const useFormulaCollection = () => {
   const [formulas, setFormulas] = useState<FormulaEntry[]>([]);
@@ -87,6 +88,7 @@ export const useFormulaCollection = () => {
   const duplicateQueueRef = useRef<PendingDuplicateDecision[]>([]);
   const inFlightGenerationRef = useRef<Set<string>>(new Set());
   const hasLoadedFromStorageRef = useRef(false);
+  const hasSkippedFirstPersistRef = useRef(false);
 
   useEffect(() => {
     const raw = localStorage.getItem(FORMULA_COLLECTION_STORAGE_KEY);
@@ -108,6 +110,10 @@ export const useFormulaCollection = () => {
   useEffect(() => {
     // Prevent first render from overwriting stored formulas with [] before hydration finished.
     if (!hasLoadedFromStorageRef.current) return;
+    if (!hasSkippedFirstPersistRef.current) {
+      hasSkippedFirstPersistRef.current = true;
+      return;
+    }
     localStorage.setItem(FORMULA_COLLECTION_STORAGE_KEY, JSON.stringify(formulas));
   }, [formulas]);
 
@@ -143,12 +149,9 @@ export const useFormulaCollection = () => {
                 formula: sanitized.formula,
                 normalizedFormula: normalizeFormulaLatex(sanitized.formula),
                 title: sanitized.title,
-                shortExplanation: sanitized.shortExplanation,
-                stepByStepExplanation: sanitized.stepByStepExplanation,
-                examples: sanitized.examples,
-                purpose: sanitized.purpose,
+                summary: sanitized.summary,
                 tags: sanitized.tags,
-                detailCards: sanitized.detailCards,
+                learningPath: sanitized.learningPath,
                 status: 'ready',
                 generationError: undefined,
                 updatedAt: Date.now()
@@ -190,12 +193,9 @@ export const useFormulaCollection = () => {
       const autoGenerate = options.autoGenerate ?? true;
       const hasPrefilledData =
         payload.title.trim().length > 0 &&
-        (payload.shortExplanation.trim().length > 0 ||
-          payload.stepByStepExplanation.trim().length > 0 ||
-          payload.examples.length > 0 ||
-          payload.purpose.trim().length > 0 ||
+        (payload.summary.trim().length > 0 ||
           payload.tags.length > 0 ||
-          (payload.detailCards?.length ?? 0) > 0);
+          payload.learningPath.length > 0);
       const status: FormulaEntry['status'] = autoGenerate && !hasPrefilledData ? 'pending' : 'ready';
 
       return {
@@ -203,12 +203,9 @@ export const useFormulaCollection = () => {
         formula: payload.formula,
         normalizedFormula,
         title: payload.title || 'Neue Formel',
-        shortExplanation: payload.shortExplanation,
-        stepByStepExplanation: payload.stepByStepExplanation,
-        examples: payload.examples,
-        purpose: payload.purpose,
+        summary: payload.summary,
         tags: payload.tags,
-        detailCards: payload.detailCards,
+        learningPath: payload.learningPath,
         usageCount: 0,
         projectIds: normalizeProjectIds(options.projectId ? [options.projectId] : []),
         sourceRefs: [sourceRef],
@@ -254,16 +251,75 @@ export const useFormulaCollection = () => {
 
   const addFormulaFromPrompt = useCallback(
     async (question: string, source: FormulaSourceInput, projectId?: string | null): Promise<AddFormulaResult> => {
-      const payload = await generateFormulaFromPrompt(question);
-      return addFormulaFromLatex({
-        formula: payload.formula,
-        source,
-        projectId,
-        autoGenerate: false,
-        prefilledPayload: payload
-      });
+      const trimmedQuestion = question.trim();
+      if (!trimmedQuestion) return { status: 'ignored' };
+
+      const placeholderId = generateId();
+      const now = Date.now();
+      const sourceRef = createSourceRef(source);
+      const placeholderEntry: FormulaEntry = {
+        id: placeholderId,
+        formula: createPromptPlaceholderFormula(placeholderId),
+        normalizedFormula: `pending-${placeholderId}`,
+        title: 'Formel wird erstellt...',
+        summary: 'Die KI analysiert die Frage und erstellt den Lernpfad.',
+        tags: [],
+        learningPath: [],
+        usageCount: 0,
+        projectIds: normalizeProjectIds(projectId ? [projectId] : []),
+        sourceRefs: [sourceRef],
+        status: 'pending',
+        generationError: undefined,
+        createdAt: now,
+        updatedAt: now
+      };
+
+      setFormulas((prev) => sortByUpdatedAt([placeholderEntry, ...prev]));
+
+      try {
+        const payload = await generateFormulaFromPrompt(trimmedQuestion);
+        const sanitized = sanitizeIncomingPayload(payload.formula, payload);
+        setFormulas((prev) =>
+          sortByUpdatedAt(
+            prev.map((entry) => {
+              if (entry.id !== placeholderId) return entry;
+              const normalized = normalizeFormulaLatex(sanitized.formula);
+              return {
+                ...entry,
+                formula: sanitized.formula,
+                normalizedFormula: normalized || entry.normalizedFormula,
+                title: sanitized.title,
+                summary: sanitized.summary,
+                tags: sanitized.tags,
+                learningPath: sanitized.learningPath,
+                status: 'ready',
+                generationError: undefined,
+                updatedAt: Date.now()
+              };
+            })
+          )
+        );
+      } catch (error: any) {
+        const message = error?.message || 'Formel konnte nicht erstellt werden.';
+        setFormulas((prev) =>
+          sortByUpdatedAt(
+            prev.map((entry) =>
+              entry.id === placeholderId
+                ? {
+                    ...entry,
+                    status: 'failed',
+                    generationError: message,
+                    updatedAt: Date.now()
+                  }
+                : entry
+            )
+          )
+        );
+      }
+
+      return { status: 'added', entry: placeholderEntry };
     },
-    [addFormulaFromLatex]
+    []
   );
 
   const addFormulasFromChatMessage = useCallback(
