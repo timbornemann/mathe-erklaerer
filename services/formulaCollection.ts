@@ -228,6 +228,8 @@ export const sanitizeFormulaEntry = (value: unknown): FormulaEntry | null => {
 
   const normalizedFormula = normalizeFormulaLatex(raw.formula);
   if (!normalizedFormula) return null;
+  const normalizedFormulaFromStorage =
+    typeof raw.normalizedFormula === 'string' ? normalizeFormulaLatex(raw.normalizedFormula) : '';
 
   const createdAt = typeof raw.createdAt === 'number' ? raw.createdAt : Date.now();
   const updatedAt = typeof raw.updatedAt === 'number' ? raw.updatedAt : createdAt;
@@ -247,7 +249,7 @@ export const sanitizeFormulaEntry = (value: unknown): FormulaEntry | null => {
   return {
     id: String(raw.id),
     formula: payload.formula,
-    normalizedFormula: raw.normalizedFormula || normalizedFormula,
+    normalizedFormula: normalizedFormulaFromStorage || normalizedFormula,
     title: payload.title,
     summary: payload.summary,
     tags: payload.tags,
