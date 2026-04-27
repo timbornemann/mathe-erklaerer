@@ -3014,11 +3014,13 @@ const App: React.FC = () => {
             (activeFormulaDetail ? (
               <FormulaDetailView
                 formula={activeFormulaDetail}
+                projects={projects}
                 onBack={() => setActiveFormulaDetailId(null)}
                 onGeneratePremium={() => {
                   void retryFormulaGeneration(activeFormulaDetail.id);
                 }}
                 onMarkUsed={() => incrementFormulaUsage(activeFormulaDetail.id)}
+                onUpdateFormula={updateFormula}
                 onRetryFormula={
                   activeFormulaDetail.status === 'failed'
                     ? () => {
