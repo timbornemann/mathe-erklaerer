@@ -730,7 +730,7 @@ const App: React.FC = () => {
     }
   };
 
-  const handleModeChange = (mode: InputMode) => {
+  const handleModeChange = (mode: Exclude<InputMode, InputMode.IMAGE>) => {
     setActiveMainTab(mode);
     setProjectsView('folders');
     setActiveFormulaDetailId(null);
