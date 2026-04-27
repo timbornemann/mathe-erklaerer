@@ -1,12 +1,12 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import {
-  FormulaDetailCard,
   FormulaGenerationPayload,
   InputMode,
   MathSolution,
   PracticeTask,
   SolutionStep
 } from "../types";
+import { sanitizeFormulaPayload } from './formulaCollection';
 
 const GRAPH_INSTRUCTIONS = `
 GRAPH-OPTIONEN (nur wenn didaktisch sinnvoll):
@@ -556,108 +556,59 @@ REGELN:
 `;
 
 const FORMULA_FROM_LATEX_PROMPT = `
-Du erstellst eine Premium-Lernkarte zu EINER mathematischen Formel.
+Du erstellst einen professionellen Lernpfad zu EINER mathematischen Formel.
 
 REGELN:
-1. Erstelle didaktisch exzellente Inhalte auf Deutsch.
+1. Erstelle didaktisch exzellente Inhalte auf Deutsch - kompakt, klar und ohne Dopplungen.
 2. Die Formel selbst bleibt als roher LaTeX-String ohne Dollarzeichen.
-3. Basis-Felder:
+3. Basisfelder:
    - title: kurzer, praeziser Titel
-   - shortExplanation: 3-5 Saetze Ueberblick (Intuition + typischer Einsatz + was man oft falsch versteht)
-   - stepByStepExplanation: sehr detaillierte Schritt-fuer-Schritt-Erklaerung mit 6-10 klar nummerierten Minischritten
-   - examples: 4-6 konkrete, unterschiedliche Beispiele mit Ergebnis
-   - purpose: wann und wofuer nutzt man die Formel, inkl. Grenzen/Spezialfaelle
+   - summary: 2-4 Saetze kompakter Ueberblick (Intuition, Einsatz, typische Stolperstelle)
    - tags: 3-8 thematische Tags (kleingeschrieben)
-4. DETAIL-KARTEN (6 Karten fuer die interaktive Lernansicht):
-   Erstelle ein Array "detailCards" mit exakt 6 Karten in dieser Reihenfolge:
-   - Karte 1 "Intuition & Bedeutung": Was steckt hinter der Formel? Erklaere das Konzept anschaulich ohne Vorkenntnisse.
-   - Karte 2 "Die Bausteine": Erklaere jede Variable/Symbol mit Bedeutung, Einheit und Wertebereich.
-   - Karte 3 "Schritt-fuer-Schritt Anwendung": Klare Anleitung wie man die Formel anwendet.
-   - Karte 4 "Vollstaendiges Beispiel": Ein konkretes Beispiel komplett durchgerechnet mit allen Zwischenschritten.
-   - Karte 5 "Weiteres Beispiel": Zweites Beispiel mit anderem Typ oder anderen Zahlen.
-   - Karte 6 "Haeufige Fehler & Merktipps": Was oft falsch gemacht wird, Eselsbruecken, Spezialfaelle.
-
-   Jede Karte hat:
-   - title: kurze, praegende Ueberschrift
-   - explanation: 3-6 Absaetze ausfuehrlich mit Inline-LaTeX ($...$), didaktisch wie in einer Premium-Lektion
-   - formulas: die zu dieser Karte passenden Formeln als reines LaTeX ohne Dollarzeichen (leer wenn keine gebraucht)
-5. Schreibe so, dass Lernende die Karte einzeln lesen und direkt anwenden koennen (kein knapper Stichpunktstil).
-6. Gib strikt JSON aus.
+4. Erzeuge "learningPath" als didaktische Sequenz:
+   - 6 bis 8 Lektionen
+   - jede Lektion hat: title, goal, cards, takeaway
+   - jede Lektion hat 3 bis 6 cards
+   - jede card hat: title, explanation, formulas
+5. Didaktik-Anforderungen:
+   - rechnerisch kleinschrittig erklaeren
+   - mehrere verschiedene Beispiele einbauen
+   - mindestens 2 vollstaendig durchgerechnete Beispiele ueber den Lernpfad verteilt
+   - typische Fehler und Grenzfaelle behandeln
+6. Matheformat:
+   - In explanation/goal/takeaway mathematische Inhalte mit $...$
+   - In formulas nur roher LaTeX ohne Dollarzeichen
+7. Kein Wiederholen derselben Aussage in verschiedenen Lektionen.
+8. Gib strikt JSON aus.
 `;
 
 const FORMULA_FROM_PROMPT_PROMPT = `
-Du beantwortest eine Nutzerfrage nach einer Formel und erzeugst eine komplette Premium-Lernkarte.
+Du beantwortest eine Nutzerfrage nach einer Formel und erzeugst einen professionellen Lernpfad.
 
 REGELN:
 1. Liefere genau EINE Hauptformel (roher LaTeX ohne Dollarzeichen).
 2. Basis-Felder:
    - formula
    - title
-   - shortExplanation (3-5 Saetze, nicht nur ein Kurzsatz)
-   - stepByStepExplanation (6-10 nummerierte Minischritte)
-   - examples (4-6 unterschiedliche Beispiele mit Ergebnis)
-   - purpose (inkl. typische Fehlerquelle oder Grenze)
+   - summary (2-4 Saetze, kompakter Ueberblick)
    - tags
-3. DETAIL-KARTEN (6 Karten fuer die interaktive Lernansicht):
-   Erstelle ein Array "detailCards" mit exakt 6 Karten in dieser Reihenfolge:
-   - Karte 1 "Intuition & Bedeutung": Was steckt hinter der Formel? Erklaere anschaulich.
-   - Karte 2 "Die Bausteine": Jede Variable/Symbol erklaert.
-   - Karte 3 "Schritt-fuer-Schritt Anwendung": Wie wendet man sie an?
-   - Karte 4 "Vollstaendiges Beispiel": Komplett durchgerechnet.
-   - Karte 5 "Weiteres Beispiel": Zweites Beispiel anderen Typs.
-   - Karte 6 "Haeufige Fehler & Merktipps": Fallstricke und Eselsbruecken.
-
-   Jede Karte: title, explanation (3-6 Absaetze mit $...$), formulas (reines LaTeX).
-4. Schreibe auf Deutsch.
-5. Ausgabe nur als valides JSON.
+3. Erzeuge "learningPath" als didaktische Sequenz:
+   - 6 bis 8 Lektionen
+   - jede Lektion hat: title, goal, cards, takeaway
+   - jede Lektion hat 3 bis 6 cards
+   - jede card hat: title, explanation, formulas
+4. Didaktik-Anforderungen:
+   - rechnerisch kleinschrittig erklaeren
+   - mehrere verschiedene Beispiele einbauen
+   - mindestens 2 vollstaendig durchgerechnete Beispiele ueber den Lernpfad verteilt
+   - typische Fehler und Grenzfaelle behandeln
+5. Matheformat:
+   - In explanation/goal/takeaway mathematische Inhalte mit $...$
+   - In formulas nur roher LaTeX ohne Dollarzeichen
+6. Schreibe auf Deutsch.
+7. Kein Wiederholen derselben Aussage in verschiedenen Lektionen.
+8. Ausgabe nur als valides JSON.
 `;
-
-const sanitizeFormulaPayload = (raw: any): FormulaGenerationPayload => {
-  const toStringArray = (value: unknown): string[] =>
-    Array.isArray(value)
-      ? value
-          .filter((entry): entry is string => typeof entry === 'string')
-          .map((entry) => entry.trim())
-          .filter((entry) => entry.length > 0)
-      : [];
-
-  const normalizeTags = (tags: string[]): string[] => {
-    const seen = new Set<string>();
-    const normalized: string[] = [];
-    for (const tag of tags) {
-      const value = tag.trim().toLowerCase();
-      if (!value || seen.has(value)) continue;
-      seen.add(value);
-      normalized.push(value);
-    }
-    return normalized;
-  };
-
-  const sanitizeDetailCards = (value: unknown): FormulaGenerationPayload['detailCards'] => {
-    if (!Array.isArray(value)) return undefined;
-    const cards = value
-      .filter((item): item is Record<string, unknown> => !!item && typeof item === 'object')
-      .map((item) => ({
-        title: typeof item.title === 'string' ? item.title.trim() : '',
-        explanation: typeof item.explanation === 'string' ? item.explanation.trim() : '',
-        formulas: toStringArray(item.formulas)
-      }))
-      .filter((card) => card.title || card.explanation);
-    return cards.length > 0 ? cards : undefined;
-  };
-
-  const formula = typeof raw?.formula === 'string' ? raw.formula.trim() : '';
-  return {
-    formula,
-    title: typeof raw?.title === 'string' && raw.title.trim() ? raw.title.trim() : 'Neue Formel',
-    shortExplanation: typeof raw?.shortExplanation === 'string' ? raw.shortExplanation.trim() : '',
-    stepByStepExplanation: typeof raw?.stepByStepExplanation === 'string' ? raw.stepByStepExplanation.trim() : '',
-    examples: toStringArray(raw?.examples),
-    purpose: typeof raw?.purpose === 'string' ? raw.purpose.trim() : '',
-    tags: normalizeTags(toStringArray(raw?.tags)),
-    detailCards: sanitizeDetailCards(raw?.detailCards)
-  };
-};
 
 export const generatePracticeTask = async (
   topic: string,
@@ -865,25 +816,34 @@ export const generateFormulaFromLatex = async (
           type: Type.OBJECT,
           properties: {
             title: { type: Type.STRING },
-            shortExplanation: { type: Type.STRING },
-            stepByStepExplanation: { type: Type.STRING },
-            examples: { type: Type.ARRAY, items: { type: Type.STRING } },
-            purpose: { type: Type.STRING },
+            summary: { type: Type.STRING },
             tags: { type: Type.ARRAY, items: { type: Type.STRING } },
-            detailCards: {
+            learningPath: {
               type: Type.ARRAY,
               items: {
                 type: Type.OBJECT,
                 properties: {
                   title: { type: Type.STRING },
-                  explanation: { type: Type.STRING },
-                  formulas: { type: Type.ARRAY, items: { type: Type.STRING } }
+                  goal: { type: Type.STRING },
+                  cards: {
+                    type: Type.ARRAY,
+                    items: {
+                      type: Type.OBJECT,
+                      properties: {
+                        title: { type: Type.STRING },
+                        explanation: { type: Type.STRING },
+                        formulas: { type: Type.ARRAY, items: { type: Type.STRING } }
+                      },
+                      required: ['title', 'explanation', 'formulas']
+                    }
+                  },
+                  takeaway: { type: Type.STRING }
                 },
-                required: ['title', 'explanation', 'formulas']
+                required: ['title', 'goal', 'cards', 'takeaway']
               }
             }
           },
-          required: ['title', 'shortExplanation', 'stepByStepExplanation', 'examples', 'purpose', 'tags', 'detailCards']
+          required: ['title', 'summary', 'tags', 'learningPath']
         }
       }
     );
@@ -924,25 +884,34 @@ export const generateFormulaFromPrompt = async (
           properties: {
             formula: { type: Type.STRING },
             title: { type: Type.STRING },
-            shortExplanation: { type: Type.STRING },
-            stepByStepExplanation: { type: Type.STRING },
-            examples: { type: Type.ARRAY, items: { type: Type.STRING } },
-            purpose: { type: Type.STRING },
+            summary: { type: Type.STRING },
             tags: { type: Type.ARRAY, items: { type: Type.STRING } },
-            detailCards: {
+            learningPath: {
               type: Type.ARRAY,
               items: {
                 type: Type.OBJECT,
                 properties: {
                   title: { type: Type.STRING },
-                  explanation: { type: Type.STRING },
-                  formulas: { type: Type.ARRAY, items: { type: Type.STRING } }
+                  goal: { type: Type.STRING },
+                  cards: {
+                    type: Type.ARRAY,
+                    items: {
+                      type: Type.OBJECT,
+                      properties: {
+                        title: { type: Type.STRING },
+                        explanation: { type: Type.STRING },
+                        formulas: { type: Type.ARRAY, items: { type: Type.STRING } }
+                      },
+                      required: ['title', 'explanation', 'formulas']
+                    }
+                  },
+                  takeaway: { type: Type.STRING }
                 },
-                required: ['title', 'explanation', 'formulas']
+                required: ['title', 'goal', 'cards', 'takeaway']
               }
             }
           },
-          required: ['formula', 'title', 'shortExplanation', 'stepByStepExplanation', 'examples', 'purpose', 'tags', 'detailCards']
+          required: ['formula', 'title', 'summary', 'tags', 'learningPath']
         }
       }
     );
