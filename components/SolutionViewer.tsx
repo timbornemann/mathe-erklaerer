@@ -541,6 +541,7 @@ const SolutionViewer: React.FC<SolutionViewerProps> = ({
       const target = e.target as HTMLElement;
       const isInput = /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName) || target.isContentEditable;
       if (isInput) return;
+      if (e.defaultPrevented) return;
 
       if (e.key === 'ArrowLeft') {
         e.preventDefault();
@@ -732,9 +733,20 @@ const SolutionViewer: React.FC<SolutionViewerProps> = ({
     );
   }
 
+  const desktopLeftOffsetClass = 'lg:pl-[320px]';
+  const desktopRightOffsetClass =
+    isFormulaSidebarOpen && isSidePanelOpen
+      ? 'xl:pr-[830px] md:pr-[400px]'
+      : isFormulaSidebarOpen
+      ? 'md:pr-[430px]'
+      : isSidePanelOpen
+      ? 'md:pr-[400px]'
+      : '';
+  const desktopLayoutClass = `${desktopLeftOffsetClass} ${desktopRightOffsetClass}`.trim();
+  const formulaSidebarRightOffsetPx = isSidePanelOpen ? 400 : 0;
+  const formulaSidebarButtonRightOffsetPx = isSidePanelOpen ? 400 : 88;
+
   if (showSummary) {
-    const leftOffsetClass = isFormulaSidebarOpen ? 'md:pl-[430px]' : 'lg:pl-[320px]';
-    const desktopLayoutClass = `${leftOffsetClass} ${isSidePanelOpen ? 'md:pr-[400px]' : ''}`.trim();
     return (
       <div className={`w-full relative px-0 sm:px-2 md:px-0 ${desktopLayoutClass}`}>
         {renderMobileTocButton()}
@@ -885,8 +897,6 @@ const SolutionViewer: React.FC<SolutionViewerProps> = ({
   const progressContainerClass = 'mb-4 sm:mb-6 w-full bg-slate-200 rounded-full h-2.5 overflow-hidden';
 
   const containerClass = 'bg-white rounded-2xl md:rounded-3xl shadow-xl overflow-hidden border border-slate-100 min-h-[400px] flex flex-col transition-all duration-300';
-  const leftOffsetClass = isFormulaSidebarOpen ? 'md:pl-[430px]' : 'lg:pl-[320px]';
-  const desktopLayoutClass = `${leftOffsetClass} ${isSidePanelOpen ? 'md:pr-[400px]' : ''}`.trim();
 
   return (
     <div className={`w-full relative px-0 sm:px-2 md:px-0 ${desktopLayoutClass}`}>
@@ -1087,6 +1097,9 @@ const SolutionViewer: React.FC<SolutionViewerProps> = ({
         onRetryFormula={(formulaId) => onRetryFormulaGeneration?.(formulaId)}
         onAddFormulaLatex={onAddFormulaManual}
         onAskFormulaPrompt={onAskFormulaPrompt}
+        side="right"
+        rightOffsetPx={formulaSidebarRightOffsetPx}
+        floatingButtonRightOffsetPx={formulaSidebarButtonRightOffsetPx}
       />
     </div>
   );
