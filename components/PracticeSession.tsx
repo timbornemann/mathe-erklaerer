@@ -524,7 +524,9 @@ const PracticeSession: React.FC<PracticeSessionProps> = ({
                   Nochmal versuchen
                 </button>
                 <button
-                  onClick={handleShowSolution}
+                  onClick={() => {
+                    void handleShowSolution();
+                  }}
                   className="flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold bg-indigo-600 hover:bg-indigo-700 text-white shadow-lg shadow-indigo-200 transition-all active:scale-95"
                 >
                   <Eye className="w-4 h-4" />
