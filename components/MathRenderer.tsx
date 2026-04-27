@@ -25,13 +25,15 @@ const GRAPH_START_KEYWORDS = [
   'xychart'
 ];
 
+type FunctionPlotGraphType = 'polyline' | 'interval' | 'scatter' | 'text';
+
 interface FunctionPlotDataItem {
   fn?: string;
   points?: [number, number][];
   color?: string;
   title?: string;
-  fnType?: string;
-  graphType?: string;
+  fnType?: 'linear' | 'parametric' | 'implicit' | 'polar' | 'points' | 'vector' | string;
+  graphType?: FunctionPlotGraphType;
   [key: string]: unknown;
 }
 
@@ -68,6 +70,7 @@ let mermaidInitialized = false;
 let functionPlotPromise: Promise<FunctionPlotFn> | null = null;
 
 const GRAPH_DEFAULT_DOMAIN: [number, number] = [-10, 10];
+const FUNCTION_PLOT_GRAPH_TYPES: readonly FunctionPlotGraphType[] = ['polyline', 'interval', 'scatter', 'text'];
 
 const ExpandableModal: React.FC<ExpandableModalProps> = ({
   isOpen,
@@ -1015,10 +1018,28 @@ const parseFunctionPlotSpec = (source: string): { spec?: FunctionPlotSpec; error
       return { error: '"points" muss ein nicht-leeres Array von [x, y]-Zahlenpaaren sein.' };
     }
 
+    if (
+      item.graphType !== undefined &&
+      (typeof item.graphType !== 'string' ||
+        !FUNCTION_PLOT_GRAPH_TYPES.includes(item.graphType as FunctionPlotGraphType))
+    ) {
+      return { error: '"graphType" muss "polyline", "interval", "scatter" oder "text" sein.' };
+    }
+
+    if (item.fnType !== undefined && typeof item.fnType !== 'string') {
+      return { error: '"fnType" muss ein String sein.' };
+    }
+
     data.push({
       ...item,
       fn: hasFn ? String(item.fn) : undefined,
-      points: hasPoints ? (item.points as [number, number][]) : undefined
+      points: hasPoints ? (item.points as [number, number][]) : undefined,
+      fnType: typeof item.fnType === 'string' ? item.fnType : hasPoints ? 'points' : undefined,
+      graphType: typeof item.graphType === 'string'
+        ? (item.graphType as FunctionPlotGraphType)
+        : hasPoints
+        ? 'scatter'
+        : undefined
     });
   }
 
