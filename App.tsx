@@ -1,7 +1,11 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
-import { solveMathProblem, resumeTutorSolution } from './services/gemini';
-import { generatePracticeTask } from './services/gemini';
-import { checkPracticeSolution, solvePracticeTask } from './services/gemini';
+import {
+  solveMathProblem,
+  resumeTutorSolution,
+  generatePracticeTaskBatch,
+  checkPracticeSolution,
+  solvePracticeTask
+} from './services/gemini';
 import SolutionViewer from './components/SolutionViewer';
 import MathRenderer from './components/MathRenderer';
 import PracticeSetup from './components/PracticeSetup';
@@ -253,9 +257,9 @@ const App: React.FC = () => {
   } = useFormulaCollection();
   const [practiceView, setPracticeView] = useState<PracticeView>('setup');
   const [currentPracticeTask, setCurrentPracticeTask] = useState<PracticeTask | null>(null);
-  const [isPracticeGenerating, setIsPracticeGenerating] = useState(false);
+  const [activePracticeGenerations, setActivePracticeGenerations] = useState(0);
   const [examView, setExamView] = useState<ExamView>('setup');
-  const [isExamGenerating, setIsExamGenerating] = useState(false);
+  const [activeExamGenerations, setActiveExamGenerations] = useState(0);
   const [isExamSubmitting, setIsExamSubmitting] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [activeSolutionHistoryId, setActiveSolutionHistoryId] = useState<string | null>(null);
@@ -288,6 +292,8 @@ const App: React.FC = () => {
   const history = state.history ?? [];
   const projects = state.projects ?? [];
   const practiceRooms = state.practiceRooms ?? [];
+  const isPracticeGenerating = activePracticeGenerations > 0;
+  const isExamGenerating = activeExamGenerations > 0;
 
   const setActiveHistoryId = useCallback((id: string | null) => {
     activeSolutionHistoryIdRef.current = id;
@@ -422,7 +428,11 @@ const App: React.FC = () => {
     setState(prev => {
       const rooms = prev.practiceRooms.map(r => r.id === updatedRoom.id ? updatedRoom : r);
       savePracticeRooms(rooms);
-      return { ...prev, practiceRooms: rooms, activePracticeRoom: updatedRoom };
+      return {
+        ...prev,
+        practiceRooms: rooms,
+        activePracticeRoom: prev.activePracticeRoom?.id === updatedRoom.id ? updatedRoom : prev.activePracticeRoom
+      };
     });
   }, [savePracticeRooms]);
 
@@ -430,7 +440,11 @@ const App: React.FC = () => {
     setState(prev => {
       const sessions = prev.examSessions.map(s => s.id === updatedSession.id ? updatedSession : s);
       saveExamSessions(sessions);
-      return { ...prev, examSessions: sessions, activeExamSession: updatedSession };
+      return {
+        ...prev,
+        examSessions: sessions,
+        activeExamSession: prev.activeExamSession?.id === updatedSession.id ? updatedSession : prev.activeExamSession
+      };
     });
   }, [saveExamSessions]);
 
@@ -1492,47 +1506,136 @@ const App: React.FC = () => {
 
   // ── Practice Mode handlers ──
 
-  const handlePracticeStart = async (topic: string, difficulty: string, exampleTasks: string[]) => {
-    setIsPracticeGenerating(true);
-    setState(prev => ({ ...prev, error: null }));
+  const generatePracticeTasksForRoom = useCallback(async (
+    roomId: string,
+    topic: string,
+    difficulty: string,
+    exampleTasks: string[],
+    previousTasks: PracticeTask[],
+    taskCount: number,
+    additionalPrompt?: string,
+    options?: { openSessionOnComplete?: boolean }
+  ) => {
+    setActivePracticeGenerations((current) => current + 1);
 
     try {
-      const result = await generatePracticeTask(topic, difficulty, exampleTasks, []);
-
-      const newTask: PracticeTask = {
-        id: generateId(),
-        taskText: result.taskText,
-        timestamp: Date.now()
-      };
-
-      const newRoom: PracticeRoom = {
-        id: generateId(),
+      const batch = await generatePracticeTaskBatch(
         topic,
-        description: result.description,
         difficulty,
-        projectId: state.activeProjectId ?? undefined,
         exampleTasks,
-        generatedTasks: [newTask],
-        createdAt: Date.now(),
-        updatedAt: Date.now()
-      };
+        previousTasks,
+        taskCount,
+        additionalPrompt
+      );
 
-      setState(prev => {
-        const rooms = [newRoom, ...prev.practiceRooms];
+      const createdAt = Date.now();
+      const generatedTasks: PracticeTask[] = batch.tasks.map((task, index) => ({
+        id: generateId(),
+        taskText: task.taskText,
+        additionalPrompt,
+        timestamp: createdAt + index
+      }));
+
+      let updatedTargetRoom: PracticeRoom | null = null;
+      setState((prev) => {
+        const rooms = prev.practiceRooms.map((room) => {
+          if (room.id !== roomId) return room;
+          const nextRoom: PracticeRoom = {
+            ...room,
+            description: batch.tasks[0]?.description || room.description,
+            generatedTasks: [...room.generatedTasks, ...generatedTasks],
+            status: 'ready',
+            generationProgress: 100,
+            pendingTaskCount: undefined,
+            generationError: undefined,
+            updatedAt: Date.now()
+          };
+          updatedTargetRoom = nextRoom;
+          return nextRoom;
+        });
+
         savePracticeRooms(rooms);
-        return { ...prev, practiceRooms: rooms, activePracticeRoom: newRoom };
+        return {
+          ...prev,
+          practiceRooms: rooms,
+          activePracticeRoom:
+            prev.activePracticeRoom?.id === roomId
+              ? updatedTargetRoom ?? prev.activePracticeRoom
+              : prev.activePracticeRoom
+        };
       });
 
-      setCurrentPracticeTask(newTask);
-      setPracticeView('session');
+      if (options?.openSessionOnComplete && generatedTasks.length > 0) {
+        setCurrentPracticeTask(generatedTasks[0]);
+        setPracticeView('session');
+        setState((prev) => ({
+          ...prev,
+          inputMode: InputMode.PRACTICE,
+          activePracticeRoom: updatedTargetRoom ?? prev.activePracticeRoom
+        }));
+      }
     } catch (err: any) {
-      setState(prev => ({
-        ...prev,
-        error: err.message || "Aufgabe konnte nicht erstellt werden."
-      }));
+      const message = err?.message || "Aufgaben konnten nicht erstellt werden.";
+      setState((prev) => {
+        const rooms = prev.practiceRooms.map((room) => {
+          if (room.id !== roomId) return room;
+          return {
+            ...room,
+            status: 'failed',
+            generationProgress: 0,
+            pendingTaskCount: undefined,
+            generationError: message,
+            updatedAt: Date.now()
+          };
+        });
+        savePracticeRooms(rooms);
+        return {
+          ...prev,
+          practiceRooms: rooms,
+          activePracticeRoom:
+            prev.activePracticeRoom?.id === roomId
+              ? rooms.find((room) => room.id === roomId) ?? prev.activePracticeRoom
+              : prev.activePracticeRoom
+        };
+      });
     } finally {
-      setIsPracticeGenerating(false);
+      setActivePracticeGenerations((current) => Math.max(0, current - 1));
     }
+  }, [savePracticeRooms]);
+
+  const handlePracticeStart = (topic: string, difficulty: string, exampleTasks: string[], taskCount: number) => {
+    const startedAt = Date.now();
+    const placeholderRoom: PracticeRoom = {
+      id: generateId(),
+      topic,
+      description: 'Aufgabenpaket wird erstellt ...',
+      difficulty,
+      projectId: state.activeProjectId ?? undefined,
+      exampleTasks,
+      generatedTasks: [],
+      status: 'configuring',
+      generationProgress: 0,
+      pendingTaskCount: taskCount,
+      createdAt: startedAt,
+      updatedAt: startedAt
+    };
+
+    setState((prev) => {
+      const rooms = [placeholderRoom, ...prev.practiceRooms];
+      savePracticeRooms(rooms);
+      return { ...prev, error: null, practiceRooms: rooms };
+    });
+
+    void generatePracticeTasksForRoom(
+      placeholderRoom.id,
+      topic,
+      difficulty,
+      exampleTasks,
+      [],
+      taskCount,
+      undefined,
+      { openSessionOnComplete: taskCount === 1 }
+    );
   };
 
   const handlePracticeTaskUpdated = (updatedTask: PracticeTask) => {
@@ -1550,44 +1653,30 @@ const App: React.FC = () => {
     updateRoom(updatedRoom);
   };
 
-  const handlePracticeNextTask = async (additionalPrompt?: string) => {
+  const handlePracticeNextTask = async (additionalPrompt?: string, taskCount: number = 1) => {
     if (!state.activePracticeRoom) return;
+    const room = state.activePracticeRoom;
+    const pendingTaskCount = room.generatedTasks.length + Math.max(1, taskCount);
 
-    setIsPracticeGenerating(true);
+    updateRoom({
+      ...room,
+      status: 'configuring',
+      generationProgress: 0,
+      pendingTaskCount,
+      generationError: undefined,
+      updatedAt: Date.now()
+    });
 
-    try {
-      const result = await generatePracticeTask(
-        state.activePracticeRoom.topic,
-        state.activePracticeRoom.difficulty,
-        state.activePracticeRoom.exampleTasks,
-        state.activePracticeRoom.generatedTasks,
-        additionalPrompt
-      );
-
-      const newTask: PracticeTask = {
-        id: generateId(),
-        taskText: result.taskText,
-        additionalPrompt,
-        timestamp: Date.now()
-      };
-
-      const updatedRoom: PracticeRoom = {
-        ...state.activePracticeRoom,
-        generatedTasks: [...state.activePracticeRoom.generatedTasks, newTask],
-        updatedAt: Date.now()
-      };
-
-      updateRoom(updatedRoom);
-      setCurrentPracticeTask(newTask);
-      setPracticeView('session');
-    } catch (err: any) {
-      setState(prev => ({
-        ...prev,
-        error: err.message || "Nächste Aufgabe konnte nicht erstellt werden."
-      }));
-    } finally {
-      setIsPracticeGenerating(false);
-    }
+    await generatePracticeTasksForRoom(
+      room.id,
+      room.topic,
+      room.difficulty,
+      room.exampleTasks,
+      room.generatedTasks,
+      taskCount,
+      additionalPrompt,
+      { openSessionOnComplete: true }
+    );
   };
 
   const handleOpenRoom = (room: PracticeRoom) => {
@@ -1612,8 +1701,8 @@ const App: React.FC = () => {
     }
   };
 
-  const handleRoomContinue = async (additionalPrompt?: string) => {
-    await handlePracticeNextTask(additionalPrompt);
+  const handleRoomContinue = async (additionalPrompt?: string, taskCount: number = 1) => {
+    await handlePracticeNextTask(additionalPrompt, taskCount);
   };
 
   const handleUpdateExamples = (examples: string[]) => {
@@ -1650,72 +1739,109 @@ const App: React.FC = () => {
     return `Ausbaufähig: $${correctCount}$ von $${total}$ Aufgaben korrekt. Wiederhole die schwachen Themen gezielt.`;
   };
 
-  const handleExamStart = async (config: ExamConfig) => {
-    setIsExamGenerating(true);
-    setState(prev => ({ ...prev, error: null }));
+  const generateExamSessionTasks = useCallback(async (
+    sessionId: string,
+    config: ExamConfig
+  ) => {
+    setActiveExamGenerations((current) => current + 1);
 
     try {
-      const generatedTasks: ExamTask[] = [];
-      const previousTasks: PracticeTask[] = [];
-
-      for (let i = 0; i < config.taskCount; i++) {
-        const result = await generatePracticeTask(
-          config.topic,
-          config.difficulty,
-          config.exampleTasks,
-          previousTasks,
-          `Erstelle Aufgabe ${i + 1} von ${config.taskCount} für eine Prüfung.`
-        );
-
-        const task: ExamTask = {
-          id: generateId(),
-          order: i + 1,
-          taskText: result.taskText,
-          timestamp: Date.now()
-        };
-
-        generatedTasks.push(task);
-        previousTasks.push({
-          id: task.id,
-          taskText: task.taskText,
-          timestamp: task.timestamp
-        });
-      }
+      const batch = await generatePracticeTaskBatch(
+        config.topic,
+        config.difficulty,
+        config.exampleTasks,
+        [],
+        config.taskCount,
+        'Erstelle eine neue Pruefung mit klar unterschiedlicher Aufgabenmischung.'
+      );
 
       const startedAt = Date.now();
-      const newSession: ExamSessionType = {
+      const tasks: ExamTask[] = batch.tasks.map((task, index) => ({
         id: generateId(),
-        topic: config.topic,
-        difficulty: config.difficulty,
-        projectId: state.activeProjectId ?? undefined,
-        taskCount: config.taskCount,
-        durationMinutes: config.durationMinutes,
-        createdAt: startedAt,
-        startedAt,
-        endsAt: startedAt + config.durationMinutes * 60 * 1000,
-        status: 'running',
-        tasks: generatedTasks
-      };
+        order: index + 1,
+        taskText: task.taskText,
+        timestamp: startedAt + index
+      }));
 
-      setState(prev => {
-        const sessions = [newSession, ...prev.examSessions].slice(0, 30);
+      setState((prev) => {
+        const sessions = prev.examSessions.map((session) => {
+          if (session.id !== sessionId) return session;
+          return {
+            ...session,
+            tasks,
+            status: 'running' as const,
+            startedAt,
+            endsAt: startedAt + config.durationMinutes * 60 * 1000,
+            generationProgress: 100,
+            generationError: undefined
+          };
+        });
         saveExamSessions(sessions);
         return {
           ...prev,
           examSessions: sessions,
-          activeExamSession: newSession
+          activeExamSession:
+            prev.activeExamSession?.id === sessionId
+              ? sessions.find((session) => session.id === sessionId) ?? prev.activeExamSession
+              : prev.activeExamSession
         };
       });
-
-      setExamView('session');
     } catch (err: any) {
-      setState(prev => ({
-        ...prev,
-        error: err.message || "Prüfungsaufgaben konnten nicht erstellt werden."
-      }));
+      const message = err?.message || 'Pruefungsaufgaben konnten nicht erstellt werden.';
+      setState((prev) => {
+        const sessions = prev.examSessions.map((session) => {
+          if (session.id !== sessionId) return session;
+          return {
+            ...session,
+            status: 'configuring' as const,
+            generationProgress: 0,
+            generationError: message
+          };
+        });
+        saveExamSessions(sessions);
+        return {
+          ...prev,
+          examSessions: sessions,
+          activeExamSession:
+            prev.activeExamSession?.id === sessionId
+              ? sessions.find((session) => session.id === sessionId) ?? prev.activeExamSession
+              : prev.activeExamSession
+        };
+      });
     } finally {
-      setIsExamGenerating(false);
+      setActiveExamGenerations((current) => Math.max(0, current - 1));
     }
+  }, [saveExamSessions]);
+
+  const handleExamStart = (config: ExamConfig) => {
+    const now = Date.now();
+    const placeholder: ExamSessionType = {
+      id: generateId(),
+      topic: config.topic,
+      difficulty: config.difficulty,
+      projectId: state.activeProjectId ?? undefined,
+      taskCount: config.taskCount,
+      durationMinutes: config.durationMinutes,
+      createdAt: now,
+      startedAt: now,
+      endsAt: now + config.durationMinutes * 60 * 1000,
+      status: 'configuring',
+      generationProgress: 0,
+      tasks: []
+    };
+
+    setState((prev) => {
+      const sessions = [placeholder, ...prev.examSessions].slice(0, 50);
+      saveExamSessions(sessions);
+      return {
+        ...prev,
+        error: null,
+        examSessions: sessions,
+        activeExamSession: prev.activeExamSession
+      };
+    });
+
+    void generateExamSessionTasks(placeholder.id, config);
   };
 
   const handleExamTaskUpdated = (updatedTask: ExamTask) => {
@@ -1732,7 +1858,11 @@ const App: React.FC = () => {
 
   const handleExamSubmit = async (reason: 'manual' | 'timeout') => {
     if (!state.activeExamSession || isExamSubmitting) return;
-    if (state.activeExamSession.status === 'evaluating' || state.activeExamSession.status === 'completed') return;
+    if (
+      state.activeExamSession.status === 'configuring' ||
+      state.activeExamSession.status === 'evaluating' ||
+      state.activeExamSession.status === 'completed'
+    ) return;
 
     setIsExamSubmitting(true);
     const submittedAt = Date.now();
@@ -1955,7 +2085,7 @@ const App: React.FC = () => {
           onTaskUpdated={handlePracticeTaskUpdated}
           onNextTask={handlePracticeNextTask}
           onBack={handlePracticeBack}
-          isGenerating={isPracticeGenerating}
+          isGenerating={state.activePracticeRoom.status === 'configuring'}
           formulas={formulas}
           onAddFormulaFromSolution={handleAddFormulaFromSolution}
           onExtractFormulasFromChatMessage={handleExtractFormulasFromChatMessage}
@@ -2018,7 +2148,7 @@ const App: React.FC = () => {
           onUpdateExamples={handleUpdateExamples}
           onTaskUpdated={handlePracticeTaskUpdated}
           onBack={handlePracticeBack}
-          isLoading={isPracticeGenerating}
+          isLoading={state.activePracticeRoom.status === 'configuring'}
           formulas={formulas}
           onAddFormulaFromSolution={handleAddFormulaFromSolution}
           onExtractFormulasFromChatMessage={handleExtractFormulasFromChatMessage}
@@ -2856,6 +2986,8 @@ const App: React.FC = () => {
                                         <p className="line-clamp-1 text-sm font-semibold text-slate-800">{room.topic}</p>
                                         <p className="mt-1 text-xs text-slate-500">
                                           Schwierigkeit: {room.difficulty} • {room.generatedTasks.length} Aufgaben • {solvedTasks} korrekt
+                                          {room.status === 'configuring' ? ` • ${Math.max(0, Math.min(100, Math.round(room.generationProgress ?? 0)))}%` : ''}
+                                          {room.status === 'failed' ? ' • Fehler' : ''}
                                         </p>
                                         <p className="mt-1 text-xs text-slate-400">
                                           {new Date(room.createdAt).toLocaleDateString()} • {new Date(room.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
@@ -2906,6 +3038,10 @@ const App: React.FC = () => {
                                         {session.status === 'completed' ? (
                                           <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-700">
                                             {session.scorePercent ?? 0}%
+                                          </span>
+                                        ) : session.status === 'configuring' ? (
+                                          <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${session.generationError ? 'bg-red-100 text-red-700' : 'bg-indigo-100 text-indigo-700'}`}>
+                                            {session.generationError ? 'Fehler' : `${Math.max(0, Math.min(100, Math.round(session.generationProgress ?? 0)))}%`}
                                           </span>
                                         ) : (
                                           <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-700">
@@ -3117,14 +3253,14 @@ const App: React.FC = () => {
           {!isProjectsTab && !isFormulasTab && state.inputMode === InputMode.PRACTICE && (
             <PracticeSetup
               onStart={handlePracticeStart}
-              isLoading={isPracticeGenerating}
+              isLoading={false}
             />
           )}
 
           {!isProjectsTab && !isFormulasTab && state.inputMode === InputMode.EXAM && (
             <ExamSetup
               onStart={handleExamStart}
-              isLoading={isExamGenerating}
+              isLoading={false}
               practiceRooms={practiceRooms}
             />
           )}
@@ -3188,13 +3324,18 @@ const App: React.FC = () => {
       </main>
 
       {/* Practice Rooms Section */}
-      {!isProjectsTab && !isFormulasTab && state.inputMode === InputMode.PRACTICE && practiceRooms.length > 0 && !isPracticeGenerating && (
+      {!isProjectsTab && !isFormulasTab && state.inputMode === InputMode.PRACTICE && practiceRooms.length > 0 && (
         <section className="w-full max-w-4xl animate-in slide-in-from-bottom-8 fade-in duration-500 mb-8">
           <div className="flex items-center justify-between mb-4 px-1 sm:px-2 gap-2">
             <h3 className="text-xl font-bold text-slate-700 flex items-center gap-2">
               <BookOpen className="w-5 h-5 text-amber-500" />
               Deine Lernräume
             </h3>
+            {isPracticeGenerating && (
+              <span className="rounded-full bg-indigo-100 px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-indigo-700">
+                Generierung aktiv
+              </span>
+            )}
           </div>
           <div className="grid gap-3 sm:gap-4 md:grid-cols-1">
             {practiceRooms.map(room => (
@@ -3225,13 +3366,18 @@ const App: React.FC = () => {
         </section>
       )}
 
-      {!isProjectsTab && !isFormulasTab && state.inputMode === InputMode.EXAM && state.examSessions.length > 0 && !isExamGenerating && (
+      {!isProjectsTab && !isFormulasTab && state.inputMode === InputMode.EXAM && state.examSessions.length > 0 && (
         <section className="w-full max-w-4xl animate-in slide-in-from-bottom-8 fade-in duration-500 mb-8">
           <div className="flex items-center justify-between mb-4 px-1 sm:px-2 gap-2">
             <h3 className="text-xl font-bold text-slate-700 flex items-center gap-2">
               <ClipboardCheck className="w-5 h-5 text-rose-500" />
               Letzte Prüfungen
             </h3>
+            {isExamGenerating && (
+              <span className="rounded-full bg-indigo-100 px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-indigo-700">
+                Generierung aktiv
+              </span>
+            )}
           </div>
           <div className="grid gap-3 sm:gap-4 md:grid-cols-1">
             {state.examSessions.slice(0, 8).map(session => (
@@ -3250,6 +3396,10 @@ const App: React.FC = () => {
                     {session.status === 'completed' ? (
                       <span className="text-xs font-semibold px-2 py-1 rounded-full bg-emerald-50 text-emerald-700">
                         {session.scorePercent ?? 0}%
+                      </span>
+                    ) : session.status === 'configuring' ? (
+                      <span className={`text-xs font-semibold px-2 py-1 rounded-full ${session.generationError ? 'bg-red-50 text-red-700' : 'bg-indigo-50 text-indigo-700'}`}>
+                        {session.generationError ? 'Fehler' : `${Math.max(0, Math.min(100, Math.round(session.generationProgress ?? 0)))}%`}
                       </span>
                     ) : (
                       <span className="text-xs font-semibold px-2 py-1 rounded-full bg-amber-50 text-amber-700">
@@ -3444,4 +3594,5 @@ const App: React.FC = () => {
 };
 
 export default App;
+
 
