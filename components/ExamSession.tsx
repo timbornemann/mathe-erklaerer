@@ -3,6 +3,7 @@ import { ArrowLeft, ArrowRight, Clock3, Download, FileText, FileWarning, ImageIc
 import { ExamSession as ExamSessionType, ExamTask, FormulaEntry } from '../types';
 import MathRenderer from './MathRenderer';
 import FormulaSidebar from './FormulaSidebar';
+import SidePanel from './SidePanel';
 
 interface ExamSessionProps {
   session: ExamSessionType;
@@ -15,6 +16,9 @@ interface ExamSessionProps {
   formulas: FormulaEntry[];
   onIncrementFormulaUsage: (formulaId: string) => void;
   onRetryFormulaGeneration: (formulaId: string) => void;
+  onAddFormulaManual?: (formula: string, contextText?: string) => Promise<void> | void;
+  onAskFormulaPrompt?: (prompt: string) => Promise<void> | void;
+  onExtractFormulasFromChatMessage?: (message: string, sourceLabel: string) => Promise<{ added: number; extracted: number }> | void;
 }
 
 const formatClock = (seconds: number) => {
@@ -34,19 +38,64 @@ const ExamSession: React.FC<ExamSessionProps> = ({
   onDownloadPdf,
   formulas,
   onIncrementFormulaUsage,
-  onRetryFormulaGeneration
+  onRetryFormulaGeneration,
+  onAddFormulaManual,
+  onAskFormulaPrompt,
+  onExtractFormulasFromChatMessage
 }) => {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [remainingSeconds, setRemainingSeconds] = useState(() =>
     Math.max(0, Math.floor((session.endsAt - Date.now()) / 1000))
   );
   const [error, setError] = useState<string | null>(null);
+  const [isSidePanelOpen, setIsSidePanelOpen] = useState(false);
   const [isFormulaSidebarOpen, setIsFormulaSidebarOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const timeoutSubmissionStarted = useRef(false);
-  const sidebarOffsetClass = isFormulaSidebarOpen ? 'md:pl-[430px]' : '';
+  const sidebarOffsetClass =
+    isFormulaSidebarOpen && isSidePanelOpen
+      ? 'xl:pr-[830px] md:pr-[400px]'
+      : isFormulaSidebarOpen
+      ? 'md:pr-[430px]'
+      : isSidePanelOpen
+      ? 'md:pr-[400px]'
+      : '';
+  const formulaSidebarRightOffsetPx = isSidePanelOpen ? 400 : 0;
+  const formulaSidebarButtonRightOffsetPx = isSidePanelOpen ? 400 : 88;
 
   const currentTask = session.tasks[currentIndex];
+  const examChatSteps = useMemo(
+    () =>
+      session.tasks.map((task, index) => {
+        const userSolution = (task.userSolution ?? '').trim();
+        const feedbackText = (task.aiFeedback ?? '').trim();
+        const explanationParts = [
+          `Aufgabentext:\n${task.taskText}`,
+          userSolution
+            ? `Aktueller Loesungsversuch:\n${userSolution}`
+            : 'Es liegt noch kein Loesungsversuch in Textform vor.',
+          `Bildloesung vorhanden: ${task.userSolutionImage ? 'ja' : 'nein'}.`,
+          feedbackText ? `KI-Feedback:\n${feedbackText}` : 'Es liegt noch kein KI-Feedback vor.'
+        ];
+
+        return {
+          title: `Pruefungsaufgabe ${index + 1}`,
+          explanation: explanationParts.join('\n\n'),
+          formulas: []
+        };
+      }),
+    [session.tasks]
+  );
+  const fallbackChatStep = {
+    title: `Pruefungsaufgabe ${currentIndex + 1}`,
+    explanation: `Aufgabentext:\n${currentTask?.taskText ?? session.topic}`,
+    formulas: []
+  };
+  const activeChatStep = examChatSteps[currentIndex] ?? fallbackChatStep;
+  const activeChatLabel = `Aufgabe ${currentIndex + 1}`;
+  const activeChatScopeKey = currentTask
+    ? `exam-session-${session.id}-task-${currentTask.id}`
+    : `exam-session-${session.id}-task-${currentIndex + 1}`;
   const answeredCount = useMemo(
     () => session.tasks.filter(task => (task.userSolution ?? '').trim() || task.userSolutionImage).length,
     [session.tasks]
@@ -138,8 +187,11 @@ const ExamSession: React.FC<ExamSessionProps> = ({
         onToggle={() => setIsFormulaSidebarOpen((prev) => !prev)}
         onMarkUsed={onIncrementFormulaUsage}
         onRetryFormula={onRetryFormulaGeneration}
-        readOnly
-        title="Formeln (Klausur)"
+        onAddFormulaLatex={onAddFormulaManual}
+        onAskFormulaPrompt={onAskFormulaPrompt}
+        side="right"
+        rightOffsetPx={formulaSidebarRightOffsetPx}
+        floatingButtonRightOffsetPx={formulaSidebarButtonRightOffsetPx}
       />
       </>
     );
@@ -306,8 +358,22 @@ const ExamSession: React.FC<ExamSessionProps> = ({
       onToggle={() => setIsFormulaSidebarOpen((prev) => !prev)}
       onMarkUsed={onIncrementFormulaUsage}
       onRetryFormula={onRetryFormulaGeneration}
-      readOnly
-      title="Formeln (Klausur)"
+      onAddFormulaLatex={onAddFormulaManual}
+      onAskFormulaPrompt={onAskFormulaPrompt}
+      side="right"
+      rightOffsetPx={formulaSidebarRightOffsetPx}
+      floatingButtonRightOffsetPx={formulaSidebarButtonRightOffsetPx}
+    />
+    <SidePanel
+      isOpen={isSidePanelOpen}
+      onToggle={() => setIsSidePanelOpen((prev) => !prev)}
+      currentStep={activeChatStep}
+      allSteps={examChatSteps.length > 0 ? examChatSteps : [fallbackChatStep]}
+      stepIndex={currentIndex}
+      stepLabel={activeChatLabel}
+      stepScopeKey={activeChatScopeKey}
+      initialPrompt={currentTask.taskText}
+      onExtractFormulasFromMessage={onExtractFormulasFromChatMessage}
     />
     </>
   );
