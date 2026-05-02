@@ -3,13 +3,16 @@ import { Loader2, Plus, Send, X } from 'lucide-react';
 import { PracticeRoom } from '../types';
 
 const DIFFICULTY_OPTIONS = [
+  { value: 'Einfach', label: 'Einfach' },
+  { value: 'Mittel', label: 'Mittel' },
   { value: 'Schwer', label: 'Schwer' },
   { value: 'Sehr Schwer', label: 'Sehr Schwer' },
-  { value: 'Abitur', label: 'Abitur-Niveau' },
+  { value: 'Uni-Level', label: 'Uni-Level' },
+  { value: 'Professor-Level', label: 'Professor-Level' },
   { value: 'custom', label: 'Eigene Beschreibung ...' }
 ];
 
-const DURATION_OPTIONS = [10, 15, 20, 30, 45, 60];
+const DURATION_OPTIONS = [10, 15, 20, 30, 45, 60, 75, 90, 105, 120];
 
 export interface ExamConfig {
   topic: string;
@@ -27,7 +30,7 @@ interface ExamSetupProps {
 
 const ExamSetup: React.FC<ExamSetupProps> = ({ isLoading, onStart, practiceRooms = [] }) => {
   const [topic, setTopic] = useState('');
-  const [difficultyPreset, setDifficultyPreset] = useState('Sehr Schwer');
+  const [difficultyPreset, setDifficultyPreset] = useState('Mittel');
   const [customDifficulty, setCustomDifficulty] = useState('');
   const [taskCount, setTaskCount] = useState(5);
   const [durationMinutes, setDurationMinutes] = useState(30);
@@ -46,7 +49,7 @@ const ExamSetup: React.FC<ExamSetupProps> = ({ isLoading, onStart, practiceRooms
     [practiceRooms]
   );
 
-  const canSubmit = topic.trim() && difficulty.trim() && taskCount >= 5 && taskCount <= 10 && !isLoading;
+  const canSubmit = topic.trim() && difficulty.trim() && taskCount >= 5 && taskCount <= 20 && !isLoading;
 
   const updateExampleTask = (index: number, value: string) => {
     setExampleTasks((prev) => prev.map((item, i) => (i === index ? value : item)));
@@ -163,7 +166,7 @@ const ExamSetup: React.FC<ExamSetupProps> = ({ isLoading, onStart, practiceRooms
             onChange={(e) => setTaskCount(Number(e.target.value))}
             className="w-full rounded-xl border border-slate-200 bg-slate-50 p-3 text-base text-slate-700 transition-all focus:border-indigo-500 focus:bg-white focus:ring-2 focus:ring-indigo-200"
           >
-            {[5, 6, 7, 8, 9, 10].map((count) => (
+            {Array.from({ length: 16 }, (_, index) => index + 5).map((count) => (
               <option key={count} value={count}>
                 {count}
               </option>
