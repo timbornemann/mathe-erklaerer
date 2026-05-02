@@ -506,7 +506,7 @@ const mergePracticeRoom = (current: PracticeRoom, incoming: PracticeRoom): Pract
     'merge'
   ).sort((a, b) => a.timestamp - b.timestamp);
 
-  return {
+  const merged: PracticeRoom = {
     ...fallback,
     ...preferred,
     projectId: normalizeProjectId(preferred.projectId) ?? normalizeProjectId(fallback.projectId),
@@ -515,9 +515,28 @@ const mergePracticeRoom = (current: PracticeRoom, incoming: PracticeRoom): Pract
     difficulty: preferred.difficulty || fallback.difficulty,
     exampleTasks: mergeTextLists(preferred.exampleTasks ?? [], fallback.exampleTasks ?? []),
     generatedTasks,
+    status: preferred.status ?? fallback.status,
+    generationProgress: preferred.generationProgress ?? fallback.generationProgress,
+    pendingTaskCount: preferred.pendingTaskCount ?? fallback.pendingTaskCount,
+    generationError: preferred.generationError ?? fallback.generationError,
     createdAt: minDefined(current.createdAt, incoming.createdAt) ?? preferred.createdAt ?? fallback.createdAt,
     updatedAt: maxDefined(current.updatedAt, incoming.updatedAt) ?? preferred.updatedAt ?? fallback.updatedAt
   };
+
+  if (merged.status === 'ready') {
+    merged.generationProgress = 100;
+    merged.pendingTaskCount = undefined;
+    merged.generationError = undefined;
+  }
+
+  if (merged.status === undefined && merged.generatedTasks.length > 0) {
+    merged.status = 'ready';
+    merged.generationProgress = 100;
+    merged.pendingTaskCount = undefined;
+    merged.generationError = undefined;
+  }
+
+  return merged;
 };
 
 const mergeExamTask = (current: ExamTask, incoming: ExamTask): ExamTask => {
@@ -578,6 +597,8 @@ const mergeExamSession = (current: ExamSession, incoming: ExamSession): ExamSess
     endsAt: maxDefined(current.endsAt, incoming.endsAt) ?? preferred.endsAt ?? fallback.endsAt,
     submittedAt: maxDefined(current.submittedAt, incoming.submittedAt),
     completedAt: maxDefined(current.completedAt, incoming.completedAt),
+    generationProgress: preferred.generationProgress ?? fallback.generationProgress,
+    generationError: preferred.generationError ?? fallback.generationError,
     remainingSeconds: preferred.remainingSeconds ?? fallback.remainingSeconds,
     submitReason: preferred.submitReason ?? fallback.submitReason,
     scorePercent: preferred.scorePercent ?? fallback.scorePercent,
@@ -596,6 +617,11 @@ const mergeExamSession = (current: ExamSession, incoming: ExamSession): ExamSess
     if (merged.scorePercent === undefined) {
       merged.scorePercent = evaluableTasks.length > 0 ? Math.round((correctCount / evaluableTasks.length) * 100) : 0;
     }
+  }
+
+  if (merged.status === 'running' || merged.status === 'submitted' || merged.status === 'evaluating' || merged.status === 'completed') {
+    merged.generationProgress = 100;
+    merged.generationError = undefined;
   }
 
   return merged;
