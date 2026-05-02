@@ -2084,6 +2084,9 @@ const App: React.FC = () => {
           onDownloadPdf={() => handleDownloadExamPdf(state.activeExamSession!)}
           formulas={formulas}
           onIncrementFormulaUsage={incrementFormulaUsage}
+          onAddFormulaManual={handleAddFormulaManual}
+          onAskFormulaPrompt={handleAskFormulaPrompt}
+          onExtractFormulasFromChatMessage={handleExtractFormulasFromChatMessage}
           onRetryFormulaGeneration={(formulaId) => {
             void retryFormulaGeneration(formulaId);
           }}
