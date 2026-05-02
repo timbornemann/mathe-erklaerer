@@ -569,6 +569,244 @@ const normalizeAccentCommands = (input: string): string =>
     (_match, accent: string, symbol: string) => `\\${accent}{${symbol}}`
   );
 
+const TEXT_WRAPPED_MATH_COMMANDS = new Set<string>([
+  'sum',
+  'prod',
+  'int',
+  'lim',
+  'limsup',
+  'liminf',
+  'frac',
+  'dfrac',
+  'tfrac',
+  'sqrt',
+  'cdot',
+  'times',
+  'pm',
+  'mp',
+  'neq',
+  'approx',
+  'sim',
+  'simeq',
+  'leq',
+  'geq',
+  'infty',
+  'partial',
+  'alpha',
+  'beta',
+  'gamma',
+  'delta',
+  'epsilon',
+  'varepsilon',
+  'zeta',
+  'eta',
+  'theta',
+  'vartheta',
+  'iota',
+  'kappa',
+  'lambda',
+  'mu',
+  'nu',
+  'xi',
+  'pi',
+  'rho',
+  'sigma',
+  'tau',
+  'phi',
+  'varphi',
+  'chi',
+  'psi',
+  'omega',
+  'dot',
+  'ddot',
+  'bar',
+  'hat',
+  'tilde',
+  'vec'
+]);
+
+const stripLikelyJsonQuoteArtifacts = (input: string): string => {
+  let next = input.trim();
+  let changed = true;
+
+  while (changed) {
+    changed = false;
+
+    const quoted = next.match(/^([`'"])([\s\S]*)\1,?$/);
+    if (quoted && /\\[A-Za-z]/.test(quoted[2])) {
+      next = quoted[2].trim();
+      changed = true;
+      continue;
+    }
+
+    const trailingComma = next.match(/^([\s\S]*?)\s*,\s*$/);
+    if (trailingComma && /\\[A-Za-z]/.test(trailingComma[1])) {
+      next = trailingComma[1].trim();
+      changed = true;
+    }
+  }
+
+  return next;
+};
+
+const LATEX_COMMAND_HINTS = new Set<string>([
+  'text',
+  'sum',
+  'prod',
+  'int',
+  'lim',
+  'frac',
+  'dfrac',
+  'tfrac',
+  'sqrt',
+  'cdot',
+  'times',
+  'sim',
+  'in',
+  'to',
+  'left',
+  'right',
+  'alpha',
+  'beta',
+  'gamma',
+  'delta',
+  'theta',
+  'lambda',
+  'mu',
+  'pi',
+  'sigma',
+  'dot',
+  'bar',
+  'hat'
+]);
+
+const hasMarkdownLinePrefix = (line: string): boolean =>
+  /^(?:[#>*-]|\d+\.)\s/.test(line.trim());
+
+const looksLikeStandaloneLatexLine = (line: string): string | null => {
+  const trimmed = line.trim();
+  if (!trimmed || trimmed.includes('$')) {
+    return null;
+  }
+
+  const candidate = stripLikelyJsonQuoteArtifacts(trimmed);
+  if (!candidate || candidate.includes('$')) {
+    return null;
+  }
+
+  const commandMatches = candidate.match(/\\[A-Za-z]+/g) ?? [];
+  if (commandMatches.length === 0) {
+    return null;
+  }
+
+  const hintCount = commandMatches.reduce((count, command) => {
+    const key = command.slice(1).toLowerCase();
+    return LATEX_COMMAND_HINTS.has(key) ? count + 1 : count;
+  }, 0);
+
+  const startsWithCommand = /^["'`([{<]*\\[A-Za-z]+/.test(candidate);
+  const hasMathSignal =
+    /[{}_^]/.test(candidate) ||
+    /\\[()[\]{}]/.test(candidate) ||
+    /\s(?:=|\\sim|\\in|\\to)\s/.test(candidate);
+
+  const residualText = candidate
+    .replace(/\\[A-Za-z]+/g, ' ')
+    .replace(/[{}_^=+\-*/~(),.[\]\\]/g, ' ')
+    .replace(/\d+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  const residualWordCount = residualText ? residualText.split(' ').filter((word) => word.length >= 2).length : 0;
+
+  const likelyLatex =
+    (startsWithCommand && (commandMatches.length >= 2 || hasMathSignal)) ||
+    (hintCount >= 3 && residualWordCount <= 4) ||
+    (hasMathSignal && commandMatches.length >= 3 && residualWordCount <= 4);
+
+  if (!likelyLatex) {
+    return null;
+  }
+
+  if (!startsWithCommand && residualWordCount > 4) {
+    return null;
+  }
+
+  if (residualWordCount > 8 && hintCount < 3) {
+    return null;
+  }
+
+  return candidate;
+};
+
+const wrapQuotedLatexFragments = (line: string): string => {
+  let next = line;
+  const quotedPatterns = [
+    /"([^"\n]*\\[A-Za-z][^"\n]*)",?/g,
+    /'([^'\n]*\\[A-Za-z][^'\n]*)',?/g,
+    /`([^`\n]*\\[A-Za-z][^`\n]*)`,?/g
+  ];
+
+  for (const pattern of quotedPatterns) {
+    next = next.replace(pattern, (match, inner: string) => {
+      const candidate = looksLikeStandaloneLatexLine(inner);
+      return candidate ? `$$${candidate}$$` : match;
+    });
+  }
+
+  return next;
+};
+
+const wrapLooseLatexBlocks = (content: string): string => {
+  const lines = content.split('\n');
+  const output: string[] = [];
+  let inFence = false;
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+
+    if (/^`{3,}|^~{3,}/.test(trimmed)) {
+      inFence = !inFence;
+      output.push(line);
+      continue;
+    }
+
+    if (inFence || !trimmed || hasMarkdownLinePrefix(line)) {
+      output.push(line);
+      continue;
+    }
+
+    const latexCandidate = looksLikeStandaloneLatexLine(line);
+    if (!latexCandidate) {
+      output.push(wrapQuotedLatexFragments(line));
+      continue;
+    }
+
+    const leadingWhitespace = (line.match(/^\s*/) ?? [''])[0];
+    output.push(`${leadingWhitespace}$$${latexCandidate}$$`);
+  }
+
+  return output.join('\n');
+};
+
+const isTextWrappedMathCommand = (value: string): boolean => {
+  const trimmed = value.trim();
+  if (!trimmed.startsWith('\\')) {
+    return false;
+  }
+
+  const commandMatch = trimmed.match(/^\\([A-Za-z]+)/);
+  if (!commandMatch) {
+    return false;
+  }
+
+  const command = commandMatch[1].toLowerCase();
+  if (TEXT_WRAPPED_MATH_COMMANDS.has(command)) {
+    return true;
+  }
+
+  return /[_^{}]/.test(trimmed);
+};
+
 const splitLeadingScript = (token: string): { script: string; rest: string } | null => {
   if (!token || (token[0] !== '^' && token[0] !== '_')) {
     return null;
@@ -635,6 +873,50 @@ const readBalancedGroup = (
   }
 
   return -1;
+};
+
+const normalizeTextWrappedMathCommands = (input: string): string => {
+  let output = '';
+  let cursor = 0;
+
+  while (cursor < input.length) {
+    const textIndex = input.indexOf('\\text', cursor);
+
+    if (textIndex === -1) {
+      output += input.slice(cursor);
+      break;
+    }
+
+    output += input.slice(cursor, textIndex);
+    let probe = textIndex + '\\text'.length;
+
+    while (probe < input.length && /\s/.test(input[probe])) {
+      probe += 1;
+    }
+
+    if (input[probe] !== '{') {
+      output += '\\text';
+      cursor = textIndex + '\\text'.length;
+      continue;
+    }
+
+    const bodyEnd = readBalancedGroup(input, probe, '{', '}');
+    if (bodyEnd === -1) {
+      output += input.slice(textIndex);
+      break;
+    }
+
+    const body = input.slice(probe + 1, bodyEnd - 1);
+    if (isTextWrappedMathCommand(body)) {
+      output += body.trim();
+    } else {
+      output += input.slice(textIndex, bodyEnd);
+    }
+
+    cursor = bodyEnd;
+  }
+
+  return output;
 };
 
 const readLooseMathToken = (
@@ -770,6 +1052,7 @@ const repairLatexExpression = (rawExpression: string): string => {
     .replace(/\u00a0/g, ' ')
     .replace(/[\u200B-\u200D\uFEFF]/g, '');
 
+  next = stripLikelyJsonQuoteArtifacts(next);
   next = normalizeCommandBackslashRuns(next);
   next = collapseSpacedKeywords(next, [
     'text',
@@ -791,6 +1074,7 @@ const repairLatexExpression = (rawExpression: string): string => {
   next = normalizeBrokenJsonEscapes(next);
   next = next.replace(/\s*\n+\s*/g, ' ');
   next = repairTextCommand(next);
+  next = normalizeTextWrappedMathCommands(next);
   next = normalizeGluedGreekProducts(next);
   next = repairMissingCommandBackslashes(next);
   next = normalizeSpecialMathNames(next);
@@ -1338,7 +1622,8 @@ const MathRenderer: React.FC<MathRendererProps> = ({ content }) => {
     const withDisplayMathBlocks = normalizeDisplayMathBlocks(withNormalizedEscapes);
     const withRecoveredKatex = recoverLeakedKatexMarkup(withDisplayMathBlocks);
     const withWrappedGraphBlocks = wrapLooseGraphBlocks(withRecoveredKatex);
-    return repairLatexInMathSegments(withWrappedGraphBlocks);
+    const withWrappedLatexBlocks = wrapLooseLatexBlocks(withWrappedGraphBlocks);
+    return repairLatexInMathSegments(withWrappedLatexBlocks);
   }, [content]);
 
   return (
