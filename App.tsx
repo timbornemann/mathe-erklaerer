@@ -3125,6 +3125,7 @@ const App: React.FC = () => {
             <ExamSetup
               onStart={handleExamStart}
               isLoading={isExamGenerating}
+              practiceRooms={practiceRooms}
             />
           )}
 
