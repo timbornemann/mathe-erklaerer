@@ -526,6 +526,51 @@ ${GRAPH_INSTRUCTIONS}
 8. Das Ausgabeformat muss striktes JSON sein.
 `;
 
+const PRACTICE_BATCH_PLAN_PROMPT = `
+Du erstellst einen kurzen Aufgabenplan fuer ein Uebungspaket.
+
+REGELN:
+1. Plane genau so viele Aufgaben wie angefordert.
+2. Jede Planposition soll klar unterschiedlich sein (anderer Fokus, anderer Aufgabentyp, andere typische Fehlerquelle).
+3. Die geplanten Aufgaben muessen gemeinsam das gewuenschte Thema und Niveau sinnvoll abdecken.
+4. Halte jeden Planpunkt kurz und konkret.
+5. Kein Fliesstext ausserhalb von JSON.
+`;
+
+export interface PracticeTaskPlanItem {
+  index: number;
+  focus: string;
+  skill: string;
+  style: string;
+  variation: string;
+  promptHint: string;
+}
+
+export interface PlannedPracticeTask {
+  taskText: string;
+  description: string;
+  plan: PracticeTaskPlanItem;
+}
+
+const normalizePlanItems = (items: any[], taskCount: number): PracticeTaskPlanItem[] => {
+  const normalized: PracticeTaskPlanItem[] = [];
+  for (let i = 0; i < taskCount; i++) {
+    const item = items?.[i] ?? {};
+    normalized.push({
+      index: i + 1,
+      focus: typeof item.focus === 'string' && item.focus.trim() !== '' ? item.focus.trim() : `Teilbereich ${i + 1}`,
+      skill: typeof item.skill === 'string' && item.skill.trim() !== '' ? item.skill.trim() : 'Anwenden und erklaeren',
+      style: typeof item.style === 'string' && item.style.trim() !== '' ? item.style.trim() : 'Rechenaufgabe',
+      variation: typeof item.variation === 'string' && item.variation.trim() !== '' ? item.variation.trim() : 'Andere Zahlen und Kontext',
+      promptHint:
+        typeof item.promptHint === 'string' && item.promptHint.trim() !== ''
+          ? item.promptHint.trim()
+          : `Aufgabe ${i + 1} mit eigenem Fokus und klarer Variation`
+    });
+  }
+  return normalized;
+};
+
 const PRACTICE_CHECK_PROMPT = `
 Du bist ein Mathe-Korrektor. Deine Aufgabe ist es, die Loesung eines Schuelers zu ueberpruefen.
 
@@ -669,6 +714,125 @@ Erstelle eine passende Übungsaufgabe.`;
     console.error("Practice Generate Error:", error);
     throw new Error(error?.message || "Aufgabe konnte nicht erstellt werden.");
   }
+};
+
+export const generatePracticeTaskBatch = async (
+  topic: string,
+  difficulty: string,
+  exampleTasks: string[],
+  previousTasks: PracticeTask[],
+  taskCount: number,
+  additionalPrompt?: string
+): Promise<{ plan: PracticeTaskPlanItem[]; tasks: PlannedPracticeTask[] }> => {
+  const safeTaskCount = Math.max(1, Math.min(20, Math.floor(taskCount)));
+  if (safeTaskCount === 1) {
+    const single = await generatePracticeTask(topic, difficulty, exampleTasks, previousTasks, additionalPrompt);
+    const singlePlan: PracticeTaskPlanItem = {
+      index: 1,
+      focus: 'Ausgewogenes Kernkonzept',
+      skill: 'Grundidee anwenden',
+      style: 'Kompakte Uebungsaufgabe',
+      variation: 'Neu formuliert',
+      promptHint: additionalPrompt?.trim() || 'Erzeuge eine passende Einzelaufgabe.'
+    };
+    return { plan: [singlePlan], tasks: [{ ...single, plan: singlePlan }] };
+  }
+
+  const ai = new GoogleGenAI({ apiKey: getApiKey() });
+  const modelId = 'gemini-3-pro-preview';
+
+  const examplesSection = exampleTasks.length
+    ? `\nBeispielaufgaben:\n${exampleTasks.map((task, index) => `${index + 1}. ${task}`).join('\n')}`
+    : '';
+
+  const previousSection = previousTasks.length
+    ? `\nBereits gestellte Aufgaben (nicht wiederholen):\n${previousTasks
+        .map((task, index) => `${index + 1}. ${task.taskText}`)
+        .join('\n')}`
+    : '';
+
+  const additionalSection = additionalPrompt?.trim()
+    ? `\nZusatzwunsch: ${additionalPrompt.trim()}`
+    : '';
+
+  const plannedRaw = await generateStructuredJson(
+    ai,
+    modelId,
+    {
+      role: 'user',
+      parts: [{
+        text: `Thema: ${topic}
+Schwierigkeit: ${difficulty}
+Anzahl Aufgaben: ${safeTaskCount}${examplesSection}${previousSection}${additionalSection}
+
+Erstelle einen kurzen Plan fuer ein differenziertes Uebungspaket.`
+      }]
+    },
+    {
+      systemInstruction: PRACTICE_BATCH_PLAN_PROMPT,
+      thinkingConfig: { thinkingBudget: 2048 },
+      maxOutputTokens: 4096,
+      responseMimeType: 'application/json',
+      responseSchema: {
+        type: Type.OBJECT,
+        properties: {
+          items: {
+            type: Type.ARRAY,
+            items: {
+              type: Type.OBJECT,
+              properties: {
+                focus: { type: Type.STRING },
+                skill: { type: Type.STRING },
+                style: { type: Type.STRING },
+                variation: { type: Type.STRING },
+                promptHint: { type: Type.STRING }
+              },
+              required: ['focus', 'skill', 'style', 'variation', 'promptHint']
+            }
+          }
+        },
+        required: ['items']
+      }
+    }
+  );
+
+  const plan = normalizePlanItems(plannedRaw?.items ?? [], safeTaskCount);
+  const planOverview = plan
+    .map((item) => `${item.index}. Fokus: ${item.focus}; Stil: ${item.style}; Variation: ${item.variation}`)
+    .join('\n');
+
+  const tasks = await Promise.all(
+    plan.map(async (planItem, index) => {
+      const planPrompt = [
+        additionalPrompt?.trim() ? `Zusatzwunsch des Nutzers: ${additionalPrompt.trim()}` : '',
+        `Gesamtplan fuer das Aufgabenpaket:\n${planOverview}`,
+        `Aktueller Planpunkt (${index + 1}/${safeTaskCount}):`,
+        `- Fokus: ${planItem.focus}`,
+        `- Lernziel: ${planItem.skill}`,
+        `- Stil: ${planItem.style}`,
+        `- Variation: ${planItem.variation}`,
+        `- Hinweis: ${planItem.promptHint}`,
+        'Wichtig: Diese Aufgabe muss sich deutlich von den anderen Planpunkten unterscheiden.'
+      ]
+        .filter((part) => part.trim() !== '')
+        .join('\n');
+
+      const generated = await generatePracticeTask(
+        topic,
+        difficulty,
+        exampleTasks,
+        previousTasks,
+        planPrompt
+      );
+
+      return {
+        ...generated,
+        plan: planItem
+      };
+    })
+  );
+
+  return { plan, tasks };
 };
 
 export const checkPracticeSolution = async (
