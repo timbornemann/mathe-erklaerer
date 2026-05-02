@@ -1164,7 +1164,8 @@ const wrapLooseGraphBlocks = (content: string): string => {
 
     while (i < lines.length) {
       const line = lines[i];
-      if (line.trim() === '') break;
+      const trimmed = line.trim();
+      if (trimmed === '' || /^`{3,}|^~{3,}/.test(trimmed)) break;
       blockLines.push(line);
       i += 1;
     }
@@ -1198,7 +1199,49 @@ const escapeMermaidLabel = (label: string): string =>
   label.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
 
 const sanitizeMermaidSource = (source: string): string => {
-  let next = source;
+  let next = source.replace(/\r\n?/g, '\n');
+
+  // Keep only the Mermaid section if extra markdown/code-fence text leaked into the block.
+  const mermaidLines: string[] = [];
+  for (const line of next.split('\n')) {
+    const fenceIndex = line.search(/`{3,}|~{3,}/);
+    if (fenceIndex >= 0) {
+      const beforeFence = line.slice(0, fenceIndex).trimEnd();
+      if (beforeFence) {
+        mermaidLines.push(beforeFence);
+      }
+      break;
+    }
+    mermaidLines.push(line);
+  }
+  next = mermaidLines.join('\n');
+
+  // Some model outputs chain multiple edge statements into one line.
+  // Split likely statement boundaries so Mermaid parser gets one statement per line.
+  const splitRegexes = [
+    /(\]|\)|\})\s+([A-Za-z][A-Za-z0-9_-]*\s*(?:-->|---|==>|-.->|--x|--o|<--|<-->))/g,
+    /(\b[A-Za-z][A-Za-z0-9_-]*)\s+([A-Za-z][A-Za-z0-9_-]*\s*(?:-->|---|==>|-.->|--x|--o|<--|<-->))/g
+  ];
+  const graphDeclarationRegex = /^(?:graph|flowchart|sequenceDiagram|classDiagram|stateDiagram|erDiagram|journey|gantt|pie|mindmap|timeline|xychart)\b/i;
+  next = next
+    .split('\n')
+    .map((line) => {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('%%') || graphDeclarationRegex.test(trimmed)) {
+        return line;
+      }
+
+      let normalized = line;
+      for (const pattern of splitRegexes) {
+        let previous = '';
+        while (previous !== normalized) {
+          previous = normalized;
+          normalized = normalized.replace(pattern, '$1\n$2');
+        }
+      }
+      return normalized;
+    })
+    .join('\n');
 
   // Quote square-bracket labels with special chars, e.g. C[|] -> C["|"].
   next = next.replace(
