@@ -1,16 +1,7 @@
-import React, { useMemo, useState } from 'react';
+﻿import React, { useEffect, useMemo, useState } from 'react';
 import { Loader2, Plus, Send, X } from 'lucide-react';
 import { PracticeRoom } from '../types';
-
-const DIFFICULTY_OPTIONS = [
-  { value: 'Einfach', label: 'Einfach' },
-  { value: 'Mittel', label: 'Mittel' },
-  { value: 'Schwer', label: 'Schwer' },
-  { value: 'Sehr Schwer', label: 'Sehr Schwer' },
-  { value: 'Uni-Level', label: 'Uni-Level' },
-  { value: 'Professor-Level', label: 'Professor-Level' },
-  { value: 'custom', label: 'Eigene Beschreibung ...' }
-];
+import { SHARED_DIFFICULTY_OPTIONS } from '../constants/difficultyOptions';
 
 const DURATION_OPTIONS = [10, 15, 20, 30, 45, 60, 75, 90, 105, 120];
 
@@ -38,6 +29,7 @@ const ExamSetup: React.FC<ExamSetupProps> = ({ isLoading, onStart, practiceRooms
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [selectedPracticeRoomIds, setSelectedPracticeRoomIds] = useState<string[]>([]);
   const [importFeedback, setImportFeedback] = useState<string | null>(null);
+  const [startFeedback, setStartFeedback] = useState<string | null>(null);
 
   const difficulty = difficultyPreset === 'custom' ? customDifficulty : difficultyPreset;
   const selectablePracticeRooms = useMemo(
@@ -49,7 +41,20 @@ const ExamSetup: React.FC<ExamSetupProps> = ({ isLoading, onStart, practiceRooms
     [practiceRooms]
   );
 
-  const canSubmit = topic.trim() && difficulty.trim() && taskCount >= 5 && taskCount <= 20 && !isLoading;
+  const canSubmit =
+    topic.trim() &&
+    difficulty.trim() &&
+    taskCount >= 5 &&
+    taskCount <= 20 &&
+    !isLoading;
+
+  useEffect(() => {
+    if (!startFeedback) return;
+    const timeoutId = window.setTimeout(() => {
+      setStartFeedback(null);
+    }, 4500);
+    return () => window.clearTimeout(timeoutId);
+  }, [startFeedback]);
 
   const updateExampleTask = (index: number, value: string) => {
     setExampleTasks((prev) => prev.map((item, i) => (i === index ? value : item)));
@@ -113,6 +118,7 @@ const ExamSetup: React.FC<ExamSetupProps> = ({ isLoading, onStart, practiceRooms
 
   const handleStart = () => {
     if (!canSubmit) return;
+
     onStart({
       topic: topic.trim(),
       difficulty: difficulty.trim(),
@@ -120,6 +126,16 @@ const ExamSetup: React.FC<ExamSetupProps> = ({ isLoading, onStart, practiceRooms
       durationMinutes,
       exampleTasks: exampleTasks.filter((item) => item.trim())
     });
+
+    setTopic('');
+    setDifficultyPreset('Mittel');
+    setCustomDifficulty('');
+    setTaskCount(5);
+    setDurationMinutes(30);
+    setExampleTasks(['']);
+    setSelectedPracticeRoomIds([]);
+    setIsImportModalOpen(false);
+    setStartFeedback('Pruefung wurde gestartet und wird im Hintergrund erstellt.');
   };
 
   return (
@@ -128,7 +144,7 @@ const ExamSetup: React.FC<ExamSetupProps> = ({ isLoading, onStart, practiceRooms
         <label className="mb-1.5 block text-sm font-semibold text-slate-700">Thema</label>
         <textarea
           value={topic}
-          onChange={(e) => setTopic(e.target.value)}
+          onChange={(event) => setTopic(event.target.value)}
           placeholder="z. B. Lineare Algebra, Analysis, Stochastik ..."
           className="h-24 w-full resize-none rounded-2xl border border-slate-200 bg-slate-50 p-4 text-base text-slate-700 placeholder:text-slate-400 transition-all focus:border-indigo-500 focus:bg-white focus:ring-2 focus:ring-indigo-200"
         />
@@ -139,10 +155,10 @@ const ExamSetup: React.FC<ExamSetupProps> = ({ isLoading, onStart, practiceRooms
           <label className="mb-1.5 block text-sm font-semibold text-slate-700">Schwierigkeit</label>
           <select
             value={difficultyPreset}
-            onChange={(e) => setDifficultyPreset(e.target.value)}
+            onChange={(event) => setDifficultyPreset(event.target.value)}
             className="w-full rounded-xl border border-slate-200 bg-slate-50 p-3 text-base text-slate-700 transition-all focus:border-indigo-500 focus:bg-white focus:ring-2 focus:ring-indigo-200"
           >
-            {DIFFICULTY_OPTIONS.map((option) => (
+            {SHARED_DIFFICULTY_OPTIONS.map((option) => (
               <option key={option.value} value={option.value}>
                 {option.label}
               </option>
@@ -152,7 +168,7 @@ const ExamSetup: React.FC<ExamSetupProps> = ({ isLoading, onStart, practiceRooms
             <input
               type="text"
               value={customDifficulty}
-              onChange={(e) => setCustomDifficulty(e.target.value)}
+              onChange={(event) => setCustomDifficulty(event.target.value)}
               placeholder="z. B. 2. Semester Maschinenbau ..."
               className="mt-2 w-full rounded-xl border border-slate-200 bg-slate-50 p-3 text-base text-slate-700 placeholder:text-slate-400 transition-all focus:border-indigo-500 focus:bg-white focus:ring-2 focus:ring-indigo-200"
             />
@@ -160,10 +176,10 @@ const ExamSetup: React.FC<ExamSetupProps> = ({ isLoading, onStart, practiceRooms
         </div>
 
         <div>
-          <label className="mb-1.5 block text-sm font-semibold text-slate-700">Aufgaben</label>
+          <label className="mb-1.5 block text-sm font-semibold text-slate-700">Aufgaben je Pruefung</label>
           <select
             value={taskCount}
-            onChange={(e) => setTaskCount(Number(e.target.value))}
+            onChange={(event) => setTaskCount(Number(event.target.value))}
             className="w-full rounded-xl border border-slate-200 bg-slate-50 p-3 text-base text-slate-700 transition-all focus:border-indigo-500 focus:bg-white focus:ring-2 focus:ring-indigo-200"
           >
             {Array.from({ length: 16 }, (_, index) => index + 5).map((count) => (
@@ -179,7 +195,7 @@ const ExamSetup: React.FC<ExamSetupProps> = ({ isLoading, onStart, practiceRooms
         <label className="mb-1.5 block text-sm font-semibold text-slate-700">Zeitlimit</label>
         <select
           value={durationMinutes}
-          onChange={(e) => setDurationMinutes(Number(e.target.value))}
+          onChange={(event) => setDurationMinutes(Number(event.target.value))}
           className="w-full rounded-xl border border-slate-200 bg-slate-50 p-3 text-base text-slate-700 transition-all focus:border-indigo-500 focus:bg-white focus:ring-2 focus:ring-indigo-200"
         >
           {DURATION_OPTIONS.map((minutes) => (
@@ -215,7 +231,7 @@ const ExamSetup: React.FC<ExamSetupProps> = ({ isLoading, onStart, practiceRooms
             <div key={index} className="flex items-start gap-2">
               <textarea
                 value={task}
-                onChange={(e) => updateExampleTask(index, e.target.value)}
+                onChange={(event) => updateExampleTask(index, event.target.value)}
                 placeholder="z. B. Berechne die Eigenwerte der Matrix ..."
                 rows={2}
                 className="flex-1 resize-none rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700 placeholder:text-slate-400 transition-all focus:border-indigo-500 focus:bg-white focus:ring-2 focus:ring-indigo-200"
@@ -260,6 +276,12 @@ const ExamSetup: React.FC<ExamSetupProps> = ({ isLoading, onStart, practiceRooms
           )}
         </button>
       </div>
+
+      {startFeedback && (
+        <div className="rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs text-indigo-700">
+          {startFeedback}
+        </div>
+      )}
 
       {isImportModalOpen && (
         <div className="fixed inset-0 z-50 flex items-end justify-center p-0 sm:items-center sm:p-6">
@@ -314,7 +336,7 @@ const ExamSetup: React.FC<ExamSetupProps> = ({ isLoading, onStart, practiceRooms
                         <span className="min-w-0">
                           <span className="block truncate text-sm font-semibold text-slate-700">{room.topic}</span>
                           <span className="block text-xs text-slate-500">
-                            {room.difficulty} · {room.exampleTasks.length} Beispielaufgaben
+                            {room.difficulty} - {room.exampleTasks.length} Beispielaufgaben
                           </span>
                         </span>
                       </label>

@@ -1,7 +1,17 @@
-import React, { useState } from 'react';
-import { 
-  ArrowLeft, Play, BookOpen, ClipboardList, Plus, X, Save,
-  CheckCircle2, XCircle, Eye, Loader2, RotateCcw
+﻿import React, { useMemo, useState } from 'react';
+import {
+  ArrowLeft,
+  Play,
+  BookOpen,
+  ClipboardList,
+  Plus,
+  X,
+  Save,
+  CheckCircle2,
+  XCircle,
+  Eye,
+  Loader2,
+  RotateCcw
 } from 'lucide-react';
 import MathRenderer from './MathRenderer';
 import { FormulaEntry, PracticeRoom, PracticeTask, MathSolution } from '../types';
@@ -12,7 +22,7 @@ type DetailTab = 'continue' | 'examples' | 'history';
 
 interface PracticeRoomDetailProps {
   room: PracticeRoom;
-  onContinue: (additionalPrompt?: string) => void;
+  onContinue: (additionalPrompt?: string, taskCount?: number) => void;
   onResumeTask: (task: PracticeTask) => void;
   onUpdateExamples: (examples: string[]) => void;
   onTaskUpdated: (task: PracticeTask) => void;
@@ -45,27 +55,38 @@ const PracticeRoomDetail: React.FC<PracticeRoomDetailProps> = ({
 }) => {
   const [activeTab, setActiveTab] = useState<DetailTab>('continue');
   const [additionalPrompt, setAdditionalPrompt] = useState('');
+  const [continueTaskCount, setContinueTaskCount] = useState(3);
   const [editedExamples, setEditedExamples] = useState<string[]>([...room.exampleTasks]);
   const [viewingSolution, setViewingSolution] = useState<MathSolution | null>(null);
   const [viewingTaskText, setViewingTaskText] = useState('');
   const [generatingSolutionForId, setGeneratingSolutionForId] = useState<string | null>(null);
 
-  const correctCount = room.generatedTasks.filter(t => t.isCorrect === true).length;
-  const attemptedCount = room.generatedTasks.filter(t => t.isCorrect !== undefined).length;
+  const correctCount = room.generatedTasks.filter((task) => task.isCorrect === true).length;
+  const attemptedCount = room.generatedTasks.filter((task) => task.isCorrect !== undefined).length;
+  const roomIsGenerating = room.status === 'configuring';
+
+  const progressPercent = useMemo(() => {
+    if (typeof room.generationProgress === 'number') {
+      return Math.max(0, Math.min(100, Math.round(room.generationProgress)));
+    }
+    if (!room.pendingTaskCount || room.pendingTaskCount <= 0) return 0;
+    const ratio = room.generatedTasks.length / room.pendingTaskCount;
+    return Math.max(0, Math.min(100, Math.round(ratio * 100)));
+  }, [room.generationProgress, room.pendingTaskCount, room.generatedTasks.length]);
 
   const tabs: { id: DetailTab; label: string; icon: React.ReactNode }[] = [
-    { id: 'continue', label: 'Weiter üben', icon: <Play className="w-4 h-4" /> },
+    { id: 'continue', label: 'Weiter ueben', icon: <Play className="w-4 h-4" /> },
     { id: 'examples', label: 'Beispielaufgaben', icon: <BookOpen className="w-4 h-4" /> },
-    { id: 'history', label: 'Bisherige Aufgaben', icon: <ClipboardList className="w-4 h-4" /> },
+    { id: 'history', label: 'Bisherige Aufgaben', icon: <ClipboardList className="w-4 h-4" /> }
   ];
 
-  const addExample = () => setEditedExamples(prev => [...prev, '']);
-  const removeExample = (idx: number) => setEditedExamples(prev => prev.filter((_, i) => i !== idx));
-  const updateExample = (idx: number, val: string) =>
-    setEditedExamples(prev => prev.map((t, i) => (i === idx ? val : t)));
+  const addExample = () => setEditedExamples((prev) => [...prev, '']);
+  const removeExample = (index: number) => setEditedExamples((prev) => prev.filter((_, i) => i !== index));
+  const updateExample = (index: number, value: string) =>
+    setEditedExamples((prev) => prev.map((task, i) => (i === index ? value : task)));
 
   const saveExamples = () => {
-    const filtered = editedExamples.filter(t => t.trim() !== '');
+    const filtered = editedExamples.filter((task) => task.trim() !== '');
     onUpdateExamples(filtered);
     setEditedExamples(filtered.length ? filtered : ['']);
   };
@@ -74,12 +95,12 @@ const PracticeRoomDetail: React.FC<PracticeRoomDetailProps> = ({
     setGeneratingSolutionForId(task.id);
     try {
       const solution = await solvePracticeTask(task.taskText);
-      const updated: PracticeTask = { ...task, fullSolution: solution };
-      onTaskUpdated(updated);
+      const updatedTask: PracticeTask = { ...task, fullSolution: solution };
+      onTaskUpdated(updatedTask);
       setViewingSolution(solution);
       setViewingTaskText(task.taskText);
-    } catch (err: any) {
-      console.error("Failed to generate solution:", err);
+    } catch (error: any) {
+      console.error('Failed to generate solution:', error);
     } finally {
       setGeneratingSolutionForId(null);
     }
@@ -114,26 +135,23 @@ const PracticeRoomDetail: React.FC<PracticeRoomDetailProps> = ({
         className="flex items-center gap-1.5 text-sm text-slate-500 hover:text-indigo-600 transition-colors"
       >
         <ArrowLeft className="w-4 h-4" />
-        Zurück
+        Zurueck
       </button>
 
       <div className="bg-white rounded-2xl sm:rounded-3xl shadow-xl border border-slate-100 overflow-hidden">
-        {/* Header */}
         <div className="bg-gradient-to-r from-amber-500 to-orange-500 px-5 sm:px-7 py-5 text-white">
           <p className="text-xs uppercase tracking-wider text-white/70 font-medium">Lernraum</p>
           <h2 className="text-xl font-bold mt-1">{room.topic}</h2>
           <div className="flex items-center gap-4 mt-2 text-sm text-white/80">
             <span>{room.difficulty}</span>
-            {attemptedCount > 0 && (
-              <span>{correctCount}/{attemptedCount} richtig</span>
-            )}
+            {attemptedCount > 0 && <span>{correctCount}/{attemptedCount} richtig</span>}
             <span>{room.generatedTasks.length} Aufgabe{room.generatedTasks.length !== 1 ? 'n' : ''}</span>
+            {roomIsGenerating && <span className="font-semibold">in Vorbereitung ({progressPercent}%)</span>}
           </div>
         </div>
 
-        {/* Tabs */}
         <div className="flex border-b border-slate-100">
-          {tabs.map(tab => (
+          {tabs.map((tab) => (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
@@ -150,33 +168,63 @@ const PracticeRoomDetail: React.FC<PracticeRoomDetailProps> = ({
         </div>
 
         <div className="p-5 sm:p-7">
-          {/* Continue tab */}
           {activeTab === 'continue' && (
             <div className="space-y-4">
               <p className="text-sm text-slate-600">
-                Erstelle eine neue Übungsaufgabe basierend auf dem bisherigen Lernstand.
-                Du kannst optional zusätzliche Anweisungen geben.
+                Erstelle neue Uebungsaufgaben basierend auf dem bisherigen Lernstand.
+                Du kannst optional zusaetzliche Anweisungen geben.
               </p>
+
+              {roomIsGenerating && (
+                <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+                  Aufgaben werden bereits im Hintergrund erstellt ({progressPercent}%).
+                </div>
+              )}
+
+              {room.status === 'failed' && room.generationError && (
+                <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+                  Letzte Generierung fehlgeschlagen: {room.generationError}
+                </div>
+              )}
+
               <textarea
                 value={additionalPrompt}
-                onChange={e => setAdditionalPrompt(e.target.value)}
-                placeholder="z. B. Schwieriger machen, mehr Textaufgaben, Fokus auf einen Teilbereich …"
+                onChange={(event) => setAdditionalPrompt(event.target.value)}
+                placeholder="z. B. schwieriger machen, mehr Textaufgaben, Fokus auf einen Teilbereich ..."
                 className="w-full h-28 p-4 bg-slate-50 rounded-2xl border border-slate-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 focus:bg-white transition-all resize-none text-slate-700 text-base placeholder:text-slate-400"
               />
+
+              <div className="grid gap-3 sm:grid-cols-3">
+                <div className="sm:col-span-2">
+                  <label className="block text-sm font-semibold text-slate-700 mb-1.5">Anzahl neuer Aufgaben</label>
+                  <select
+                    value={continueTaskCount}
+                    onChange={(event) => setContinueTaskCount(Number(event.target.value))}
+                    className="w-full p-3 bg-slate-50 rounded-xl border border-slate-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 focus:bg-white transition-all text-slate-700 text-base"
+                    disabled={roomIsGenerating || isLoading}
+                  >
+                    {Array.from({ length: 10 }, (_, index) => index + 1).map((count) => (
+                      <option key={count} value={count}>
+                        {count}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
               <div className="flex justify-end">
                 <button
-                  onClick={() => onContinue(additionalPrompt.trim() || undefined)}
-                  disabled={isLoading}
+                  onClick={() => onContinue(additionalPrompt.trim() || undefined, continueTaskCount)}
+                  disabled={roomIsGenerating || isLoading}
                   className="w-full sm:w-auto justify-center bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white px-6 py-3 rounded-xl font-bold text-base shadow-lg shadow-indigo-200 flex items-center space-x-2 transition-all active:scale-95"
                 >
                   <Play className="w-5 h-5" />
-                  <span>Neue Aufgabe starten</span>
+                  <span>{continueTaskCount > 1 ? 'Aufgabenpaket starten' : 'Neue Aufgabe starten'}</span>
                 </button>
               </div>
             </div>
           )}
 
-          {/* Examples tab */}
           {activeTab === 'examples' && (
             <div className="space-y-4">
               <p className="text-sm text-slate-600">
@@ -190,8 +238,8 @@ const PracticeRoomDetail: React.FC<PracticeRoomDetailProps> = ({
                     </span>
                     <textarea
                       value={task}
-                      onChange={e => updateExample(index, e.target.value)}
-                      placeholder="z. B. Löse x² + 5x + 6 = 0"
+                      onChange={(event) => updateExample(index, event.target.value)}
+                      placeholder="z. B. Loese x^2 + 5x + 6 = 0"
                       rows={2}
                       className="flex-1 p-3 bg-slate-50 rounded-xl border border-slate-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 focus:bg-white transition-all resize-none text-slate-700 text-sm placeholder:text-slate-400"
                     />
@@ -199,6 +247,7 @@ const PracticeRoomDetail: React.FC<PracticeRoomDetailProps> = ({
                       <button
                         onClick={() => removeExample(index)}
                         className="mt-2 p-1.5 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                        title="Beispiel entfernen"
                       >
                         <X className="w-4 h-4" />
                       </button>
@@ -212,7 +261,7 @@ const PracticeRoomDetail: React.FC<PracticeRoomDetailProps> = ({
                   className="flex items-center gap-1.5 text-sm font-medium text-indigo-600 hover:text-indigo-700 px-3 py-2 rounded-lg hover:bg-indigo-50 transition-colors"
                 >
                   <Plus className="w-4 h-4" />
-                  Beispiel hinzufügen
+                  Beispiel hinzufuegen
                 </button>
                 <button
                   onClick={saveExamples}
@@ -225,12 +274,15 @@ const PracticeRoomDetail: React.FC<PracticeRoomDetailProps> = ({
             </div>
           )}
 
-          {/* History tab */}
           {activeTab === 'history' && (
             <div className="space-y-3">
               {room.generatedTasks.length === 0 ? (
                 <p className="text-sm text-slate-400 text-center py-8">
-                  Noch keine Aufgaben erstellt.
+                  {roomIsGenerating
+                    ? 'Aufgaben werden gerade erstellt.'
+                    : room.status === 'failed'
+                    ? 'Generierung fehlgeschlagen. Starte im Tab "Weiter ueben" einen neuen Versuch.'
+                    : 'Noch keine Aufgaben erstellt.'}
                 </p>
               ) : (
                 room.generatedTasks.map((task, index) => (
@@ -279,7 +331,7 @@ const PracticeRoomDetail: React.FC<PracticeRoomDetailProps> = ({
                             className="flex items-center gap-1 text-xs text-indigo-500 hover:text-indigo-700 px-2 py-1 rounded-lg hover:bg-indigo-50 transition-colors"
                           >
                             <Eye className="w-3.5 h-3.5" />
-                            Lösung
+                            Loesung
                           </button>
                         ) : (
                           <button
@@ -292,7 +344,7 @@ const PracticeRoomDetail: React.FC<PracticeRoomDetailProps> = ({
                             ) : (
                               <Eye className="w-3.5 h-3.5" />
                             )}
-                            Lösung erstellen
+                            Loesung erstellen
                           </button>
                         )}
                       </div>
