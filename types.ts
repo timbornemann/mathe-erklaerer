@@ -118,6 +118,10 @@ export interface PracticeRoom {
   projectId?: string;
   exampleTasks: string[];
   generatedTasks: PracticeTask[];
+  status?: 'configuring' | 'ready' | 'failed';
+  generationProgress?: number;
+  pendingTaskCount?: number;
+  generationError?: string;
   createdAt: number;
   updatedAt: number;
 }
@@ -152,6 +156,8 @@ export interface ExamSession {
   remainingSeconds?: number;
   submitReason?: 'manual' | 'timeout';
   status: ExamSessionStatus;
+  generationProgress?: number;
+  generationError?: string;
   tasks: ExamTask[];
   scorePercent?: number;
   correctCount?: number;
