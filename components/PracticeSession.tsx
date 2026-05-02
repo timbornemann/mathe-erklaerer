@@ -1,4 +1,4 @@
-import React, { useState, useRef, useCallback } from 'react';
+import React, { useState, useRef, useCallback, useMemo } from 'react';
 import { 
   CheckCircle2, XCircle, Eye, ArrowRight, Loader2, ImageIcon, X, 
   Send, ArrowLeft, RefreshCw, ChevronDown, ChevronUp
@@ -6,6 +6,7 @@ import {
 import MathRenderer from './MathRenderer';
 import SolutionViewer from './SolutionViewer';
 import FormulaSidebar from './FormulaSidebar';
+import SidePanel from './SidePanel';
 import { FormulaEntry, PracticeRoom, PracticeTask, MathSolution } from '../types';
 import { checkPracticeSolution, solvePracticeTask } from '../services/gemini';
 
@@ -60,8 +61,18 @@ const PracticeSession: React.FC<PracticeSessionProps> = ({
   const [additionalPrompt, setAdditionalPrompt] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [showHistory, setShowHistory] = useState(false);
+  const [isSidePanelOpen, setIsSidePanelOpen] = useState(false);
   const [isFormulaSidebarOpen, setIsFormulaSidebarOpen] = useState(false);
-  const sidebarOffsetClass = isFormulaSidebarOpen ? 'md:pl-[430px]' : '';
+  const sidebarOffsetClass =
+    isFormulaSidebarOpen && isSidePanelOpen
+      ? 'xl:pr-[830px] md:pr-[400px]'
+      : isFormulaSidebarOpen
+      ? 'md:pr-[430px]'
+      : isSidePanelOpen
+      ? 'md:pr-[400px]'
+      : '';
+  const formulaSidebarRightOffsetPx = isSidePanelOpen ? 400 : 0;
+  const formulaSidebarButtonRightOffsetPx = isSidePanelOpen ? 400 : 88;
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   React.useEffect(() => {
@@ -200,6 +211,38 @@ const PracticeSession: React.FC<PracticeSessionProps> = ({
   const completedTasks = room.generatedTasks.filter(t => t.isCorrect !== undefined);
   const correctCount = room.generatedTasks.filter(t => t.isCorrect === true).length;
   const taskNumber = room.generatedTasks.findIndex(t => t.id === currentTask.id) + 1;
+  const practiceChatSteps = useMemo(
+    () =>
+      room.generatedTasks.map((task, index) => {
+        const userSolution = (task.userSolution ?? '').trim();
+        const feedbackText = (task.aiFeedback ?? '').trim();
+        const explanationParts = [
+          `Aufgabentext:\n${task.taskText}`,
+          userSolution
+            ? `Aktueller Loesungsversuch:\n${userSolution}`
+            : 'Es liegt noch kein Loesungsversuch in Textform vor.',
+          `Bildloesung vorhanden: ${task.userSolutionImage ? 'ja' : 'nein'}.`,
+          feedbackText ? `KI-Feedback:\n${feedbackText}` : 'Es liegt noch kein KI-Feedback vor.'
+        ];
+
+        return {
+          title: `Aufgabe ${index + 1}`,
+          explanation: explanationParts.join('\n\n'),
+          formulas: []
+        };
+      }),
+    [room.generatedTasks]
+  );
+  const fallbackChatStep = {
+    title: `Aufgabe ${Math.max(taskNumber, 1)}`,
+    explanation: `Aufgabentext:\n${currentTask.taskText}`,
+    formulas: []
+  };
+  const currentTaskIndex = room.generatedTasks.findIndex((task) => task.id === currentTask.id);
+  const activeChatStepIndex = currentTaskIndex >= 0 ? currentTaskIndex : 0;
+  const activeChatStep = practiceChatSteps[activeChatStepIndex] ?? fallbackChatStep;
+  const activeChatLabel = `Aufgabe ${activeChatStepIndex + 1}`;
+  const activeChatScopeKey = `practice-room-${room.id}-task-${currentTask.id}`;
 
   if (phase === 'generating') {
     return (
@@ -223,6 +266,20 @@ const PracticeSession: React.FC<PracticeSessionProps> = ({
         onRetryFormula={onRetryFormulaGeneration}
         onAddFormulaLatex={onAddFormulaManual}
         onAskFormulaPrompt={onAskFormulaPrompt}
+        side="right"
+        rightOffsetPx={formulaSidebarRightOffsetPx}
+        floatingButtonRightOffsetPx={formulaSidebarButtonRightOffsetPx}
+      />
+      <SidePanel
+        isOpen={isSidePanelOpen}
+        onToggle={() => setIsSidePanelOpen((prev) => !prev)}
+        currentStep={activeChatStep}
+        allSteps={practiceChatSteps.length > 0 ? practiceChatSteps : [fallbackChatStep]}
+        stepIndex={activeChatStepIndex}
+        stepLabel={activeChatLabel}
+        stepScopeKey={activeChatScopeKey}
+        initialPrompt={currentTask.taskText}
+        onExtractFormulasFromMessage={onExtractFormulasFromChatMessage}
       />
       </>
     );
@@ -279,6 +336,20 @@ const PracticeSession: React.FC<PracticeSessionProps> = ({
         onRetryFormula={onRetryFormulaGeneration}
         onAddFormulaLatex={onAddFormulaManual}
         onAskFormulaPrompt={onAskFormulaPrompt}
+        side="right"
+        rightOffsetPx={formulaSidebarRightOffsetPx}
+        floatingButtonRightOffsetPx={formulaSidebarButtonRightOffsetPx}
+      />
+      <SidePanel
+        isOpen={isSidePanelOpen}
+        onToggle={() => setIsSidePanelOpen((prev) => !prev)}
+        currentStep={activeChatStep}
+        allSteps={practiceChatSteps.length > 0 ? practiceChatSteps : [fallbackChatStep]}
+        stepIndex={activeChatStepIndex}
+        stepLabel={activeChatLabel}
+        stepScopeKey={activeChatScopeKey}
+        initialPrompt={currentTask.taskText}
+        onExtractFormulasFromMessage={onExtractFormulasFromChatMessage}
       />
       </>
     );
@@ -570,6 +641,20 @@ const PracticeSession: React.FC<PracticeSessionProps> = ({
       onRetryFormula={onRetryFormulaGeneration}
       onAddFormulaLatex={onAddFormulaManual}
       onAskFormulaPrompt={onAskFormulaPrompt}
+      side="right"
+      rightOffsetPx={formulaSidebarRightOffsetPx}
+      floatingButtonRightOffsetPx={formulaSidebarButtonRightOffsetPx}
+    />
+    <SidePanel
+      isOpen={isSidePanelOpen}
+      onToggle={() => setIsSidePanelOpen((prev) => !prev)}
+      currentStep={activeChatStep}
+      allSteps={practiceChatSteps.length > 0 ? practiceChatSteps : [fallbackChatStep]}
+      stepIndex={activeChatStepIndex}
+      stepLabel={activeChatLabel}
+      stepScopeKey={activeChatScopeKey}
+      initialPrompt={currentTask.taskText}
+      onExtractFormulasFromMessage={onExtractFormulasFromChatMessage}
     />
     </>
   );
