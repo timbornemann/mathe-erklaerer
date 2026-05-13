@@ -1357,17 +1357,37 @@ const parseFunctionPlotSpec = (source: string): { spec?: FunctionPlotSpec; error
       return { error: '"fnType" muss ein String sein.' };
     }
 
-    data.push({
-      ...item,
-      fn: hasFn ? String(item.fn) : undefined,
-      points: hasPoints ? (item.points as [number, number][]) : undefined,
-      fnType: typeof item.fnType === 'string' ? item.fnType : hasPoints ? 'points' : undefined,
-      graphType: typeof item.graphType === 'string'
-        ? (item.graphType as FunctionPlotGraphType)
-        : hasPoints
-        ? 'scatter'
-        : undefined
-    });
+    const normalized: FunctionPlotDataItem = { ...item };
+
+    if (hasFn) {
+      normalized.fn = String(item.fn);
+    } else {
+      delete normalized.fn;
+    }
+
+    if (hasPoints) {
+      normalized.points = item.points as [number, number][];
+    } else {
+      delete normalized.points;
+    }
+
+    if (typeof item.fnType === 'string') {
+      normalized.fnType = item.fnType;
+    } else if (hasPoints) {
+      normalized.fnType = 'points';
+    } else {
+      delete normalized.fnType;
+    }
+
+    if (typeof item.graphType === 'string') {
+      normalized.graphType = item.graphType as FunctionPlotGraphType;
+    } else if (hasPoints) {
+      normalized.graphType = 'scatter';
+    } else {
+      delete normalized.graphType;
+    }
+
+    data.push(normalized);
   }
 
   const xDomain = payload.xDomain ?? getAxisDomain(payload.xAxis);
