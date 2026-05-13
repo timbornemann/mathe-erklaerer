@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, ArrowRight, Clock3, Download, FileText, FileWarning, ImageIcon, Loader2, Send, X } from 'lucide-react';
-import { ExamSession as ExamSessionType, ExamTask, FormulaEntry } from '../types';
+import { ChatMessage, ChatSessionPersistPayload, ExamSession as ExamSessionType, ExamTask, FormulaEntry } from '../types';
 import MathRenderer from './MathRenderer';
 import FormulaSidebar from './FormulaSidebar';
 import SidePanel from './SidePanel';
@@ -19,6 +19,8 @@ interface ExamSessionProps {
   onAddFormulaManual?: (formula: string, contextText?: string) => Promise<void> | void;
   onAskFormulaPrompt?: (prompt: string) => Promise<void> | void;
   onExtractFormulasFromChatMessage?: (message: string, sourceLabel: string) => Promise<{ added: number; extracted: number }> | void;
+  loadPersistedChatMessages?: (sessionKey: string) => ChatMessage[] | null;
+  onPersistChatSession?: (payload: ChatSessionPersistPayload) => void;
 }
 
 const formatClock = (seconds: number) => {
@@ -41,7 +43,9 @@ const ExamSession: React.FC<ExamSessionProps> = ({
   onRetryFormulaGeneration,
   onAddFormulaManual,
   onAskFormulaPrompt,
-  onExtractFormulasFromChatMessage
+  onExtractFormulasFromChatMessage,
+  loadPersistedChatMessages,
+  onPersistChatSession
 }) => {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [remainingSeconds, setRemainingSeconds] = useState(() =>
@@ -417,6 +421,13 @@ const ExamSession: React.FC<ExamSessionProps> = ({
       stepScopeKey={activeChatScopeKey}
       initialPrompt={currentTask.taskText}
       onExtractFormulasFromMessage={onExtractFormulasFromChatMessage}
+      loadPersistedMessages={loadPersistedChatMessages}
+      onPersistChatSession={onPersistChatSession}
+      sessionOriginMode="EXAM"
+      sessionOriginLabel={`Pruefung: ${session.topic}`}
+      sessionSourceId={session.id}
+      sessionProjectId={session.projectId}
+      sessionKeyPrefix={`exam-session-${session.id}`}
     />
     </>
   );

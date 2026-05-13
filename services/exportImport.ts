@@ -1,4 +1,5 @@
 import {
+  ChatConversation,
   HistoryItem,
   Project,
   PracticeRoom,
@@ -17,7 +18,7 @@ import {
   sanitizeFormulaList
 } from './formulaCollection';
 
-export const CURRENT_EXPORT_VERSION = 4;
+export const CURRENT_EXPORT_VERSION = 5;
 
 export type ImportStrategy = 'replace' | 'merge' | 'skipConflicts';
 
@@ -38,6 +39,7 @@ const computeStatistics = (
   projects: Project[],
   practiceRooms: PracticeRoom[],
   examSessions: ExamSession[],
+  chatConversations: ChatConversation[],
   formulas: FormulaEntry[]
 ) => {
   let totalTasksCompleted = 0;
@@ -69,7 +71,8 @@ const computeStatistics = (
     examSessionsCount: examSessions.length,
     examTasksCompleted,
     formulasCount: formulas.length,
-    formulasUsageTotal
+    formulasUsageTotal,
+    chatConversationsCount: chatConversations.length
   };
 };
 
@@ -79,6 +82,7 @@ export function buildExportData(
   activeProjectId: string | null,
   practiceRooms: PracticeRoom[],
   examSessions: ExamSession[],
+  chatConversations: ChatConversation[],
   formulas: FormulaEntry[]
 ): ExportData {
   return {
@@ -89,8 +93,9 @@ export function buildExportData(
     activeProjectId,
     practiceRooms,
     examSessions,
+    chatConversations,
     formulas,
-    statistics: computeStatistics(history, projects, practiceRooms, examSessions, formulas)
+    statistics: computeStatistics(history, projects, practiceRooms, examSessions, chatConversations, formulas)
   };
 }
 
@@ -147,6 +152,10 @@ export function parseAndValidateExport(json: string): ValidationResult {
     errors.push('Feld "examSessions" ist ungueltig.');
   }
 
+  if (obj.chatConversations !== undefined && !Array.isArray(obj.chatConversations)) {
+    errors.push('Feld "chatConversations" ist ungueltig.');
+  }
+
   if (obj.formulas !== undefined && !Array.isArray(obj.formulas)) {
     errors.push('Feld "formulas" ist ungueltig.');
   }
@@ -179,6 +188,9 @@ export function parseAndValidateExport(json: string): ValidationResult {
     if (stats.formulasUsageTotal !== undefined && typeof stats.formulasUsageTotal !== 'number') {
       errors.push('statistics.formulasUsageTotal ist ungueltig.');
     }
+    if (stats.chatConversationsCount !== undefined && typeof stats.chatConversationsCount !== 'number') {
+      errors.push('statistics.chatConversationsCount ist ungueltig.');
+    }
   }
 
   if (errors.length) {
@@ -193,6 +205,7 @@ export function parseAndValidateExport(json: string): ValidationResult {
     activeProjectId: typeof obj.activeProjectId === 'string' ? obj.activeProjectId : null,
     practiceRooms: obj.practiceRooms as PracticeRoom[],
     examSessions: Array.isArray(obj.examSessions) ? (obj.examSessions as ExamSession[]) : [],
+    chatConversations: Array.isArray(obj.chatConversations) ? (obj.chatConversations as ChatConversation[]) : [],
     formulas: sanitizeFormulaList(Array.isArray(obj.formulas) ? obj.formulas : []),
     statistics: {
       historyCount: obj.statistics.historyCount,
@@ -202,7 +215,8 @@ export function parseAndValidateExport(json: string): ValidationResult {
       examSessionsCount: obj.statistics.examSessionsCount ?? (Array.isArray(obj.examSessions) ? obj.examSessions.length : 0),
       examTasksCompleted: obj.statistics.examTasksCompleted ?? 0,
       formulasCount: obj.statistics.formulasCount ?? (Array.isArray(obj.formulas) ? obj.formulas.length : 0),
-      formulasUsageTotal: obj.statistics.formulasUsageTotal ?? 0
+      formulasUsageTotal: obj.statistics.formulasUsageTotal ?? 0,
+      chatConversationsCount: obj.statistics.chatConversationsCount ?? (Array.isArray(obj.chatConversations) ? obj.chatConversations.length : 0)
     }
   };
 
@@ -215,6 +229,7 @@ export function applyImportData(
   currentActiveProjectId: string | null,
   currentPracticeRooms: PracticeRoom[],
   currentExamSessions: ExamSession[],
+  currentChatConversations: ChatConversation[],
   currentFormulas: FormulaEntry[],
   imported: ExportData,
   strategy: ImportStrategy
@@ -224,6 +239,7 @@ export function applyImportData(
   activeProjectId: string | null;
   practiceRooms: PracticeRoom[];
   examSessions: ExamSession[];
+  chatConversations: ChatConversation[];
   formulas: FormulaEntry[];
 } {
   const importedProjects = imported.projects ?? [];
@@ -235,6 +251,7 @@ export function applyImportData(
     const history = sanitizeHistoryProjectRefs(imported.history, projectIds);
     const practiceRooms = sanitizePracticeRoomProjectRefs(imported.practiceRooms, projectIds);
     const examSessions = sanitizeExamSessionProjectRefs(imported.examSessions ?? [], projectIds);
+    const chatConversations = sanitizeChatConversationProjectRefs(imported.chatConversations ?? [], projectIds);
     const formulas = sanitizeFormulaProjectRefs(imported.formulas ?? [], projectIds);
     const activeProjectId =
       importedActiveProjectId && projectIds.has(importedActiveProjectId)
@@ -247,6 +264,7 @@ export function applyImportData(
       activeProjectId,
       practiceRooms,
       examSessions,
+      chatConversations,
       formulas
     };
   }
@@ -281,6 +299,13 @@ export function applyImportData(
     strategy
   );
 
+  const chatConversations = mergeById(
+    currentChatConversations,
+    imported.chatConversations ?? [],
+    mergeChatConversation,
+    strategy
+  );
+
   const formulas = mergeFormulaEntries(
     currentFormulas ?? [],
     imported.formulas ?? [],
@@ -291,6 +316,9 @@ export function applyImportData(
   const sanitizedPracticeRooms = sanitizePracticeRoomProjectRefs(practiceRooms, projectIds).sort((a, b) => b.updatedAt - a.updatedAt);
   const sanitizedExamSessions = sanitizeExamSessionProjectRefs(examSessions, projectIds).sort(
     (a, b) => getExamActivityTime(b) - getExamActivityTime(a)
+  );
+  const sanitizedChatConversations = sanitizeChatConversationProjectRefs(chatConversations, projectIds).sort(
+    (a, b) => b.updatedAt - a.updatedAt
   );
   const sanitizedFormulas = sanitizeFormulaProjectRefs(formulas, projectIds).sort((a, b) => b.updatedAt - a.updatedAt);
 
@@ -307,6 +335,7 @@ export function applyImportData(
     activeProjectId,
     practiceRooms: sanitizedPracticeRooms,
     examSessions: sanitizedExamSessions,
+    chatConversations: sanitizedChatConversations,
     formulas: sanitizedFormulas
   };
 }
@@ -378,6 +407,36 @@ const sanitizeExamSessionProjectRefs = (sessions: ExamSession[], knownProjectIds
     const cloned: ExamSession = { ...session };
     delete cloned.projectId;
     return cloned;
+  });
+
+const sanitizeChatConversationProjectRefs = (
+  conversations: ChatConversation[],
+  knownProjectIds: Set<string>
+): ChatConversation[] =>
+  conversations.map((conversation) => {
+    const projectId = normalizeLinkedProjectId(conversation.projectId, knownProjectIds);
+    const contextProjectId = normalizeLinkedProjectId(conversation.context?.projectId, knownProjectIds);
+
+    const nextConversation: ChatConversation = {
+      ...conversation,
+      context: {
+        ...conversation.context
+      }
+    };
+
+    if (projectId) {
+      nextConversation.projectId = projectId;
+    } else {
+      delete nextConversation.projectId;
+    }
+
+    if (contextProjectId) {
+      nextConversation.context.projectId = contextProjectId;
+    } else {
+      delete nextConversation.context.projectId;
+    }
+
+    return nextConversation;
   });
 
 const sanitizeFormulaProjectRefs = (formulas: FormulaEntry[], knownProjectIds: Set<string>): FormulaEntry[] =>
@@ -625,6 +684,19 @@ const mergeExamSession = (current: ExamSession, incoming: ExamSession): ExamSess
   }
 
   return merged;
+};
+
+const mergeChatConversation = (current: ChatConversation, incoming: ChatConversation): ChatConversation => {
+  if (incoming.updatedAt > current.updatedAt) {
+    return incoming;
+  }
+  if (incoming.updatedAt < current.updatedAt) {
+    return current;
+  }
+  if ((incoming.messages?.length ?? 0) > (current.messages?.length ?? 0)) {
+    return incoming;
+  }
+  return current;
 };
 
 const mergeFormulaEntry = (current: FormulaEntry, incoming: FormulaEntry): FormulaEntry => {

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { FormulaEntry, MathSolution } from '../types';
+import { ChatMessage, ChatOriginMode, ChatSessionPersistPayload, FormulaEntry, MathSolution } from '../types';
 import MathRenderer from './MathRenderer';
 import SidePanel from './SidePanel';
 import FormulaSidebar from './FormulaSidebar';
@@ -20,6 +20,12 @@ interface SolutionViewerProps {
   onAskFormulaPrompt?: (prompt: string) => Promise<void> | void;
   onIncrementFormulaUsage?: (formulaId: string) => void;
   onRetryFormulaGeneration?: (formulaId: string) => void;
+  loadPersistedChatMessages?: (sessionKey: string) => ChatMessage[] | null;
+  onPersistChatSession?: (payload: ChatSessionPersistPayload) => void;
+  chatSessionOriginMode?: ChatOriginMode;
+  chatSessionOriginLabel?: string;
+  chatSessionSourceId?: string;
+  chatSessionProjectId?: string;
 }
 
 const looksTechnicalTutorFinalAnswer = (text: string): boolean =>
@@ -216,7 +222,13 @@ const SolutionViewer: React.FC<SolutionViewerProps> = ({
   onAddFormulaManual,
   onAskFormulaPrompt,
   onIncrementFormulaUsage,
-  onRetryFormulaGeneration
+  onRetryFormulaGeneration,
+  loadPersistedChatMessages,
+  onPersistChatSession,
+  chatSessionOriginMode = 'CHAT',
+  chatSessionOriginLabel = 'Chat',
+  chatSessionSourceId,
+  chatSessionProjectId
 }) => {
   const [currentStep, setCurrentStep] = useState(0);
   const [currentSubstepIndex, setCurrentSubstepIndex] = useState(0);
@@ -1118,6 +1130,13 @@ const SolutionViewer: React.FC<SolutionViewerProps> = ({
         stepScopeKey={chatStepScopeKey}
         initialPrompt={initialPrompt}
         onExtractFormulasFromMessage={onExtractFormulasFromChatMessage}
+        loadPersistedMessages={loadPersistedChatMessages}
+        onPersistChatSession={onPersistChatSession}
+        sessionOriginMode={chatSessionOriginMode}
+        sessionOriginLabel={chatSessionOriginLabel}
+        sessionSourceId={chatSessionSourceId}
+        sessionProjectId={chatSessionProjectId}
+        sessionKeyPrefix={chatSessionSourceId}
       />
 
       <FormulaSidebar

@@ -6,6 +6,8 @@ export enum InputMode {
   EXAM = 'EXAM'
 }
 
+export type MainTab = 'CHAT' | InputMode.TEXT | InputMode.TUTOR | InputMode.PRACTICE | InputMode.EXAM | 'PROJECTS' | 'FORMULAS';
+
 export type FormulaStatus = 'pending' | 'ready' | 'failed';
 
 export type FormulaSourceType = 'solution-step' | 'chat-message' | 'manual' | 'prompt';
@@ -165,6 +167,72 @@ export interface ExamSession {
   feedbackSummary?: string;
 }
 
+export type ChatRole = 'user' | 'model';
+
+export interface ChatImageAttachment {
+  id: string;
+  mimeType: string;
+  dataUrl?: string;
+  name?: string;
+  temporary?: boolean;
+  unavailable?: boolean;
+}
+
+export interface ChatMessage {
+  id: string;
+  role: ChatRole;
+  content: string;
+  images?: ChatImageAttachment[];
+  timestamp: number;
+}
+
+export interface ChatContextStep {
+  title: string;
+  explanation: string;
+  formulas: string[];
+}
+
+export type ChatOriginMode = 'CHAT' | InputMode.TEXT | InputMode.IMAGE | InputMode.TUTOR | InputMode.PRACTICE | InputMode.EXAM;
+
+export interface ChatContextSnapshot {
+  initialPrompt: string;
+  currentStep: ChatContextStep;
+  allSteps: ChatContextStep[];
+  stepIndex: number;
+  stepLabel: string;
+  stepScopeKey: string;
+  originMode: ChatOriginMode;
+  projectId?: string;
+}
+
+export interface ChatOrigin {
+  mode: ChatOriginMode;
+  label: string;
+  sourceId?: string;
+}
+
+export interface ChatConversation {
+  id: string;
+  title: string;
+  createdAt: number;
+  updatedAt: number;
+  isDraft?: boolean;
+  projectId?: string;
+  sessionKey?: string;
+  origin: ChatOrigin;
+  context: ChatContextSnapshot;
+  messages: ChatMessage[];
+}
+
+export interface ChatSessionPersistPayload {
+  sessionKey: string;
+  title: string;
+  projectId?: string;
+  origin: ChatOrigin;
+  context: ChatContextSnapshot;
+  messages: ChatMessage[];
+}
+
 export interface MathState {
   isLoading: boolean;
   inputMode: InputMode;
@@ -180,6 +248,8 @@ export interface MathState {
   activePracticeRoom: PracticeRoom | null;
   examSessions: ExamSession[];
   activeExamSession: ExamSession | null;
+  chatConversations: ChatConversation[];
+  activeChatConversationId: string | null;
 }
 
 export interface ExportStatistics {
@@ -189,6 +259,7 @@ export interface ExportStatistics {
   totalTasksCompleted: number;
   examSessionsCount: number;
   examTasksCompleted: number;
+  chatConversationsCount: number;
   formulasCount: number;
   formulasUsageTotal: number;
 }
@@ -201,6 +272,7 @@ export interface ExportData {
   activeProjectId: string | null;
   practiceRooms: PracticeRoom[];
   examSessions: ExamSession[];
+  chatConversations: ChatConversation[];
   formulas: FormulaEntry[];
   statistics: ExportStatistics;
 }

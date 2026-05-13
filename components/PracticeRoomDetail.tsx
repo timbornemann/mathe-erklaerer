@@ -14,7 +14,7 @@ import {
   RotateCcw
 } from 'lucide-react';
 import MathRenderer from './MathRenderer';
-import { FormulaEntry, PracticeRoom, PracticeTask, MathSolution } from '../types';
+import { ChatMessage, ChatSessionPersistPayload, FormulaEntry, PracticeRoom, PracticeTask, MathSolution } from '../types';
 import SolutionViewer from './SolutionViewer';
 import { solvePracticeTask } from '../services/gemini';
 
@@ -35,6 +35,8 @@ interface PracticeRoomDetailProps {
   onAskFormulaPrompt?: (prompt: string) => Promise<void> | void;
   onIncrementFormulaUsage?: (formulaId: string) => void;
   onRetryFormulaGeneration?: (formulaId: string) => void;
+  loadPersistedChatMessages?: (sessionKey: string) => ChatMessage[] | null;
+  onPersistChatSession?: (payload: ChatSessionPersistPayload) => void;
 }
 
 const PracticeRoomDetail: React.FC<PracticeRoomDetailProps> = ({
@@ -51,7 +53,9 @@ const PracticeRoomDetail: React.FC<PracticeRoomDetailProps> = ({
   onAddFormulaManual,
   onAskFormulaPrompt,
   onIncrementFormulaUsage,
-  onRetryFormulaGeneration
+  onRetryFormulaGeneration,
+  loadPersistedChatMessages,
+  onPersistChatSession
 }) => {
   const [activeTab, setActiveTab] = useState<DetailTab>('continue');
   const [additionalPrompt, setAdditionalPrompt] = useState('');
@@ -123,6 +127,12 @@ const PracticeRoomDetail: React.FC<PracticeRoomDetailProps> = ({
           onAskFormulaPrompt={onAskFormulaPrompt}
           onIncrementFormulaUsage={onIncrementFormulaUsage}
           onRetryFormulaGeneration={onRetryFormulaGeneration}
+          loadPersistedChatMessages={loadPersistedChatMessages}
+          onPersistChatSession={onPersistChatSession}
+          chatSessionOriginMode="PRACTICE"
+          chatSessionOriginLabel={`Ueben: ${room.topic}`}
+          chatSessionSourceId={room.id}
+          chatSessionProjectId={room.projectId}
         />
       </div>
     );

@@ -1,5 +1,8 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import {
+  ChatContextSnapshot,
+  ChatImageAttachment,
+  ChatMessage,
   FormulaGenerationPayload,
   InputMode,
   MathSolution,
@@ -1387,19 +1390,59 @@ export const solveMathProblem = async (
   }
 };
 
-export const chatWithAI = async (
-  userMessage: string,
-  context: {
-    currentStep: any;
-    allSteps: any[];
-    stepIndex: number;
-    initialPrompt: string;
-    chatHistory: { role: 'user' | 'model'; content: string }[];
+const toInlineImagePart = (image: ChatImageAttachment): { inlineData: { data: string; mimeType: string } } | null => {
+  if (!image.dataUrl || image.unavailable) return null;
+  const raw = image.dataUrl.includes(',') ? image.dataUrl.split(',')[1] : image.dataUrl;
+  if (!raw) return null;
+  return {
+    inlineData: {
+      data: raw,
+      mimeType: image.mimeType || 'image/jpeg'
+    }
+  };
+};
+
+const toGeminiPartsFromMessage = (message: ChatMessage): Array<{ text: string } | { inlineData: { data: string; mimeType: string } }> => {
+  const parts: Array<{ text: string } | { inlineData: { data: string; mimeType: string } }> = [];
+  const text = message.content?.trim() ?? '';
+  const images = Array.isArray(message.images) ? message.images : [];
+
+  if (text) {
+    parts.push({ text });
   }
-): Promise<string> => {
+
+  for (const image of images) {
+    const imagePart = toInlineImagePart(image);
+    if (imagePart) {
+      parts.push(imagePart);
+      continue;
+    }
+    if (image.unavailable) {
+      parts.push({
+        text: `[Hinweis: Ein frueheres Bild ist nicht mehr verfuegbar (${image.name || image.mimeType || 'Bild'}).]`
+      });
+    }
+  }
+
+  if (parts.length === 0) {
+    parts.push({ text: '[Leere Nachricht]' });
+  }
+
+  return parts;
+};
+
+export const chatWithAI = async (input: {
+  messageText: string;
+  messageImages?: ChatImageAttachment[];
+  context: ChatContextSnapshot;
+  chatHistory: ChatMessage[];
+}): Promise<string> => {
   try {
     const ai = new GoogleGenAI({ apiKey: getApiKey() });
     const modelId = 'gemini-3-pro-preview';
+    const messageText = input.messageText?.trim() ?? '';
+    const messageImages = Array.isArray(input.messageImages) ? input.messageImages : [];
+    const context = input.context;
 
     // Construct system prompt with context
     const contextPrompt = `
@@ -1410,9 +1453,9 @@ KONTEXT:
 Urspruengliche Aufgabe: "${context.initialPrompt}"
 
 Aktueller Schritt (${context.stepIndex + 1}/${context.allSteps.length}):
-Titel: ${context.currentStep.title}
-Erklaerung: ${context.currentStep.explanation}
-Formeln: ${context.currentStep.formulas.join(', ')}
+Titel: ${context.currentStep?.title ?? ''}
+Erklaerung: ${context.currentStep?.explanation ?? ''}
+Formeln: ${Array.isArray(context.currentStep?.formulas) ? context.currentStep.formulas.join(', ') : ''}
 
 Deine Aufgabe ist es, Fragen des Schuelers zu diesem spezifischen Schritt oder zum Gesamtverstaendnis zu beantworten.
 - Antworte freundlich, geduldig und paedagogisch wertvoll.
@@ -1425,14 +1468,20 @@ ${GRAPH_INSTRUCTIONS}
 - Halte die Antworten praegnant, aber verstaendlich.
 `;
 
-    const contents = context.chatHistory.map(msg => ({
+    const contents = (input.chatHistory ?? []).map((msg) => ({
       role: msg.role === 'model' ? 'model' : 'user',
-      parts: [{ text: msg.content }]
+      parts: toGeminiPartsFromMessage(msg)
     }));
 
     contents.push({
       role: 'user',
-      parts: [{ text: userMessage }]
+      parts: toGeminiPartsFromMessage({
+        id: 'live-user-message',
+        role: 'user',
+        content: messageText,
+        images: messageImages,
+        timestamp: Date.now()
+      })
     });
 
     const response = await ai.models.generateContent({

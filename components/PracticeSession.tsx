@@ -7,7 +7,7 @@ import MathRenderer from './MathRenderer';
 import SolutionViewer from './SolutionViewer';
 import FormulaSidebar from './FormulaSidebar';
 import SidePanel from './SidePanel';
-import { FormulaEntry, PracticeRoom, PracticeTask, MathSolution } from '../types';
+import { ChatMessage, ChatSessionPersistPayload, FormulaEntry, PracticeRoom, PracticeTask, MathSolution } from '../types';
 import { checkPracticeSolution, solvePracticeTask } from '../services/gemini';
 
 type SessionPhase = 
@@ -34,6 +34,8 @@ interface PracticeSessionProps {
   onAskFormulaPrompt: (prompt: string) => Promise<void> | void;
   onIncrementFormulaUsage: (formulaId: string) => void;
   onRetryFormulaGeneration: (formulaId: string) => void;
+  loadPersistedChatMessages?: (sessionKey: string) => ChatMessage[] | null;
+  onPersistChatSession?: (payload: ChatSessionPersistPayload) => void;
 }
 
 const PracticeSession: React.FC<PracticeSessionProps> = ({
@@ -49,7 +51,9 @@ const PracticeSession: React.FC<PracticeSessionProps> = ({
   onAddFormulaManual,
   onAskFormulaPrompt,
   onIncrementFormulaUsage,
-  onRetryFormulaGeneration
+  onRetryFormulaGeneration,
+  loadPersistedChatMessages,
+  onPersistChatSession
 }) => {
   const [phase, setPhase] = useState<SessionPhase>(isGenerating ? 'generating' : 'task_display');
   const [solutionText, setSolutionText] = useState('');
@@ -280,6 +284,13 @@ const PracticeSession: React.FC<PracticeSessionProps> = ({
         stepScopeKey={activeChatScopeKey}
         initialPrompt={currentTask.taskText}
         onExtractFormulasFromMessage={onExtractFormulasFromChatMessage}
+        loadPersistedMessages={loadPersistedChatMessages}
+        onPersistChatSession={onPersistChatSession}
+        sessionOriginMode="PRACTICE"
+        sessionOriginLabel={`Ueben: ${room.topic}`}
+        sessionSourceId={room.id}
+        sessionProjectId={room.projectId}
+        sessionKeyPrefix={`practice-room-${room.id}`}
       />
       </>
     );
@@ -350,6 +361,13 @@ const PracticeSession: React.FC<PracticeSessionProps> = ({
         stepScopeKey={activeChatScopeKey}
         initialPrompt={currentTask.taskText}
         onExtractFormulasFromMessage={onExtractFormulasFromChatMessage}
+        loadPersistedMessages={loadPersistedChatMessages}
+        onPersistChatSession={onPersistChatSession}
+        sessionOriginMode="PRACTICE"
+        sessionOriginLabel={`Ueben: ${room.topic}`}
+        sessionSourceId={room.id}
+        sessionProjectId={room.projectId}
+        sessionKeyPrefix={`practice-room-${room.id}`}
       />
       </>
     );
@@ -369,6 +387,12 @@ const PracticeSession: React.FC<PracticeSessionProps> = ({
           onAskFormulaPrompt={onAskFormulaPrompt}
           onIncrementFormulaUsage={onIncrementFormulaUsage}
           onRetryFormulaGeneration={onRetryFormulaGeneration}
+          loadPersistedChatMessages={loadPersistedChatMessages}
+          onPersistChatSession={onPersistChatSession}
+          chatSessionOriginMode="PRACTICE"
+          chatSessionOriginLabel={`Ueben: ${room.topic}`}
+          chatSessionSourceId={currentTask.id}
+          chatSessionProjectId={room.projectId}
         />
       </div>
     );
@@ -655,6 +679,13 @@ const PracticeSession: React.FC<PracticeSessionProps> = ({
       stepScopeKey={activeChatScopeKey}
       initialPrompt={currentTask.taskText}
       onExtractFormulasFromMessage={onExtractFormulasFromChatMessage}
+      loadPersistedMessages={loadPersistedChatMessages}
+      onPersistChatSession={onPersistChatSession}
+      sessionOriginMode="PRACTICE"
+      sessionOriginLabel={`Ueben: ${room.topic}`}
+      sessionSourceId={room.id}
+      sessionProjectId={room.projectId}
+      sessionKeyPrefix={`practice-room-${room.id}`}
     />
     </>
   );

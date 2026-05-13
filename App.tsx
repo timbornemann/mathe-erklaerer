@@ -4,10 +4,12 @@ import {
   resumeTutorSolution,
   generatePracticeTaskBatch,
   checkPracticeSolution,
-  solvePracticeTask
+  solvePracticeTask,
+  chatWithAI
 } from './services/gemini';
 import SolutionViewer from './components/SolutionViewer';
 import MathRenderer from './components/MathRenderer';
+import ChatModeView from './components/ChatModeView';
 import PracticeSetup from './components/PracticeSetup';
 import PracticeSession from './components/PracticeSession';
 import PracticeRoomCard from './components/PracticeRoomCard';
@@ -20,6 +22,7 @@ import FormulaCollectionView from './components/FormulaCollectionView';
 import FormulaDetailView from './components/FormulaDetailView';
 import {
   MathState,
+  MainTab,
   InputMode,
   HistoryItem,
   MathSolution,
@@ -28,7 +31,13 @@ import {
   ExamSession as ExamSessionType,
   ExamTask,
   HistoryStatus,
-  Project
+  Project,
+  ChatConversation,
+  ChatContextSnapshot,
+  ChatImageAttachment,
+  ChatMessage,
+  ChatOriginMode,
+  ChatSessionPersistPayload
 } from './types';
 import { buildExportData, serializeExportData, parseAndValidateExport, applyImportData, ImportStrategy } from './services/exportImport';
 import {
@@ -59,7 +68,8 @@ import {
     Plus,
     Pencil,
     Settings,
-    ClipboardCheck
+    ClipboardCheck,
+    MessageSquare
 } from 'lucide-react';
 import SettingsModal from './components/SettingsModal';
 import { useFormulaCollection } from './hooks/useFormulaCollection';
@@ -69,6 +79,8 @@ const EXAM_SESSIONS_KEY = 'mathExamSessions';
 const HISTORY_STORAGE_KEY = 'mathGeniusHistory';
 const PROJECTS_STORAGE_KEY = 'mathProjects';
 const ACTIVE_PROJECT_STORAGE_KEY = 'mathActiveProjectId';
+const CHAT_CONVERSATIONS_STORAGE_KEY = 'mathChatConversations';
+const MAX_CHAT_CONVERSATIONS = 200;
 
 const generateId = (): string => {
   if (typeof globalThis.crypto?.randomUUID === 'function') {
@@ -91,7 +103,6 @@ const generateId = (): string => {
 type PracticeView = 'setup' | 'detail' | 'session';
 type ExamView = 'setup' | 'session' | 'result';
 type SolutionOpenView = 'start' | 'summary';
-type MainTab = InputMode.TEXT | InputMode.TUTOR | InputMode.PRACTICE | InputMode.EXAM | 'PROJECTS' | 'FORMULAS';
 type ProjectsView = 'folders' | 'detail';
 type SolutionReturnTarget = { type: 'project-detail'; projectId: string } | null;
 
@@ -222,6 +233,190 @@ const createTutorPlaceholderSolution = (topic: string): MathSolution => ({
   finalAnswer: 'Lernpfad wird erstellt...'
 });
 
+const buildDefaultChatContextSnapshot = (): ChatContextSnapshot => ({
+  initialPrompt: 'Freier Chat',
+  currentStep: {
+    title: 'Freier Chat',
+    explanation: 'Stelle eine Mathefrage oder beschreibe dein Problem.',
+    formulas: []
+  },
+  allSteps: [
+    {
+      title: 'Freier Chat',
+      explanation: 'Stelle eine Mathefrage oder beschreibe dein Problem.',
+      formulas: []
+    }
+  ],
+  stepIndex: 0,
+  stepLabel: 'Freier Chat',
+  stepScopeKey: 'chat-mode-root',
+  originMode: 'CHAT'
+});
+
+const sortConversationsByUpdatedAt = (conversations: ChatConversation[]): ChatConversation[] =>
+  [...conversations].sort((a, b) => b.updatedAt - a.updatedAt);
+
+const trimConversations = (conversations: ChatConversation[]): ChatConversation[] =>
+  sortConversationsByUpdatedAt(conversations).slice(0, MAX_CHAT_CONVERSATIONS);
+
+const sanitizeChatMessageImagesForPersistence = (message: ChatMessage): ChatMessage => {
+  if (!Array.isArray(message.images) || message.images.length === 0) return message;
+  return {
+    ...message,
+    images: message.images.map((image) => ({
+      id: image.id,
+      mimeType: image.mimeType,
+      name: image.name,
+      temporary: true,
+      unavailable: image.unavailable ?? !!image.dataUrl
+    }))
+  };
+};
+
+const sanitizeChatConversationsForPersistence = (conversations: ChatConversation[]): ChatConversation[] =>
+  conversations.map((conversation) => ({
+    ...conversation,
+    messages: (conversation.messages ?? []).map((message) => sanitizeChatMessageImagesForPersistence(message))
+  }));
+
+const hasPersistableUserMessage = (conversation: ChatConversation): boolean =>
+  (conversation.messages ?? []).some((message) =>
+    message.role === 'user' && (message.content.trim() !== '' || (message.images?.length ?? 0) > 0)
+  );
+
+const filterPersistableChatConversations = (conversations: ChatConversation[]): ChatConversation[] =>
+  conversations.filter((conversation) => hasPersistableUserMessage(conversation));
+
+const normalizeLoadedChatMessages = (messages: unknown): ChatMessage[] => {
+  if (!Array.isArray(messages)) return [];
+  return messages
+    .filter((message) => typeof message === 'object' && message !== null)
+    .map((message: any) => ({
+      id: typeof message.id === 'string' && message.id.trim() ? message.id : generateId(),
+      role: message.role === 'user' ? 'user' : 'model',
+      content: typeof message.content === 'string' ? message.content : '',
+      images: Array.isArray(message.images)
+        ? message.images
+            .filter((image) => typeof image === 'object' && image !== null)
+            .map((image: any) => ({
+              id: typeof image.id === 'string' && image.id.trim() ? image.id : generateId(),
+              mimeType: typeof image.mimeType === 'string' && image.mimeType.trim() ? image.mimeType : 'image/jpeg',
+              name: typeof image.name === 'string' ? image.name : undefined,
+              dataUrl: typeof image.dataUrl === 'string' ? image.dataUrl : undefined,
+              temporary: true,
+              unavailable: typeof image.unavailable === 'boolean' ? image.unavailable : (typeof image.dataUrl !== 'string')
+            }))
+        : undefined,
+      timestamp: typeof message.timestamp === 'number' ? message.timestamp : Date.now()
+    }))
+    .filter((message) => message.role === 'model' || message.content.trim() !== '' || (message.images?.length ?? 0) > 0);
+};
+
+const normalizeLoadedChatContext = (rawContext: unknown, fallbackOrigin: ChatOriginMode): ChatContextSnapshot => {
+  if (typeof rawContext !== 'object' || rawContext === null) {
+    const fallback = buildDefaultChatContextSnapshot();
+    return { ...fallback, originMode: fallbackOrigin };
+  }
+  const ctx = rawContext as any;
+  const fallback = buildDefaultChatContextSnapshot();
+  const toStep = (step: any) => ({
+    title: typeof step?.title === 'string' ? step.title : '',
+    explanation: typeof step?.explanation === 'string' ? step.explanation : '',
+    formulas: Array.isArray(step?.formulas) ? step.formulas.filter((entry: unknown) => typeof entry === 'string') : []
+  });
+
+  const allSteps = Array.isArray(ctx.allSteps) ? ctx.allSteps.map((entry: any) => toStep(entry)) : fallback.allSteps;
+  return {
+    initialPrompt: typeof ctx.initialPrompt === 'string' ? ctx.initialPrompt : fallback.initialPrompt,
+    currentStep: toStep(ctx.currentStep),
+    allSteps: allSteps.length > 0 ? allSteps : fallback.allSteps,
+    stepIndex: typeof ctx.stepIndex === 'number' ? ctx.stepIndex : fallback.stepIndex,
+    stepLabel: typeof ctx.stepLabel === 'string' ? ctx.stepLabel : fallback.stepLabel,
+    stepScopeKey: typeof ctx.stepScopeKey === 'string' && ctx.stepScopeKey.trim() ? ctx.stepScopeKey : fallback.stepScopeKey,
+    originMode: (
+      ctx.originMode === 'CHAT' ||
+      ctx.originMode === InputMode.TEXT ||
+      ctx.originMode === InputMode.IMAGE ||
+      ctx.originMode === InputMode.TUTOR ||
+      ctx.originMode === InputMode.PRACTICE ||
+      ctx.originMode === InputMode.EXAM
+    ) ? ctx.originMode : fallbackOrigin,
+    ...(typeof ctx.projectId === 'string' && ctx.projectId.trim() ? { projectId: ctx.projectId } : {})
+  };
+};
+
+const normalizeLoadedChatConversations = (rawConversations: unknown): ChatConversation[] => {
+  if (!Array.isArray(rawConversations)) return [];
+  const normalized = rawConversations
+    .filter((entry) => typeof entry === 'object' && entry !== null)
+    .map((entry: any) => {
+      const originMode: ChatOriginMode =
+        entry.origin?.mode === 'CHAT' ||
+        entry.origin?.mode === InputMode.TEXT ||
+        entry.origin?.mode === InputMode.IMAGE ||
+        entry.origin?.mode === InputMode.TUTOR ||
+        entry.origin?.mode === InputMode.PRACTICE ||
+        entry.origin?.mode === InputMode.EXAM
+          ? entry.origin.mode
+          : 'CHAT';
+
+      const messages = normalizeLoadedChatMessages(entry.messages);
+      if (messages.length === 0) return null;
+
+      return {
+        id: typeof entry.id === 'string' && entry.id.trim() ? entry.id : generateId(),
+        title: typeof entry.title === 'string' && entry.title.trim() ? entry.title : 'Chat',
+        createdAt: typeof entry.createdAt === 'number' ? entry.createdAt : Date.now(),
+        updatedAt: typeof entry.updatedAt === 'number' ? entry.updatedAt : Date.now(),
+        isDraft: Boolean(entry.isDraft) && messages.length === 0,
+        projectId: typeof entry.projectId === 'string' && entry.projectId.trim() ? entry.projectId : undefined,
+        sessionKey: typeof entry.sessionKey === 'string' && entry.sessionKey.trim() ? entry.sessionKey : undefined,
+        origin: {
+          mode: originMode,
+          label: typeof entry.origin?.label === 'string' ? entry.origin.label : 'Chat',
+          sourceId: typeof entry.origin?.sourceId === 'string' ? entry.origin.sourceId : undefined
+        },
+        context: normalizeLoadedChatContext(entry.context, originMode),
+        messages
+      } as ChatConversation;
+    })
+    .filter((conversation): conversation is ChatConversation => !!conversation);
+
+  const uniqueById = new Map<string, ChatConversation>();
+  for (const conversation of normalized) {
+    const existing = uniqueById.get(conversation.id);
+    if (!existing || conversation.updatedAt >= existing.updatedAt) {
+      uniqueById.set(conversation.id, conversation);
+    }
+  }
+  return trimConversations(Array.from(uniqueById.values()));
+};
+
+const createStandaloneChatConversation = (projectId?: string | null): ChatConversation => {
+  const now = Date.now();
+  return {
+    id: generateId(),
+    title: 'Neuer Chat',
+    createdAt: now,
+    updatedAt: now,
+    isDraft: true,
+    projectId: projectId ?? undefined,
+    origin: {
+      mode: 'CHAT',
+      label: 'Chat-Modus'
+    },
+    context: buildDefaultChatContextSnapshot(),
+    messages: [
+      {
+        id: generateId(),
+        role: 'model',
+        content: 'Hallo! Frag mich alles zu Mathe. Du kannst auch Bilder anhaengen.',
+        timestamp: now
+      }
+    ]
+  };
+};
+
 const App: React.FC = () => {
   const [state, setState] = useState<MathState>({
     isLoading: false,
@@ -237,10 +432,12 @@ const App: React.FC = () => {
     practiceRooms: [],
     activePracticeRoom: null,
     examSessions: [],
-    activeExamSession: null
+    activeExamSession: null,
+    chatConversations: [],
+    activeChatConversationId: null
   });
 
-  const [activeMainTab, setActiveMainTab] = useState<MainTab>(InputMode.TEXT);
+  const [activeMainTab, setActiveMainTab] = useState<MainTab>('CHAT');
   const {
     formulas,
     pendingDuplicateDecision,
@@ -261,6 +458,7 @@ const App: React.FC = () => {
   const [examView, setExamView] = useState<ExamView>('setup');
   const [activeExamGenerations, setActiveExamGenerations] = useState(0);
   const [isExamSubmitting, setIsExamSubmitting] = useState(false);
+  const [isChatSending, setIsChatSending] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [activeSolutionHistoryId, setActiveSolutionHistoryId] = useState<string | null>(null);
   const [solutionOpenView, setSolutionOpenView] = useState<SolutionOpenView>('start');
@@ -292,6 +490,7 @@ const App: React.FC = () => {
   const history = state.history ?? [];
   const projects = state.projects ?? [];
   const practiceRooms = state.practiceRooms ?? [];
+  const chatConversations = state.chatConversations ?? [];
   const isPracticeGenerating = activePracticeGenerations > 0;
   const isExamGenerating = activeExamGenerations > 0;
 
@@ -344,6 +543,16 @@ const App: React.FC = () => {
       }
     }
 
+    const savedChatConversations = localStorage.getItem(CHAT_CONVERSATIONS_STORAGE_KEY);
+    if (savedChatConversations) {
+      try {
+        const parsed = JSON.parse(savedChatConversations);
+        updates.chatConversations = normalizeLoadedChatConversations(parsed);
+      } catch (e) {
+        console.error('Failed to parse chat conversations', e);
+      }
+    }
+
     if (Object.keys(updates).length) {
       setState(prev => {
         const merged = { ...prev, ...updates };
@@ -351,6 +560,9 @@ const App: React.FC = () => {
         if (merged.activeProjectId && !knownIds.has(merged.activeProjectId)) {
           merged.activeProjectId = null;
           localStorage.removeItem(ACTIVE_PROJECT_STORAGE_KEY);
+        }
+        if (!merged.activeChatConversationId && Array.isArray(merged.chatConversations) && merged.chatConversations.length > 0) {
+          merged.activeChatConversationId = merged.chatConversations[0].id;
         }
         return merged;
       });
@@ -410,6 +622,12 @@ const App: React.FC = () => {
 
   const saveExamSessions = useCallback((sessions: ExamSessionType[]) => {
     localStorage.setItem(EXAM_SESSIONS_KEY, JSON.stringify(sessions));
+  }, []);
+
+  const saveChatConversations = useCallback((conversations: ChatConversation[]) => {
+    const normalized = trimConversations(filterPersistableChatConversations(conversations));
+    const sanitized = sanitizeChatConversationsForPersistence(normalized);
+    localStorage.setItem(CHAT_CONVERSATIONS_STORAGE_KEY, JSON.stringify(sanitized));
   }, []);
 
   const saveProjects = useCallback((projectItems: Project[]) => {
@@ -613,12 +831,28 @@ const App: React.FC = () => {
         return nextSession;
       });
 
+      const nextChatConversations = (prev.chatConversations ?? []).map((conversation) => {
+        const nextConversation: ChatConversation = { ...conversation };
+
+        if (nextConversation.projectId === projectId) {
+          delete nextConversation.projectId;
+        }
+
+        if (nextConversation.context.projectId === projectId) {
+          nextConversation.context = { ...nextConversation.context };
+          delete nextConversation.context.projectId;
+        }
+
+        return nextConversation;
+      });
+
       const nextActiveProjectId = prev.activeProjectId === projectId ? null : prev.activeProjectId;
 
       saveProjects(nextProjects);
       persistHistory(nextHistory);
       savePracticeRooms(nextPracticeRooms);
       saveExamSessions(nextExamSessions);
+      saveChatConversations(nextChatConversations);
       saveActiveProjectId(nextActiveProjectId);
 
       return {
@@ -628,6 +862,7 @@ const App: React.FC = () => {
         history: nextHistory,
         practiceRooms: nextPracticeRooms,
         examSessions: nextExamSessions,
+        chatConversations: nextChatConversations,
         activePracticeRoom: prev.activePracticeRoom?.id && prev.activePracticeRoom.projectId === projectId
           ? { ...prev.activePracticeRoom, projectId: undefined }
           : prev.activePracticeRoom,
@@ -770,6 +1005,24 @@ const App: React.FC = () => {
     }
   };
 
+  const handleChatTabOpen = () => {
+    setActiveMainTab('CHAT');
+    setProjectsView('folders');
+    setActiveFormulaDetailId(null);
+    setProjectModalOpen(false);
+    setActiveHistoryId(null);
+    setSolutionOpenView('start');
+    setSolutionReturnTarget(null);
+    setOpenHistoryDownloadMenuId(null);
+    setOpenHistorySettingsMenuId(null);
+    setState(prev => ({
+      ...prev,
+      isLoading: false,
+      solution: null,
+      error: null
+    }));
+  };
+
   const handleProjectsTabOpen = () => {
     setActiveMainTab('PROJECTS');
     setProjectsView('folders');
@@ -854,6 +1107,239 @@ const App: React.FC = () => {
     async (message: string, sourceLabel: string) =>
       addFormulasFromChatMessage(message, sourceLabel, state.activeProjectId ?? undefined),
     [addFormulasFromChatMessage, state.activeProjectId]
+  );
+
+  const commitChatConversations = useCallback(
+    (
+      updater: (
+        current: ChatConversation[],
+        currentActiveId: string | null
+      ) => { conversations: ChatConversation[]; activeId?: string | null }
+    ) => {
+      setState((prev) => {
+        const currentConversations = prev.chatConversations ?? [];
+        const result = updater(currentConversations, prev.activeChatConversationId ?? null);
+        const nextConversations = trimConversations(result.conversations);
+        const preferredActiveId = result.activeId !== undefined ? result.activeId : prev.activeChatConversationId;
+        const activeStillExists = preferredActiveId
+          ? nextConversations.some((conversation) => conversation.id === preferredActiveId)
+          : false;
+        const nextActiveId = activeStillExists ? preferredActiveId : (nextConversations[0]?.id ?? null);
+
+        saveChatConversations(nextConversations);
+        return {
+          ...prev,
+          chatConversations: nextConversations,
+          activeChatConversationId: nextActiveId
+        };
+      });
+    },
+    [saveChatConversations]
+  );
+
+  const loadPersistedSidePanelMessages = useCallback(
+    (sessionKey: string): ChatMessage[] | null => {
+      const conversation = (state.chatConversations ?? []).find((entry) => entry.sessionKey === sessionKey);
+      return conversation ? conversation.messages : null;
+    },
+    [state.chatConversations]
+  );
+
+  const persistSidePanelChatSession = useCallback(
+    (payload: ChatSessionPersistPayload) => {
+      commitChatConversations((currentConversations) => {
+        const userMessages = payload.messages.filter((message) => message.role === 'user');
+        const hasRealUserMessage = userMessages.some(
+          (message) => message.content.trim() !== '' || (message.images?.length ?? 0) > 0
+        );
+        const existingIndex = currentConversations.findIndex((entry) => entry.sessionKey === payload.sessionKey);
+        if (!hasRealUserMessage && existingIndex === -1) {
+          return { conversations: currentConversations };
+        }
+
+        const now = Date.now();
+        const normalizedTitle = payload.title?.trim() || 'Chat';
+
+        if (existingIndex >= 0) {
+          const existing = currentConversations[existingIndex];
+          const updated: ChatConversation = {
+            ...existing,
+            title: normalizedTitle || existing.title,
+            projectId: payload.projectId ?? existing.projectId,
+            origin: payload.origin,
+            context: payload.context,
+            messages: payload.messages,
+            updatedAt: now
+          };
+          const next = [...currentConversations];
+          next.splice(existingIndex, 1, updated);
+          return { conversations: next };
+        }
+
+        const createdConversation: ChatConversation = {
+          id: generateId(),
+          title: normalizedTitle,
+          createdAt: now,
+          updatedAt: now,
+          projectId: payload.projectId,
+          sessionKey: payload.sessionKey,
+          origin: payload.origin,
+          context: payload.context,
+          messages: payload.messages
+        };
+
+        return { conversations: [createdConversation, ...currentConversations] };
+      });
+    },
+    [commitChatConversations]
+  );
+
+  const handleCreateChatConversation = useCallback(() => {
+    const created = createStandaloneChatConversation(state.activeProjectId);
+    commitChatConversations((currentConversations) => ({
+      conversations: [created, ...currentConversations.filter((conversation) => !conversation.isDraft)],
+      activeId: created.id
+    }));
+    setActiveMainTab('CHAT');
+    setProjectsView('folders');
+    setState((prev) => ({
+      ...prev,
+      error: null,
+      solution: null
+    }));
+  }, [commitChatConversations, state.activeProjectId]);
+
+  const handleSelectChatConversation = useCallback((conversationId: string) => {
+    setState((prev) => ({
+      ...prev,
+      activeChatConversationId: conversationId
+    }));
+  }, []);
+
+  const handleDeleteChatConversation = useCallback(
+    (conversationId: string) => {
+      commitChatConversations((currentConversations, currentActiveId) => {
+        const remaining = currentConversations.filter((conversation) => conversation.id !== conversationId);
+        if (remaining.length === currentConversations.length) {
+          return { conversations: currentConversations };
+        }
+        const nextActiveId =
+          currentActiveId === conversationId
+            ? (remaining[0]?.id ?? null)
+            : currentActiveId;
+        return {
+          conversations: remaining,
+          activeId: nextActiveId
+        };
+      });
+    },
+    [commitChatConversations]
+  );
+
+  const handleSendChatMessage = useCallback(
+    async (payload: { conversationId: string; text: string; images: ChatImageAttachment[] }) => {
+      const conversation = (state.chatConversations ?? []).find((entry) => entry.id === payload.conversationId);
+      if (!conversation || isChatSending) return;
+
+      const trimmedText = payload.text.trim();
+      if (!trimmedText && payload.images.length === 0) return;
+
+      const now = Date.now();
+      const userMessage: ChatMessage = {
+        id: generateId(),
+        role: 'user',
+        content: trimmedText,
+        images: payload.images.length > 0 ? payload.images.map((image) => ({ ...image })) : undefined,
+        timestamp: now
+      };
+      const historyBeforeNewMessage = conversation.messages;
+      const userMessages = [...conversation.messages, userMessage];
+      const provisionalTitle =
+        conversation.title === 'Neuer Chat' && trimmedText
+          ? trimmedText.slice(0, 90)
+          : conversation.title;
+
+      setIsChatSending(true);
+      commitChatConversations((currentConversations) => {
+        const index = currentConversations.findIndex((entry) => entry.id === payload.conversationId);
+        if (index < 0) return { conversations: currentConversations };
+        const updatedConversation: ChatConversation = {
+          ...currentConversations[index],
+          title: provisionalTitle,
+          isDraft: false,
+          messages: userMessages,
+          updatedAt: now
+        };
+        const next = [...currentConversations];
+        next.splice(index, 1, updatedConversation);
+        return {
+          conversations: next,
+          activeId: payload.conversationId
+        };
+      });
+
+      try {
+        const response = await chatWithAI({
+          messageText: trimmedText,
+          messageImages: payload.images,
+          context: conversation.context,
+          chatHistory: historyBeforeNewMessage
+        });
+
+        const modelMessage: ChatMessage = {
+          id: generateId(),
+          role: 'model',
+          content: response,
+          timestamp: Date.now()
+        };
+
+        commitChatConversations((currentConversations) => {
+          const index = currentConversations.findIndex((entry) => entry.id === payload.conversationId);
+          if (index < 0) return { conversations: currentConversations };
+          const targetConversation = currentConversations[index];
+          const updatedConversation: ChatConversation = {
+            ...targetConversation,
+            isDraft: false,
+            messages: [...targetConversation.messages, modelMessage],
+            updatedAt: Date.now()
+          };
+          const next = [...currentConversations];
+          next.splice(index, 1, updatedConversation);
+          return {
+            conversations: next,
+            activeId: payload.conversationId
+          };
+        });
+      } catch (error) {
+        console.error(error);
+        const fallbackMessage: ChatMessage = {
+          id: generateId(),
+          role: 'model',
+          content: 'Entschuldigung, ich konnte darauf nicht antworten. Bitte versuche es erneut.',
+          timestamp: Date.now()
+        };
+        commitChatConversations((currentConversations) => {
+          const index = currentConversations.findIndex((entry) => entry.id === payload.conversationId);
+          if (index < 0) return { conversations: currentConversations };
+          const targetConversation = currentConversations[index];
+          const updatedConversation: ChatConversation = {
+            ...targetConversation,
+            isDraft: false,
+            messages: [...targetConversation.messages, fallbackMessage],
+            updatedAt: Date.now()
+          };
+          const next = [...currentConversations];
+          next.splice(index, 1, updatedConversation);
+          return {
+            conversations: next,
+            activeId: payload.conversationId
+          };
+        });
+      } finally {
+        setIsChatSending(false);
+      }
+    },
+    [commitChatConversations, isChatSending, state.chatConversations]
   );
 
   const handleDownloadFormulaCheatSheetMarkdown = useCallback(
@@ -1010,6 +1496,7 @@ const App: React.FC = () => {
       state.activeProjectId ?? null,
       practiceRooms,
       state.examSessions ?? [],
+      sanitizeChatConversationsForPersistence(filterPersistableChatConversations(state.chatConversations ?? [])),
       formulas
     );
     const json = serializeExportData(exportData);
@@ -1060,10 +1547,13 @@ const App: React.FC = () => {
         const hasExamConflicts = (state.examSessions ?? []).some(existing =>
           imported.examSessions.some(session => session.id === existing.id)
         );
+        const hasChatConflicts = (state.chatConversations ?? []).some(existing =>
+          (imported.chatConversations ?? []).some(conversation => conversation.id === existing.id)
+        );
         const hasFormulaConflicts = formulas.some(existing =>
           imported.formulas.some(formula => formula.id === existing.id || formula.normalizedFormula === existing.normalizedFormula)
         );
-        const hasConflicts = hasHistoryConflicts || hasProjectConflicts || hasRoomConflicts || hasExamConflicts || hasFormulaConflicts;
+        const hasConflicts = hasHistoryConflicts || hasProjectConflicts || hasRoomConflicts || hasExamConflicts || hasChatConflicts || hasFormulaConflicts;
 
         const message = hasConflicts
           ? 'Beim Import wurden ueberschneidende Daten gefunden.\n\nOK = Daten intelligent ZUSAMMENFUEHREN (Duplikate vermeiden).\nAbbrechen = aktuelle Daten komplett durch Import ERSETZEN.'
@@ -1079,6 +1569,7 @@ const App: React.FC = () => {
             activeProjectId: newActiveProjectId,
             practiceRooms: newPracticeRooms,
             examSessions: newExamSessions,
+            chatConversations: newChatConversations,
             formulas: newFormulas
           } = applyImportData(
             prev.history ?? [],
@@ -1086,6 +1577,7 @@ const App: React.FC = () => {
             prev.activeProjectId ?? null,
             prev.practiceRooms ?? [],
             prev.examSessions ?? [],
+            prev.chatConversations ?? [],
             formulas,
             imported,
             strategy
@@ -1095,6 +1587,7 @@ const App: React.FC = () => {
           localStorage.setItem(PROJECTS_STORAGE_KEY, JSON.stringify(newProjects));
           localStorage.setItem(PRACTICE_ROOMS_KEY, JSON.stringify(newPracticeRooms));
           localStorage.setItem(EXAM_SESSIONS_KEY, JSON.stringify(newExamSessions));
+          saveChatConversations(newChatConversations);
           saveActiveProjectId(newActiveProjectId);
           replaceAllFormulas(newFormulas);
 
@@ -1121,6 +1614,8 @@ const App: React.FC = () => {
             activeProjectId: newActiveProjectId,
             practiceRooms: newPracticeRooms,
             examSessions: newExamSessions,
+            chatConversations: newChatConversations,
+            activeChatConversationId: newChatConversations[0]?.id ?? null,
             activePracticeRoom: newActivePracticeRoom,
             activeExamSession: newActiveExamSession
           };
@@ -1961,6 +2456,7 @@ const App: React.FC = () => {
     setExamView('session');
   };
 
+  const isChatTab = activeMainTab === 'CHAT';
   const isProjectsTab = activeMainTab === 'PROJECTS';
   const isFormulasTab = activeMainTab === 'FORMULAS';
   const activeFormulaDetail = activeFormulaDetailId
@@ -1976,8 +2472,32 @@ const App: React.FC = () => {
   const selectedProjectExamSessions = (state.examSessions ?? []).filter(session => session.projectId === selectedProjectId);
   const isProjectDetailView = isProjectsTab && projectsView === 'detail';
   const isFormulaDetailView = isFormulasTab && !!activeFormulaDetail;
-  const pageMaxWidthClass = isProjectDetailView || isFormulaDetailView ? PROJECT_DETAIL_MAX_WIDTH_CLASS : 'max-w-4xl';
+  const pageMaxWidthClass = isProjectDetailView || isFormulaDetailView
+    ? PROJECT_DETAIL_MAX_WIDTH_CLASS
+    : isChatTab
+      ? 'max-w-[1600px]'
+      : 'max-w-4xl';
   const projectDetailListClass = 'space-y-2 xl:max-h-[520px] xl:overflow-y-auto xl:pr-1';
+
+  useEffect(() => {
+    const html = document.documentElement;
+    const body = document.body;
+    const prevHtmlOverflow = html.style.overflow;
+    const prevBodyOverflow = body.style.overflow;
+
+    if (isChatTab) {
+      html.style.overflow = 'hidden';
+      body.style.overflow = 'hidden';
+    } else {
+      html.style.overflow = '';
+      body.style.overflow = '';
+    }
+
+    return () => {
+      html.style.overflow = prevHtmlOverflow;
+      body.style.overflow = prevBodyOverflow;
+    };
+  }, [isChatTab]);
 
   if (printExportKey) {
     return <PrintExportPage exportKey={printExportKey} />;
@@ -2037,6 +2557,24 @@ const App: React.FC = () => {
           onRetryFormulaGeneration={(formulaId) => {
             void retryFormulaGeneration(formulaId);
           }}
+          loadPersistedChatMessages={loadPersistedSidePanelMessages}
+          onPersistChatSession={persistSidePanelChatSession}
+          chatSessionOriginMode={
+            state.inputMode === InputMode.TUTOR
+              ? InputMode.TUTOR
+              : state.inputMode === InputMode.IMAGE
+                ? InputMode.IMAGE
+                : InputMode.TEXT
+          }
+          chatSessionOriginLabel={
+            state.inputMode === InputMode.TUTOR
+              ? 'Tutor-Modus'
+              : state.inputMode === InputMode.IMAGE
+                ? 'Aufgabe loesen (Foto)'
+                : 'Aufgabe loesen'
+          }
+          chatSessionSourceId={activeSolutionHistoryId ?? undefined}
+          chatSessionProjectId={state.activeProjectId ?? undefined}
         />
       </div>
     );
@@ -2095,6 +2633,8 @@ const App: React.FC = () => {
           onRetryFormulaGeneration={(formulaId) => {
             void retryFormulaGeneration(formulaId);
           }}
+          loadPersistedChatMessages={loadPersistedSidePanelMessages}
+          onPersistChatSession={persistSidePanelChatSession}
         />
 
         <footer className="mt-8 md:mt-12 text-slate-400 text-xs sm:text-sm text-center px-4">
@@ -2158,6 +2698,8 @@ const App: React.FC = () => {
           onRetryFormulaGeneration={(formulaId) => {
             void retryFormulaGeneration(formulaId);
           }}
+          loadPersistedChatMessages={loadPersistedSidePanelMessages}
+          onPersistChatSession={persistSidePanelChatSession}
         />
 
         <footer className="mt-8 md:mt-12 text-slate-400 text-xs sm:text-sm text-center px-4">
@@ -2220,6 +2762,8 @@ const App: React.FC = () => {
           onRetryFormulaGeneration={(formulaId) => {
             void retryFormulaGeneration(formulaId);
           }}
+          loadPersistedChatMessages={loadPersistedSidePanelMessages}
+          onPersistChatSession={persistSidePanelChatSession}
         />
 
         <footer className="mt-8 md:mt-12 text-slate-400 text-xs sm:text-sm text-center px-4">
@@ -2286,8 +2830,8 @@ const App: React.FC = () => {
   // ── Render: Main input form ──
   return (
     <div
-      className={`min-h-screen bg-gradient-to-br from-indigo-50 via-white to-purple-50 flex flex-col items-center ${
-        isProjectDetailView ? 'p-3 sm:p-4 md:p-6' : 'p-3 sm:p-4 md:p-8'
+      className={`${isChatTab ? 'h-screen overflow-hidden' : 'min-h-screen'} bg-gradient-to-br from-indigo-50 via-white to-purple-50 flex flex-col items-center ${
+        isProjectDetailView ? 'p-3 sm:p-4 md:p-6' : isChatTab ? 'p-3 sm:p-4 md:p-5' : 'p-3 sm:p-4 md:p-8'
       }`}
     >
       {editingHistoryItemId && (
@@ -2400,7 +2944,7 @@ const App: React.FC = () => {
       )}
 
       {/* Header */}
-      <header className={`w-full ${pageMaxWidthClass} mb-6 md:mb-8 flex items-start justify-between gap-3 sm:items-center`}>
+      <header className={`w-full ${pageMaxWidthClass} ${isChatTab ? 'mb-4 md:mb-5' : 'mb-6 md:mb-8'} flex items-start justify-between gap-3 sm:items-center`}>
         <div className="flex min-w-0 flex-1 items-center gap-3">
           <div className="bg-indigo-600 p-2.5 sm:p-3 rounded-xl shadow-lg shadow-indigo-200">
             <Calculator className="w-6 h-6 sm:w-8 sm:h-8 text-white" />
@@ -2438,12 +2982,20 @@ const App: React.FC = () => {
         className={
           isProjectDetailView || isFormulaDetailView
             ? `w-full ${PROJECT_DETAIL_MAX_WIDTH_CLASS} mb-8 md:mb-12`
-            : 'w-full max-w-4xl bg-white rounded-2xl sm:rounded-3xl shadow-xl overflow-hidden border border-slate-100 transition-all mb-8 md:mb-12'
+            : isChatTab
+              ? 'w-full max-w-[1600px] flex-1 min-h-0 bg-white rounded-2xl sm:rounded-3xl shadow-xl overflow-hidden border border-slate-100 transition-all'
+              : 'w-full max-w-4xl bg-white rounded-2xl sm:rounded-3xl shadow-xl overflow-hidden border border-slate-100 transition-all mb-8 md:mb-12'
         }
       >
         
         {/* Input Section */}
-        <div className={isProjectDetailView || isFormulaDetailView ? 'space-y-6' : 'p-4 sm:p-6 md:p-8 bg-white'}>
+        <div className={
+          isProjectDetailView || isFormulaDetailView
+            ? 'space-y-6'
+            : isChatTab
+              ? 'flex h-full min-h-0 flex-col bg-white p-4 sm:p-6 md:p-6'
+              : 'p-4 sm:p-6 md:p-8 bg-white'
+        }>
           
           {!isProjectDetailView && !isFormulaDetailView && (
             <>
@@ -2468,7 +3020,19 @@ const App: React.FC = () => {
               </div>
 
               {/* Tabs */}
-              <div className="grid grid-cols-2 sm:grid-cols-6 gap-1.5 sm:gap-2 mb-5 sm:mb-6 bg-slate-100 p-1 rounded-xl w-full">
+              <div className="grid grid-cols-2 sm:grid-cols-7 gap-1.5 sm:gap-2 mb-5 sm:mb-6 bg-slate-100 p-1 rounded-xl w-full">
+                <button
+                  onClick={handleChatTabOpen}
+                  className={`flex items-center justify-center gap-1.5 sm:gap-2 px-2 sm:px-4 py-2.5 sm:py-3 rounded-lg text-xs sm:text-sm font-semibold transition-all duration-200 ${
+                    isChatTab
+                      ? 'bg-white text-indigo-600 shadow-sm'
+                      : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200/50'
+                  }`}
+                >
+                  <MessageSquare className="w-4 h-4" />
+                  <span className="sm:hidden">Chat</span>
+                  <span className="hidden sm:inline">Chat-Modus</span>
+                </button>
                 <button
                   onClick={() => handleModeChange(InputMode.TEXT)}
                   className={`flex items-center justify-center gap-1.5 sm:gap-2 px-2 sm:px-4 py-2.5 sm:py-3 rounded-lg text-xs sm:text-sm font-semibold transition-all duration-200 ${
@@ -2543,6 +3107,24 @@ const App: React.FC = () => {
                 </button>
               </div>
             </>
+          )}
+
+          {isChatTab && (
+            <div className="flex-1 min-h-0">
+              <ChatModeView
+                conversations={chatConversations}
+                projects={projects}
+                activeConversationId={state.activeChatConversationId}
+                isSending={isChatSending}
+                onSelectConversation={handleSelectChatConversation}
+                onCreateConversation={handleCreateChatConversation}
+                onDeleteConversation={handleDeleteChatConversation}
+                onSendMessage={(payload) => {
+                  void handleSendChatMessage(payload);
+                }}
+                onExtractFormulasFromMessage={handleExtractFormulasFromChatMessage}
+              />
+            </div>
           )}
 
           {isProjectsTab && (
@@ -3192,7 +3774,7 @@ const App: React.FC = () => {
             ))}
 
           {/* Aufgabe (Text + optional Foto) */}
-          {!isProjectsTab && !isFormulasTab && state.inputMode === InputMode.TEXT && (
+          {!isProjectsTab && !isFormulasTab && !isChatTab && state.inputMode === InputMode.TEXT && (
             <div className="space-y-4">
               <textarea
                 value={state.textInput}
@@ -3238,7 +3820,7 @@ const App: React.FC = () => {
           )}
 
           {/* Tutor Input Mode */}
-          {!isProjectsTab && !isFormulasTab && state.inputMode === InputMode.TUTOR && (
+          {!isProjectsTab && !isFormulasTab && !isChatTab && state.inputMode === InputMode.TUTOR && (
             <div className="space-y-4">
               <textarea
                 value={state.textInput}
@@ -3250,14 +3832,14 @@ const App: React.FC = () => {
           )}
 
           {/* Practice Input Mode */}
-          {!isProjectsTab && !isFormulasTab && state.inputMode === InputMode.PRACTICE && (
+          {!isProjectsTab && !isFormulasTab && !isChatTab && state.inputMode === InputMode.PRACTICE && (
             <PracticeSetup
               onStart={handlePracticeStart}
               isLoading={false}
             />
           )}
 
-          {!isProjectsTab && !isFormulasTab && state.inputMode === InputMode.EXAM && (
+          {!isProjectsTab && !isFormulasTab && !isChatTab && state.inputMode === InputMode.EXAM && (
             <ExamSetup
               onStart={handleExamStart}
               isLoading={false}
@@ -3266,7 +3848,7 @@ const App: React.FC = () => {
           )}
 
           {/* Error Message */}
-          {!isProjectsTab && !isFormulasTab && state.error && state.inputMode !== InputMode.PRACTICE && state.inputMode !== InputMode.EXAM && (
+          {!isProjectsTab && !isFormulasTab && !isChatTab && state.error && state.inputMode !== InputMode.PRACTICE && state.inputMode !== InputMode.EXAM && (
             <div className="mt-4 p-3 bg-red-50 border border-red-100 rounded-lg flex items-center space-x-2 text-red-600 text-sm">
               <X className="w-4 h-4" />
               <span>{state.error}</span>
@@ -3274,7 +3856,7 @@ const App: React.FC = () => {
           )}
 
           {/* Submit Button (only for TEXT and TUTOR) */}
-          {!isProjectsTab && !isFormulasTab && state.inputMode !== InputMode.PRACTICE && state.inputMode !== InputMode.EXAM && (
+          {!isProjectsTab && !isFormulasTab && !isChatTab && state.inputMode !== InputMode.PRACTICE && state.inputMode !== InputMode.EXAM && (
             <div className="mt-6 flex justify-end">
               <button
                 onClick={handleSubmit}
@@ -3300,7 +3882,7 @@ const App: React.FC = () => {
           )}
 
           {/* Practice error (shown inside PracticeSetup area) */}
-          {!isProjectsTab && !isFormulasTab && state.error && (state.inputMode === InputMode.PRACTICE || state.inputMode === InputMode.EXAM) && (
+          {!isProjectsTab && !isFormulasTab && !isChatTab && state.error && (state.inputMode === InputMode.PRACTICE || state.inputMode === InputMode.EXAM) && (
             <div className="mt-4 p-3 bg-red-50 border border-red-100 rounded-lg flex items-center space-x-2 text-red-600 text-sm">
               <X className="w-4 h-4" />
               <span>{state.error}</span>
@@ -3309,7 +3891,7 @@ const App: React.FC = () => {
         </div>
         
         {/* Loading State Visualization */}
-        {!isProjectsTab && !isFormulasTab && state.isLoading && state.inputMode === InputMode.TEXT && (
+        {!isProjectsTab && !isFormulasTab && !isChatTab && state.isLoading && state.inputMode === InputMode.TEXT && (
           <div className="p-8 sm:p-12 text-center bg-slate-50/50 border-t border-slate-100">
              <div className="inline-block relative w-20 h-20">
                <div className="absolute top-0 left-0 w-full h-full border-4 border-indigo-100 rounded-full animate-pulse"></div>
@@ -3324,7 +3906,7 @@ const App: React.FC = () => {
       </main>
 
       {/* Practice Rooms Section */}
-      {!isProjectsTab && !isFormulasTab && state.inputMode === InputMode.PRACTICE && practiceRooms.length > 0 && (
+      {!isProjectsTab && !isFormulasTab && !isChatTab && state.inputMode === InputMode.PRACTICE && practiceRooms.length > 0 && (
         <section className="w-full max-w-4xl animate-in slide-in-from-bottom-8 fade-in duration-500 mb-8">
           <div className="flex items-center justify-between mb-4 px-1 sm:px-2 gap-2">
             <h3 className="text-xl font-bold text-slate-700 flex items-center gap-2">
@@ -3366,7 +3948,7 @@ const App: React.FC = () => {
         </section>
       )}
 
-      {!isProjectsTab && !isFormulasTab && state.inputMode === InputMode.EXAM && state.examSessions.length > 0 && (
+      {!isProjectsTab && !isFormulasTab && !isChatTab && state.inputMode === InputMode.EXAM && state.examSessions.length > 0 && (
         <section className="w-full max-w-4xl animate-in slide-in-from-bottom-8 fade-in duration-500 mb-8">
           <div className="flex items-center justify-between mb-4 px-1 sm:px-2 gap-2">
             <h3 className="text-xl font-bold text-slate-700 flex items-center gap-2">
@@ -3430,7 +4012,7 @@ const App: React.FC = () => {
       )}
 
       {/* History Section */}
-      {!isProjectsTab && !isFormulasTab && state.inputMode !== InputMode.PRACTICE && state.inputMode !== InputMode.EXAM && (() => {
+      {!isProjectsTab && !isFormulasTab && !isChatTab && state.inputMode !== InputMode.PRACTICE && state.inputMode !== InputMode.EXAM && (() => {
         const filteredHistory = history.filter(item =>
           state.inputMode === InputMode.TUTOR
             ? item.mode === InputMode.TUTOR
@@ -3586,9 +4168,11 @@ const App: React.FC = () => {
         </section>
       );})()}
       
-      <footer className="mt-8 md:mt-12 text-slate-400 text-xs sm:text-sm text-center px-4">
-        Powered by Google Gemini 3
-      </footer>
+      {!isChatTab && (
+        <footer className="mt-8 md:mt-12 text-slate-400 text-xs sm:text-sm text-center px-4">
+          Powered by Google Gemini 3
+        </footer>
+      )}
     </div>
   );
 };
