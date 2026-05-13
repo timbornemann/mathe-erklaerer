@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { ChatMessage, ChatOriginMode, ChatSessionPersistPayload, FormulaEntry, MathSolution } from '../types';
+import { ChatMessage, ChatOriginMode, ChatSessionPersistPayload, FormulaEntry, FormulaExtractionActionResult, MathSolution } from '../types';
 import MathRenderer from './MathRenderer';
 import SidePanel from './SidePanel';
 import FormulaSidebar from './FormulaSidebar';
@@ -15,7 +15,7 @@ interface SolutionViewerProps {
   onDownloadPdf?: () => void;
   formulas?: FormulaEntry[];
   onAddFormulaFromSolution?: (formula: string, sourceLabel: string, contextText?: string) => Promise<void> | void;
-  onExtractFormulasFromChatMessage?: (message: string, sourceLabel: string) => Promise<{ added: number; extracted: number }> | void;
+  onExtractFormulasFromChatMessage?: (message: string, sourceLabel: string) => Promise<FormulaExtractionActionResult> | void;
   onAddFormulaManual?: (formula: string, contextText?: string) => Promise<void> | void;
   onAskFormulaPrompt?: (prompt: string) => Promise<void> | void;
   onIncrementFormulaUsage?: (formulaId: string) => void;

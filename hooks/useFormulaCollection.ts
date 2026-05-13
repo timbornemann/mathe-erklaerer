@@ -1,11 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  FormulaExtractionActionResult,
+  FormulaExtractionCandidate,
   FormulaEntry,
   FormulaGenerationPayload,
   FormulaSourceRef,
   FormulaSourceType
 } from '../types';
 import {
+  FormulaExtractionCandidateDraft,
   extractFormulasFromMessage,
   generateFormulaFromLatex,
   generateFormulaFromPrompt
@@ -48,6 +51,13 @@ interface AddFormulaResult {
   entry?: FormulaEntry;
 }
 
+interface PendingFormulaSelection {
+  sourceLabel: string;
+  contextText: string;
+  projectId?: string | null;
+  candidates: FormulaExtractionCandidate[];
+}
+
 const generateId = (): string => {
   if (typeof globalThis.crypto?.randomUUID === 'function') {
     return globalThis.crypto.randomUUID();
@@ -85,6 +95,7 @@ const createPromptPlaceholderFormula = (id: string): string => `\\text{Formel\\ 
 export const useFormulaCollection = () => {
   const [formulas, setFormulas] = useState<FormulaEntry[]>([]);
   const [pendingDuplicateDecision, setPendingDuplicateDecision] = useState<PendingDuplicateDecision | null>(null);
+  const [pendingFormulaSelection, setPendingFormulaSelection] = useState<PendingFormulaSelection | null>(null);
   const duplicateQueueRef = useRef<PendingDuplicateDecision[]>([]);
   const inFlightGenerationRef = useRef<Set<string>>(new Set());
   const hasLoadedFromStorageRef = useRef(false);
@@ -327,28 +338,105 @@ export const useFormulaCollection = () => {
       message: string,
       sourceLabel: string,
       projectId?: string | null
-    ): Promise<{ added: number; extracted: number }> => {
+    ): Promise<FormulaExtractionActionResult> => {
       const extracted = await extractFormulasFromMessage(message);
+      const candidates: FormulaExtractionCandidate[] = extracted
+        .map((entry: FormulaExtractionCandidateDraft, index: number) => ({
+          id: `${Date.now()}-${index}-${Math.random().toString(16).slice(2)}`,
+          title: entry.title.trim() || `Formel ${index + 1}`,
+          formula: entry.formula.trim()
+        }))
+        .filter((entry) => entry.formula.length > 0);
+
+      if (candidates.length === 0) {
+        setPendingFormulaSelection(null);
+        return { added: 0, extracted: 0, requiresSelection: false };
+      }
+
+      setPendingFormulaSelection({
+        sourceLabel,
+        contextText: message,
+        projectId,
+        candidates
+      });
+
+      return { added: 0, extracted: candidates.length, requiresSelection: true };
+    },
+    []
+  );
+
+  const confirmPendingFormulaSelection = useCallback(
+    async (selectedCandidateIds: string[]): Promise<FormulaExtractionActionResult & { selected: number }> => {
+      const pending = pendingFormulaSelection;
+      if (!pending) {
+        return { added: 0, extracted: 0, selected: 0, requiresSelection: false };
+      }
+
+      const selectedIdSet = new Set(selectedCandidateIds);
+      const selectedCandidates = pending.candidates.filter((entry) => selectedIdSet.has(entry.id));
       let added = 0;
 
-      for (const formula of extracted) {
+      for (const candidate of selectedCandidates) {
         const result = await addFormulaFromLatex({
-          formula,
+          formula: candidate.formula,
           source: {
             type: 'chat-message',
-            label: sourceLabel
+            label: pending.sourceLabel
           },
-          projectId,
-          contextText: message
+          projectId: pending.projectId,
+          contextText: pending.contextText,
+          prefilledPayload: {
+            title: candidate.title
+          }
         });
         if (result.status === 'added') {
           added += 1;
         }
       }
 
-      return { added, extracted: extracted.length };
+      setPendingFormulaSelection(null);
+      return {
+        added,
+        extracted: pending.candidates.length,
+        selected: selectedCandidates.length,
+        requiresSelection: false
+      };
     },
-    [addFormulaFromLatex]
+    [addFormulaFromLatex, pendingFormulaSelection]
+  );
+
+  const cancelPendingFormulaSelection = useCallback(() => {
+    setPendingFormulaSelection(null);
+  }, []);
+
+  const clearAllTransientState = useCallback(() => {
+    duplicateQueueRef.current = [];
+    setPendingDuplicateDecision(null);
+    setPendingFormulaSelection(null);
+  }, []);
+
+  const replaceAllFormulas = useCallback((incoming: FormulaEntry[]) => {
+    setFormulas(sortByUpdatedAt(sanitizeFormulaList(incoming)));
+    clearAllTransientState();
+  }, [clearAllTransientState]);
+
+  const removeProjectReference = useCallback((projectId: string) => {
+    if (!projectId) return;
+    setFormulas((prev) =>
+      prev.map((entry) => {
+        if (!entry.projectIds.includes(projectId)) return entry;
+        return {
+          ...entry,
+          projectIds: entry.projectIds.filter((id) => id !== projectId),
+          updatedAt: Date.now()
+        };
+      })
+    );
+  }, []);
+
+  const topUsedFormulas = useMemo(
+    () => [...formulas].sort((a, b) => b.usageCount - a.usageCount || b.updatedAt - a.updatedAt).slice(0, 12),
+    [formulas]
   );
 
   const resolveDuplicateDecision = useCallback(
@@ -451,38 +539,16 @@ export const useFormulaCollection = () => {
     [formulas, runBackgroundGeneration]
   );
 
-  const replaceAllFormulas = useCallback((incoming: FormulaEntry[]) => {
-    setFormulas(sortByUpdatedAt(sanitizeFormulaList(incoming)));
-    duplicateQueueRef.current = [];
-    setPendingDuplicateDecision(null);
-  }, []);
-
-  const removeProjectReference = useCallback((projectId: string) => {
-    if (!projectId) return;
-    setFormulas((prev) =>
-      prev.map((entry) => {
-        if (!entry.projectIds.includes(projectId)) return entry;
-        return {
-          ...entry,
-          projectIds: entry.projectIds.filter((id) => id !== projectId),
-          updatedAt: Date.now()
-        };
-      })
-    );
-  }, []);
-
-  const topUsedFormulas = useMemo(
-    () => [...formulas].sort((a, b) => b.usageCount - a.usageCount || b.updatedAt - a.updatedAt).slice(0, 12),
-    [formulas]
-  );
-
   return {
     formulas,
     topUsedFormulas,
     pendingDuplicateDecision,
+    pendingFormulaSelection,
     addFormulaFromLatex,
     addFormulaFromPrompt,
     addFormulasFromChatMessage,
+    confirmPendingFormulaSelection,
+    cancelPendingFormulaSelection,
     resolveDuplicateDecision,
     updateFormula,
     deleteFormula,

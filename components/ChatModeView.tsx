@@ -1,7 +1,7 @@
 import React, { useMemo, useRef, useState } from 'react';
 import { BookPlus, ImageIcon, Loader2, MessageSquare, Plus, Send, Trash2, X } from 'lucide-react';
 import MathRenderer from './MathRenderer';
-import { ChatConversation, ChatImageAttachment, Project } from '../types';
+import { ChatConversation, ChatImageAttachment, FormulaExtractionActionResult, Project } from '../types';
 
 interface ChatModeViewProps {
   conversations: ChatConversation[];
@@ -12,7 +12,7 @@ interface ChatModeViewProps {
   onCreateConversation: () => void;
   onDeleteConversation: (conversationId: string) => void;
   onSendMessage: (payload: { conversationId: string; text: string; images: ChatImageAttachment[] }) => void;
-  onExtractFormulasFromMessage?: (message: string, sourceLabel: string) => Promise<{ added: number; extracted: number }> | void;
+  onExtractFormulasFromMessage?: (message: string, sourceLabel: string) => Promise<FormulaExtractionActionResult> | void;
 }
 
 const formatOriginLabel = (label: string): string => {
@@ -134,7 +134,9 @@ const ChatModeView: React.FC<ChatModeViewProps> = ({
         messageContent,
         `Chat: ${activeConversation.title || 'Konversation'}`
       );
-      if (result && typeof result === 'object' && 'added' in result && 'extracted' in result) {
+      if (result?.requiresSelection) {
+        setExtractFeedback(`${result.extracted} Kandidaten gefunden. Bitte im Popup die gewuenschten Formeln auswaehlen.`);
+      } else if (result && typeof result === 'object' && 'added' in result && 'extracted' in result) {
         setExtractFeedback(`${result.added}/${result.extracted} Formeln hinzugefuegt.`);
       } else {
         setExtractFeedback('Formeln wurden verarbeitet.');

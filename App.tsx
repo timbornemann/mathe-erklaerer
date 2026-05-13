@@ -20,6 +20,7 @@ import ExamResultView from './components/ExamResultView';
 import PrintExportPage from './components/PrintExportPage';
 import FormulaCollectionView from './components/FormulaCollectionView';
 import FormulaDetailView from './components/FormulaDetailView';
+import FormulaSelectionModal from './components/FormulaSelectionModal';
 import {
   MathState,
   MainTab,
@@ -441,9 +442,12 @@ const App: React.FC = () => {
   const {
     formulas,
     pendingDuplicateDecision,
+    pendingFormulaSelection,
     addFormulaFromLatex,
     addFormulaFromPrompt,
     addFormulasFromChatMessage,
+    confirmPendingFormulaSelection,
+    cancelPendingFormulaSelection,
     resolveDuplicateDecision,
     updateFormula,
     deleteFormula,
@@ -1108,6 +1112,30 @@ const App: React.FC = () => {
       addFormulasFromChatMessage(message, sourceLabel, state.activeProjectId ?? undefined),
     [addFormulasFromChatMessage, state.activeProjectId]
   );
+
+  const handleConfirmPendingFormulaSelection = useCallback(
+    async (selectedCandidateIds: string[]) => {
+      await confirmPendingFormulaSelection(selectedCandidateIds);
+    },
+    [confirmPendingFormulaSelection]
+  );
+
+  const handleCancelPendingFormulaSelection = useCallback(() => {
+    cancelPendingFormulaSelection();
+  }, [cancelPendingFormulaSelection]);
+
+  const renderFormulaSelectionModal = useCallback(() => {
+    if (!pendingFormulaSelection) return null;
+    return (
+      <FormulaSelectionModal
+        isOpen
+        sourceLabel={pendingFormulaSelection.sourceLabel}
+        candidates={pendingFormulaSelection.candidates}
+        onClose={handleCancelPendingFormulaSelection}
+        onConfirm={handleConfirmPendingFormulaSelection}
+      />
+    );
+  }, [handleCancelPendingFormulaSelection, handleConfirmPendingFormulaSelection, pendingFormulaSelection]);
 
   const commitChatConversations = useCallback(
     (
@@ -2576,6 +2604,7 @@ const App: React.FC = () => {
           chatSessionSourceId={activeSolutionHistoryId ?? undefined}
           chatSessionProjectId={state.activeProjectId ?? undefined}
         />
+        {renderFormulaSelectionModal()}
       </div>
     );
   }
@@ -2640,6 +2669,7 @@ const App: React.FC = () => {
         <footer className="mt-8 md:mt-12 text-slate-400 text-xs sm:text-sm text-center px-4">
           Powered by Google Gemini 3
         </footer>
+        {renderFormulaSelectionModal()}
       </div>
     );
   }
@@ -2705,6 +2735,7 @@ const App: React.FC = () => {
         <footer className="mt-8 md:mt-12 text-slate-400 text-xs sm:text-sm text-center px-4">
           Powered by Google Gemini 3
         </footer>
+        {renderFormulaSelectionModal()}
       </div>
     );
   }
@@ -2769,6 +2800,7 @@ const App: React.FC = () => {
         <footer className="mt-8 md:mt-12 text-slate-400 text-xs sm:text-sm text-center px-4">
           Powered by Google Gemini 3
         </footer>
+        {renderFormulaSelectionModal()}
       </div>
     );
   }
@@ -2823,6 +2855,7 @@ const App: React.FC = () => {
         <footer className="mt-8 md:mt-12 text-slate-400 text-xs sm:text-sm text-center px-4">
           Powered by Google Gemini 3
         </footer>
+        {renderFormulaSelectionModal()}
       </div>
     );
   }
@@ -4173,6 +4206,7 @@ const App: React.FC = () => {
           Powered by Google Gemini 3
         </footer>
       )}
+      {renderFormulaSelectionModal()}
     </div>
   );
 };

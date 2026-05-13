@@ -14,7 +14,7 @@ import {
   RotateCcw
 } from 'lucide-react';
 import MathRenderer from './MathRenderer';
-import { ChatMessage, ChatSessionPersistPayload, FormulaEntry, PracticeRoom, PracticeTask, MathSolution } from '../types';
+import { ChatMessage, ChatSessionPersistPayload, FormulaEntry, FormulaExtractionActionResult, PracticeRoom, PracticeTask, MathSolution } from '../types';
 import SolutionViewer from './SolutionViewer';
 import { solvePracticeTask } from '../services/gemini';
 
@@ -30,7 +30,7 @@ interface PracticeRoomDetailProps {
   isLoading: boolean;
   formulas?: FormulaEntry[];
   onAddFormulaFromSolution?: (formula: string, sourceLabel: string, contextText?: string) => Promise<void> | void;
-  onExtractFormulasFromChatMessage?: (message: string, sourceLabel: string) => Promise<{ added: number; extracted: number }> | void;
+  onExtractFormulasFromChatMessage?: (message: string, sourceLabel: string) => Promise<FormulaExtractionActionResult> | void;
   onAddFormulaManual?: (formula: string, contextText?: string) => Promise<void> | void;
   onAskFormulaPrompt?: (prompt: string) => Promise<void> | void;
   onIncrementFormulaUsage?: (formulaId: string) => void;

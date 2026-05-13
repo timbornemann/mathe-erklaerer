@@ -40,6 +40,18 @@ export interface FormulaGenerationPayload {
   learningPath: FormulaLesson[];
 }
 
+export interface FormulaExtractionCandidate {
+  id: string;
+  title: string;
+  formula: string;
+}
+
+export interface FormulaExtractionActionResult {
+  added: number;
+  extracted: number;
+  requiresSelection?: boolean;
+}
+
 export interface FormulaEntry {
   id: string;
   formula: string;

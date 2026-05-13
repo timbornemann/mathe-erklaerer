@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, ArrowRight, Clock3, Download, FileText, FileWarning, ImageIcon, Loader2, Send, X } from 'lucide-react';
-import { ChatMessage, ChatSessionPersistPayload, ExamSession as ExamSessionType, ExamTask, FormulaEntry } from '../types';
+import { ChatMessage, ChatSessionPersistPayload, ExamSession as ExamSessionType, ExamTask, FormulaEntry, FormulaExtractionActionResult } from '../types';
 import MathRenderer from './MathRenderer';
 import FormulaSidebar from './FormulaSidebar';
 import SidePanel from './SidePanel';
@@ -18,7 +18,7 @@ interface ExamSessionProps {
   onRetryFormulaGeneration: (formulaId: string) => void;
   onAddFormulaManual?: (formula: string, contextText?: string) => Promise<void> | void;
   onAskFormulaPrompt?: (prompt: string) => Promise<void> | void;
-  onExtractFormulasFromChatMessage?: (message: string, sourceLabel: string) => Promise<{ added: number; extracted: number }> | void;
+  onExtractFormulasFromChatMessage?: (message: string, sourceLabel: string) => Promise<FormulaExtractionActionResult> | void;
   loadPersistedChatMessages?: (sessionKey: string) => ChatMessage[] | null;
   onPersistChatSession?: (payload: ChatSessionPersistPayload) => void;
 }

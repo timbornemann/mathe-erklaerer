@@ -590,18 +590,32 @@ ${GRAPH_INSTRUCTIONS}
 `;
 
 const FORMULA_EXTRACT_PROMPT = `
-Du extrahierst mathematische Formeln aus einer Chatnachricht.
+Du extrahierst nur sinnvolle Formel-Kandidaten aus einer Chatnachricht.
 
 REGELN:
-1. Erkenne mathematische Formeln robust, auch wenn sie in normalem Text stehen.
-2. Gib Formeln als reinen LaTeX-Text ohne Dollarzeichen aus.
-3. Keine Duplikate.
-4. Keine Erklaerung, nur JSON.
-5. Format:
+1. Erkenne nur Inhalte, die realistisch in eine Formelsammlung gehoeren:
+   - mathematische Gleichungen, Terme, Umformungen, Definitionen
+   - mathematisch relevante Code-Ausdruecke (z. B. Funktionsdefinitionen), wenn sie als LaTeX darstellbar sind
+2. Ignoriere normalen Fliesstext, Erklaerungen ohne Formelcharakter, Begruessungen und allgemeine Saetze.
+3. Gib jede Formel als rohen LaTeX-String ohne Dollarzeichen aus.
+4. Erzeuge einen kurzen, praezisen Titel pro Eintrag.
+5. Keine Duplikate.
+6. Keine Erklaerung, nur JSON.
+7. Format:
    {
-     "formulas": ["..."]
+     "candidates": [
+       {
+         "title": "...",
+         "formula": "..."
+       }
+     ]
    }
 `;
+
+export interface FormulaExtractionCandidateDraft {
+  title: string;
+  formula: string;
+}
 
 const FORMULA_FROM_LATEX_PROMPT = `
 Du erstellst einen professionellen Lernpfad zu EINER mathematischen Formel.
@@ -904,7 +918,7 @@ export const solvePracticeTask = async (
   }
 };
 
-export const extractFormulasFromMessage = async (message: string): Promise<string[]> => {
+export const extractFormulasFromMessage = async (message: string): Promise<FormulaExtractionCandidateDraft[]> => {
   try {
     const text = message.trim();
     if (!text) return [];
@@ -927,24 +941,56 @@ export const extractFormulasFromMessage = async (message: string): Promise<strin
         responseSchema: {
           type: Type.OBJECT,
           properties: {
-            formulas: {
+            candidates: {
               type: Type.ARRAY,
-              items: { type: Type.STRING }
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  title: { type: Type.STRING },
+                  formula: { type: Type.STRING }
+                },
+                required: ['title', 'formula']
+              }
             }
           },
-          required: ['formulas']
+          required: ['candidates']
         }
       }
     );
 
-    const formulas = Array.isArray(parsed?.formulas)
-      ? parsed.formulas
-          .filter((entry: unknown): entry is string => typeof entry === 'string')
-          .map((entry: string) => entry.trim())
-          .filter((entry: string) => entry.length > 0)
-      : [];
+    const rawCandidates = Array.isArray(parsed?.candidates)
+      ? parsed.candidates
+      : Array.isArray(parsed?.formulas)
+        ? parsed.formulas.map((entry: unknown) => ({
+            title: 'Formel',
+            formula: typeof entry === 'string' ? entry : ''
+          }))
+        : [];
 
-    return Array.from(new Set(formulas));
+    const normalized: FormulaExtractionCandidateDraft[] = rawCandidates
+      .map((entry: unknown, index: number) => {
+        if (!entry || typeof entry !== 'object') return null;
+        const candidate = entry as Record<string, unknown>;
+        const formula = typeof candidate.formula === 'string' ? candidate.formula.trim() : '';
+        if (!formula) return null;
+        const title = typeof candidate.title === 'string' ? candidate.title.trim() : '';
+        return {
+          title: title || `Formel ${index + 1}`,
+          formula
+        };
+      })
+      .filter((entry: FormulaExtractionCandidateDraft | null): entry is FormulaExtractionCandidateDraft => !!entry);
+
+    const seen = new Set<string>();
+    const unique: FormulaExtractionCandidateDraft[] = [];
+    for (const entry of normalized) {
+      const key = entry.formula.replace(/\s+/g, ' ').trim().toLowerCase();
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      unique.push(entry);
+    }
+
+    return unique;
   } catch (error: any) {
     console.error('Extract Formula Error:', error);
     throw new Error(error?.message || 'Formeln konnten nicht aus der Nachricht extrahiert werden.');

@@ -3,6 +3,7 @@ import { Send, X, MessageSquare, Loader2, Volume2, VolumeX, BookPlus, ImageIcon 
 import MathRenderer from './MathRenderer';
 import {
   ChatContextSnapshot,
+  FormulaExtractionActionResult,
   ChatImageAttachment,
   ChatMessage,
   ChatOriginMode,
@@ -21,7 +22,7 @@ interface SidePanelProps {
   initialPrompt: string;
   isOpen: boolean;
   onToggle: () => void;
-  onExtractFormulasFromMessage?: (message: string, sourceLabel: string) => Promise<{ added: number; extracted: number }> | void;
+  onExtractFormulasFromMessage?: (message: string, sourceLabel: string) => Promise<FormulaExtractionActionResult> | void;
   loadPersistedMessages?: (sessionKey: string) => ChatMessage[] | null;
   onPersistChatSession?: (payload: ChatSessionPersistPayload) => void;
   sessionOriginMode?: ChatOriginMode;
@@ -335,7 +336,9 @@ const SidePanel: React.FC<SidePanelProps> = ({
     setExtractFeedback(null);
     try {
       const result = await onExtractFormulasFromMessage(messageContent, `${stepLabel}: ${currentStep.title}`);
-      if (result && typeof result === 'object' && 'added' in result && 'extracted' in result) {
+      if (result?.requiresSelection) {
+        setExtractFeedback(`${result.extracted} Kandidaten gefunden. Bitte im Popup die passenden Formeln auswaehlen.`);
+      } else if (result && typeof result === 'object' && 'added' in result && 'extracted' in result) {
         setExtractFeedback(`${result.added}/${result.extracted} Formeln hinzugefuegt.`);
       } else {
         setExtractFeedback('Formeln wurden verarbeitet.');
