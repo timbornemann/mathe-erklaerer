@@ -3016,7 +3016,7 @@ const App: React.FC = () => {
           isProjectDetailView || isFormulaDetailView
             ? `w-full ${PROJECT_DETAIL_MAX_WIDTH_CLASS} mb-8 md:mb-12`
             : isChatTab
-              ? 'w-full max-w-[1600px] flex-1 min-h-0 bg-white rounded-2xl sm:rounded-3xl shadow-xl overflow-hidden border border-slate-100 transition-all'
+              ? 'w-full min-w-0 max-w-[1600px] flex-1 min-h-0 bg-white rounded-2xl sm:rounded-3xl shadow-xl overflow-hidden border border-slate-100 transition-all'
               : 'w-full max-w-4xl bg-white rounded-2xl sm:rounded-3xl shadow-xl overflow-hidden border border-slate-100 transition-all mb-8 md:mb-12'
         }
       >
@@ -3026,7 +3026,7 @@ const App: React.FC = () => {
           isProjectDetailView || isFormulaDetailView
             ? 'space-y-6'
             : isChatTab
-              ? 'flex h-full min-h-0 flex-col bg-white p-4 sm:p-6 md:p-6'
+              ? 'flex h-full min-h-0 min-w-0 flex-col bg-white p-4 sm:p-6 md:p-6'
               : 'p-4 sm:p-6 md:p-8 bg-white'
         }>
           
@@ -3143,7 +3143,7 @@ const App: React.FC = () => {
           )}
 
           {isChatTab && (
-            <div className="flex-1 min-h-0">
+            <div className="flex-1 min-h-0 min-w-0">
               <ChatModeView
                 conversations={chatConversations}
                 projects={projects}
