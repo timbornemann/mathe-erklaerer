@@ -394,7 +394,7 @@ const SidePanel: React.FC<SidePanelProps> = ({
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-3 sm:p-4 bg-slate-50 space-y-3 sm:space-y-4">
+      <div className="flex-1 overflow-y-auto overflow-x-hidden p-3 sm:p-4 bg-slate-50 space-y-3 sm:space-y-4">
         {extractFeedback && (
           <div className="rounded-xl border border-indigo-100 bg-indigo-50 px-3 py-2 text-xs text-indigo-700">
             {extractFeedback}
@@ -403,10 +403,10 @@ const SidePanel: React.FC<SidePanelProps> = ({
         {messages.map((msg, idx) => (
           <div
             key={msg.id || `${msg.role}-${idx}`}
-            className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
+            className={`flex min-w-0 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
           >
             <div
-              className={`max-w-[90%] sm:max-w-[85%] rounded-2xl p-3 shadow-sm text-sm sm:text-base ${
+              className={`min-w-0 max-w-[90%] sm:max-w-[85%] overflow-hidden rounded-2xl p-3 shadow-sm text-sm sm:text-base ${
                 msg.role === 'user'
                   ? 'bg-indigo-600 text-white rounded-br-none'
                   : 'bg-white border border-slate-200 text-slate-700 rounded-bl-none'
@@ -414,7 +414,7 @@ const SidePanel: React.FC<SidePanelProps> = ({
             >
               {msg.role === 'model' ? (
                 <div className="space-y-2">
-                  <div className="prose prose-sm max-w-none text-inherit dark:prose-invert">
+                  <div className="prose prose-sm min-w-0 max-w-none text-inherit dark:prose-invert">
                     <MathRenderer content={msg.content} />
                   </div>
                   {onExtractFormulasFromMessage && (
@@ -436,7 +436,7 @@ const SidePanel: React.FC<SidePanelProps> = ({
                 </div>
               ) : (
                 <div className="space-y-2">
-                  {msg.content ? <p className="whitespace-pre-wrap">{msg.content}</p> : null}
+                  {msg.content ? <p className="whitespace-pre-wrap break-words">{msg.content}</p> : null}
                   {Array.isArray(msg.images) && msg.images.length > 0 && (
                     <div className="space-y-2">
                       {msg.images.map((image) => (

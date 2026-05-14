@@ -1423,7 +1423,7 @@ const CodeBlockFallback: React.FC<{ language: string; code: string; error: strin
       {language} konnte nicht dargestellt werden.
     </p>
     <p className="mb-3 text-xs text-amber-700">{error}</p>
-    <pre className="overflow-x-auto rounded-lg border border-amber-100 bg-white p-3 text-xs text-slate-700">
+    <pre className="w-full max-w-full min-w-0 overflow-x-auto overflow-y-hidden rounded-lg border border-amber-100 bg-white p-3 text-xs text-slate-700 [&>code]:block [&>code]:min-w-full [&>code]:w-max">
       <code>{code}</code>
     </pre>
   </div>
@@ -1690,7 +1690,7 @@ const MathRenderer: React.FC<MathRendererProps> = ({ content }) => {
   }, [content]);
 
   return (
-    <div className="math-renderer text-slate-800 leading-relaxed text-lg [&>p]:mb-4 last:[&>p]:mb-0">
+    <div className="math-renderer min-w-0 max-w-full overflow-x-hidden text-slate-800 leading-relaxed text-lg [&>p]:mb-4 last:[&>p]:mb-0">
       <ReactMarkdown
         remarkPlugins={[remarkMath]}
         rehypePlugins={[rehypeKatex]}
@@ -1747,7 +1747,7 @@ const MathRenderer: React.FC<MathRendererProps> = ({ content }) => {
             }
 
             return (
-              <pre className="my-4 overflow-x-auto rounded-xl border border-slate-200 bg-slate-50 p-3" {...props}>
+              <pre className="my-4 w-full max-w-full min-w-0 overflow-x-auto overflow-y-hidden rounded-xl border border-slate-200 bg-slate-50 p-3 [&>code]:block [&>code]:min-w-full [&>code]:w-max" {...props}>
                 {children}
               </pre>
             );

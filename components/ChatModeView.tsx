@@ -168,8 +168,8 @@ const ChatModeView: React.FC<ChatModeViewProps> = ({
   }, [activeConversation?.id, lastUserMessageId]);
 
   return (
-    <section className="h-full min-h-0 w-full overflow-hidden">
-      <div className="flex h-full min-h-0 flex-col md:flex-row">
+    <section className="h-full min-h-0 min-w-0 w-full overflow-hidden">
+      <div className="flex h-full min-h-0 min-w-0 flex-col md:flex-row">
         <aside className="flex min-h-0 max-h-[32vh] flex-col border-b border-slate-100 bg-slate-50/70 md:max-h-none md:w-[320px] md:flex-none md:border-b-0 md:border-r">
           <div className="p-4 border-b border-slate-100">
             <button
@@ -227,7 +227,7 @@ const ChatModeView: React.FC<ChatModeViewProps> = ({
           </div>
         </aside>
 
-        <div className="flex min-h-0 flex-1 flex-col">
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
           <div className="border-b border-slate-100 px-4 py-3 bg-white">
             <div className="flex items-center gap-2">
               <MessageSquare className="w-4 h-4 text-indigo-500" />
@@ -243,7 +243,7 @@ const ChatModeView: React.FC<ChatModeViewProps> = ({
             </p>
           </div>
 
-          <div ref={messageListRef} className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-4 bg-slate-50 space-y-3">
+          <div ref={messageListRef} className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain p-4 bg-slate-50 space-y-3">
             {extractFeedback && (
               <div className="rounded-xl border border-indigo-100 bg-indigo-50 px-3 py-2 text-xs text-indigo-700">
                 {extractFeedback}
@@ -261,10 +261,10 @@ const ChatModeView: React.FC<ChatModeViewProps> = ({
                     ref={(element) => {
                       messageElementByIdRef.current[message.id] = element;
                     }}
-                    className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
+                    className={`flex min-w-0 ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
                   >
                     <div
-                      className={`max-w-[90%] rounded-2xl p-3 shadow-sm text-sm ${
+                      className={`min-w-0 max-w-[90%] lg:max-w-3xl xl:max-w-4xl overflow-hidden rounded-2xl p-3 shadow-sm text-sm ${
                         message.role === 'user'
                           ? 'bg-indigo-600 text-white rounded-br-none'
                           : 'bg-white border border-slate-200 text-slate-700 rounded-bl-none'
@@ -272,7 +272,7 @@ const ChatModeView: React.FC<ChatModeViewProps> = ({
                     >
                       {message.role === 'model' ? (
                         <div className="space-y-2">
-                          <div className="prose prose-sm max-w-none text-inherit">
+                          <div className="prose prose-sm min-w-0 max-w-none text-inherit">
                             <MathRenderer content={message.content} />
                           </div>
                           {onExtractFormulasFromMessage && (
@@ -294,7 +294,7 @@ const ChatModeView: React.FC<ChatModeViewProps> = ({
                         </div>
                       ) : (
                         <div className="space-y-2">
-                          {message.content ? <p className="whitespace-pre-wrap">{message.content}</p> : null}
+                          {message.content ? <p className="whitespace-pre-wrap break-words">{message.content}</p> : null}
                           {Array.isArray(message.images) && message.images.length > 0 && (
                             <div className="space-y-2">
                               {message.images.map((image) => (
