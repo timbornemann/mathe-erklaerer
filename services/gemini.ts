@@ -57,6 +57,7 @@ ANFORDERUNGEN:
 - Gib 8 bis 12 Lektionen aus.
 - Früh: Grundlagen & Intuition, Mitte: Standardverfahren, Spät: Spezialfälle/Fallen/Transferaufgaben.
 - Das Ausgabeformat muss striktes JSON sein.
+- WICHTIG: Keine rohen Zeilenumbrueche oder Tabs innerhalb von JSON-Stringwerten. Falls noetig, nutze \\n.
 `;
 
 const TUTOR_SECTION_PROMPT = `
@@ -81,6 +82,7 @@ ${GRAPH_INSTRUCTIONS}
    - title: string (Lektionstitel),
    - substeps: Array von Objekten { title, explanation, formulas },
    - takeaway: string (wichtigste Merksaetze).
+9. WICHTIG: Keine rohen Zeilenumbrueche oder Tabs innerhalb von JSON-Stringwerten. Falls noetig, nutze \\n.
 `;
 
 interface TutorOutlineSection {
@@ -312,6 +314,182 @@ export const listSelectableGeminiModels = async (apiKeyOverride?: string): Promi
   return result;
 };
 
+const stripWholeMarkdownFence = (value: string): string => {
+  const fencedWholePayload = value.match(/^```(?:json)?\s*[\r\n]+([\s\S]*?)\s*```$/i);
+  return fencedWholePayload ? fencedWholePayload[1].trim() : value;
+};
+
+const extractFirstMarkdownFenceBody = (value: string): string | null => {
+  const fencedSection = value.match(/```(?:json)?\s*[\r\n]+([\s\S]*?)\s*```/i);
+  return fencedSection ? fencedSection[1].trim() : null;
+};
+
+const extractBalancedJsonValue = (value: string): string | null => {
+  const firstObjectStart = value.indexOf('{');
+  const firstArrayStart = value.indexOf('[');
+  const starts = [firstObjectStart, firstArrayStart].filter((index) => index >= 0);
+  if (starts.length === 0) return null;
+
+  const startIndex = Math.min(...starts);
+  const stack: string[] = [];
+  let inString = false;
+  let escaped = false;
+
+  for (let index = startIndex; index < value.length; index += 1) {
+    const char = value[index];
+
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+      if (char === '\\') {
+        escaped = true;
+        continue;
+      }
+      if (char === '"') {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (char === '"') {
+      inString = true;
+      continue;
+    }
+
+    if (char === '{') {
+      stack.push('}');
+      continue;
+    }
+    if (char === '[') {
+      stack.push(']');
+      continue;
+    }
+    if (char === '}' || char === ']') {
+      const expectedCloser = stack.pop();
+      if (!expectedCloser || expectedCloser !== char) {
+        return null;
+      }
+      if (stack.length === 0) {
+        return value.slice(startIndex, index + 1).trim();
+      }
+    }
+  }
+
+  return null;
+};
+
+const escapeInvalidJsonControlCharsInStrings = (value: string): string => {
+  let output = '';
+  let inString = false;
+  let escaped = false;
+
+  for (let index = 0; index < value.length; index += 1) {
+    const char = value[index];
+
+    if (!inString) {
+      output += char;
+      if (char === '"') {
+        inString = true;
+      }
+      continue;
+    }
+
+    if (escaped) {
+      output += char;
+      escaped = false;
+      continue;
+    }
+
+    if (char === '\\') {
+      output += char;
+      escaped = true;
+      continue;
+    }
+
+    if (char === '"') {
+      output += char;
+      inString = false;
+      continue;
+    }
+
+    if (char === '\n') {
+      output += '\\n';
+      continue;
+    }
+    if (char === '\r') {
+      output += '\\r';
+      continue;
+    }
+    if (char === '\t') {
+      output += '\\t';
+      continue;
+    }
+    if (char === '\b') {
+      output += '\\b';
+      continue;
+    }
+    if (char === '\f') {
+      output += '\\f';
+      continue;
+    }
+
+    const codePoint = char.charCodeAt(0);
+    if (codePoint >= 0 && codePoint <= 0x1f) {
+      output += `\\u${codePoint.toString(16).padStart(4, '0')}`;
+      continue;
+    }
+
+    output += char;
+  }
+
+  return output;
+};
+
+const buildJsonParseCandidates = (raw: string): string[] => {
+  const candidates = new Set<string>();
+
+  const addCandidate = (value: string | null | undefined) => {
+    const trimmed = value?.trim();
+    if (!trimmed) return;
+    candidates.add(trimmed);
+  };
+
+  addCandidate(raw);
+
+  const wholeFenceStripped = stripWholeMarkdownFence(raw);
+  addCandidate(wholeFenceStripped);
+
+  const firstFenceBody = extractFirstMarkdownFenceBody(raw);
+  addCandidate(firstFenceBody);
+
+  addCandidate(extractBalancedJsonValue(raw));
+  addCandidate(extractBalancedJsonValue(wholeFenceStripped));
+  addCandidate(firstFenceBody ? extractBalancedJsonValue(firstFenceBody) : null);
+
+  for (const candidate of Array.from(candidates)) {
+    addCandidate(escapeInvalidJsonControlCharsInStrings(candidate));
+  }
+
+  return Array.from(candidates);
+};
+
+const parseJsonWithRepair = (raw: string): any => {
+  const candidates = buildJsonParseCandidates(raw);
+  let lastError: unknown;
+
+  for (const candidate of candidates) {
+    try {
+      return JSON.parse(candidate);
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  throw lastError instanceof Error ? lastError : new Error('Unbekannter Parse-Fehler');
+};
+
 /**
  * Extracts JSON from a Gemini response, handling cases where the model
  * wraps JSON in markdown code fences or returns it inside candidates.
@@ -341,14 +519,8 @@ const extractJson = (response: any): any => {
     throw new Error("Keine Antwort vom Modell erhalten. Bitte versuche es erneut.");
   }
 
-  // Strip markdown code fences only when the whole payload is wrapped in one outer fence
-  const fencedWholePayload = raw.match(/^```(?:json)?\s*[\r\n]+([\s\S]*?)\s*```$/i);
-  if (fencedWholePayload) {
-    raw = fencedWholePayload[1].trim();
-  }
-
   try {
-    return JSON.parse(raw);
+    return parseJsonWithRepair(raw);
   } catch (error) {
     console.error("Failed to parse model response as JSON:", raw.slice(0, 500));
     const parseMessage = error instanceof Error ? error.message : 'Unbekannter Parse-Fehler';
