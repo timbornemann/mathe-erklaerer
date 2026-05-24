@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
 import { Maximize2, X } from 'lucide-react';
@@ -256,6 +257,78 @@ const normalizeEscapedNewlines = (raw: string): string => {
   }
 
   return text;
+};
+
+const TABLE_SEPARATOR_PATTERN = /^\s*\|?(?:\s*:?-{3,}:?\s*\|)+\s*:?-{3,}:?\s*\|?\s*$/;
+
+const looksLikeTableRow = (line: string): boolean => {
+  const trimmed = line.trim();
+  if (!trimmed.includes('|')) return false;
+  return /^\s*\|?.+\|.+\|?\s*$/.test(trimmed);
+};
+
+const looksLikeBlockStarter = (line: string): boolean =>
+  /^(?:`{3,}|~{3,}|#{1,6}\s|>\s|\d+\.\s|[-*+]\s|={3,}|-{3,})/.test(line.trim());
+
+const normalizeGfmTables = (raw: string): string => {
+  const lines = raw.split('\n');
+  const output: string[] = [];
+  let index = 0;
+
+  while (index < lines.length) {
+    const line = lines[index];
+    const next = lines[index + 1] ?? '';
+
+    if (!(looksLikeTableRow(line) && TABLE_SEPARATOR_PATTERN.test(next))) {
+      output.push(line);
+      index += 1;
+      continue;
+    }
+
+    if (output.length > 0 && output[output.length - 1].trim() !== '') {
+      output.push('');
+    }
+
+    output.push(line.trimEnd());
+    output.push(next.trimEnd());
+    index += 2;
+    let lastRowIndex = -1;
+
+    while (index < lines.length) {
+      const current = lines[index];
+      const trimmed = current.trim();
+
+      if (!trimmed) {
+        break;
+      }
+
+      if (looksLikeTableRow(current)) {
+        output.push(current.trimEnd());
+        lastRowIndex = output.length - 1;
+        index += 1;
+        continue;
+      }
+
+      if (looksLikeBlockStarter(current)) {
+        break;
+      }
+
+      if (lastRowIndex >= 0) {
+        const escapedContinuation = trimmed.replace(/\|/g, '\\|');
+        output[lastRowIndex] = `${output[lastRowIndex]}&#10;${escapedContinuation}`;
+        index += 1;
+        continue;
+      }
+
+      break;
+    }
+
+    if (index < lines.length && lines[index].trim() !== '') {
+      output.push('');
+    }
+  }
+
+  return output.join('\n');
 };
 
 const normalizeDisplayMathBlocks = (raw: string): string =>
@@ -1699,7 +1772,8 @@ const ExpandableFormula: React.FC<React.HTMLAttributes<HTMLSpanElement>> = ({
 const MathRenderer: React.FC<MathRendererProps> = ({ content }) => {
   const normalizedContent = useMemo(() => {
     const withNormalizedEscapes = normalizeEscapedNewlines(content);
-    const withDisplayMathBlocks = normalizeDisplayMathBlocks(withNormalizedEscapes);
+    const withNormalizedTables = normalizeGfmTables(withNormalizedEscapes);
+    const withDisplayMathBlocks = normalizeDisplayMathBlocks(withNormalizedTables);
     const withRecoveredKatex = recoverLeakedKatexMarkup(withDisplayMathBlocks);
     const withWrappedGraphBlocks = wrapLooseGraphBlocks(withRecoveredKatex);
     const withWrappedLatexBlocks = wrapLooseLatexBlocks(withWrappedGraphBlocks);
@@ -1709,11 +1783,27 @@ const MathRenderer: React.FC<MathRendererProps> = ({ content }) => {
   return (
     <div className="math-renderer min-w-0 max-w-full overflow-x-hidden text-slate-800 leading-relaxed text-lg [&>p]:mb-4 last:[&>p]:mb-0">
       <ReactMarkdown
-        remarkPlugins={[remarkMath]}
+        remarkPlugins={[remarkGfm, remarkMath]}
         rehypePlugins={[rehypeKatex]}
         components={{
           strong: ({ node, ...props }) => <span className="font-bold text-indigo-900" {...props} />,
           a: ({ node, ...props }) => <a className="text-indigo-600 hover:underline" {...props} />,
+          table: ({ node: _node, children, ...props }: any) => (
+            <div className="my-4 w-full overflow-x-auto rounded-xl border border-slate-200">
+              <table className="w-full min-w-[520px] border-collapse text-base" {...props}>
+                {children}
+              </table>
+            </div>
+          ),
+          thead: ({ node: _node, ...props }: any) => <thead className="bg-slate-100/80" {...props} />,
+          tbody: ({ node: _node, ...props }: any) => <tbody className="bg-white" {...props} />,
+          tr: ({ node: _node, ...props }: any) => <tr className="border-b border-slate-200 last:border-b-0" {...props} />,
+          th: ({ node: _node, ...props }: any) => (
+            <th className="px-3 py-2 text-left font-semibold text-slate-800 align-top" {...props} />
+          ),
+          td: ({ node: _node, ...props }: any) => (
+            <td className="px-3 py-2 text-slate-700 align-top whitespace-pre-line [&_p]:mb-0" {...props} />
+          ),
           span: ({ node: _node, className, children, ...props }: any) => {
             const normalizedClassName = typeof className === 'string' ? className : '';
             const isDisplayFormula = normalizedClassName.split(/\s+/).includes('katex-display');

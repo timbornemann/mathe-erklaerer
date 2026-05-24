@@ -1,4 +1,4 @@
-import { GoogleGenAI, Type } from "@google/genai";
+import { GoogleGenAI, ThinkingLevel, Type } from "@google/genai";
 import {
   ChatContextSnapshot,
   ChatImageAttachment,
@@ -123,7 +123,7 @@ const getApiKey = () => {
 };
 
 const GEMINI_MODEL_STORAGE_KEY = 'GEMINI_MODEL_ID';
-const DEFAULT_GEMINI_MODEL_ID = 'gemini-3-pro-preview';
+const DEFAULT_GEMINI_MODEL_ID = 'gemini-3.1-pro-preview';
 
 const MODEL_NAME_EXCLUSION_MARKERS = [
   'tts',
@@ -166,6 +166,33 @@ const normalizeModelId = (value: unknown): string | null => {
   }
 
   return trimmed;
+};
+
+const isGemini3Model = (modelId: string): boolean => {
+  const normalized = normalizeModelId(modelId)?.toLowerCase() ?? '';
+  return normalized.startsWith('gemini-3');
+};
+
+const isGemini25Model = (modelId: string): boolean => {
+  const normalized = normalizeModelId(modelId)?.toLowerCase() ?? '';
+  return normalized.startsWith('gemini-2.5');
+};
+
+type SupportedThinkingConfig = {
+  thinkingLevel?: ThinkingLevel;
+  thinkingBudget?: number;
+};
+
+const buildThinkingConfig = (modelId: string, budgetFor25?: number): SupportedThinkingConfig | undefined => {
+  if (isGemini3Model(modelId)) {
+    return { thinkingLevel: ThinkingLevel.HIGH };
+  }
+
+  if (isGemini25Model(modelId) && typeof budgetFor25 === 'number') {
+    return { thinkingBudget: budgetFor25 };
+  }
+
+  return undefined;
 };
 
 const getModelActions = (model: Record<string, unknown>): string[] => {
@@ -425,6 +452,7 @@ const generateClassicSolution = async (
     : promptText;
 
   parts.push({ text: finalPrompt });
+  const thinkingConfig = buildThinkingConfig(modelId, 4096);
 
   const parsed = await generateStructuredJson(
     ai,
@@ -435,9 +463,7 @@ const generateClassicSolution = async (
     },
     {
       systemInstruction: SYSTEM_PROMPT,
-      thinkingConfig: {
-        thinkingBudget: 4096,
-      },
+      ...(thinkingConfig ? { thinkingConfig } : {}),
       maxOutputTokens: 8192,
       responseMimeType: "application/json",
       responseSchema: buildMathSchema()
@@ -453,6 +479,7 @@ const generateTutorOutline = async (
   modelId: string,
   topic: string
 ): Promise<TutorOutline> => {
+  const thinkingConfig = buildThinkingConfig(modelId, 2048);
   const parsed = await generateStructuredJson(
     ai,
     modelId,
@@ -462,9 +489,7 @@ const generateTutorOutline = async (
     },
     {
       systemInstruction: TUTOR_OUTLINE_PROMPT,
-      thinkingConfig: {
-        thinkingBudget: 2048,
-      },
+      ...(thinkingConfig ? { thinkingConfig } : {}),
       maxOutputTokens: 4096,
       responseMimeType: "application/json",
       responseSchema: {
@@ -509,6 +534,7 @@ const generateTutorSection = async (
   const previousContext = previousTakeaways.length
     ? previousTakeaways.map((item, idx) => `${idx + 1}. ${item}`).join('\n')
     : 'Noch keine vorherigen Lektionen.';
+  const thinkingConfig = buildThinkingConfig(modelId, 3072);
 
   const parsed = await generateStructuredJson(
     ai,
@@ -539,9 +565,7 @@ Wichtig:
     },
     {
       systemInstruction: TUTOR_SECTION_PROMPT,
-      thinkingConfig: {
-        thinkingBudget: 3072,
-      },
+      ...(thinkingConfig ? { thinkingConfig } : {}),
       maxOutputTokens: 8192,
       responseMimeType: "application/json",
       responseSchema: {
@@ -845,6 +869,7 @@ export const generatePracticeTask = async (
   try {
     const ai = new GoogleGenAI({ apiKey: getApiKey() });
     const modelId = getSelectedGeminiModelId();
+    const thinkingConfig = buildThinkingConfig(modelId, 2048);
 
     const examplesSection = exampleTasks.length
       ? `\nBeispielaufgaben des Nutzers (orientiere dich an Stil und Umfang):\n${exampleTasks.map((t, i) => `${i + 1}. ${t}`).join('\n')}`
@@ -872,7 +897,7 @@ Erstelle eine passende Übungsaufgabe.`;
       },
       {
         systemInstruction: PRACTICE_GENERATE_PROMPT,
-        thinkingConfig: { thinkingBudget: 2048 },
+        ...(thinkingConfig ? { thinkingConfig } : {}),
         maxOutputTokens: 4096,
         responseMimeType: "application/json",
         responseSchema: {
@@ -920,6 +945,7 @@ export const generatePracticeTaskBatch = async (
 
   const ai = new GoogleGenAI({ apiKey: getApiKey() });
   const modelId = getSelectedGeminiModelId();
+  const thinkingConfig = buildThinkingConfig(modelId, 2048);
 
   const examplesSection = exampleTasks.length
     ? `\nBeispielaufgaben:\n${exampleTasks.map((task, index) => `${index + 1}. ${task}`).join('\n')}`
@@ -950,7 +976,7 @@ Erstelle einen kurzen Plan fuer ein differenziertes Uebungspaket.`
     },
     {
       systemInstruction: PRACTICE_BATCH_PLAN_PROMPT,
-      thinkingConfig: { thinkingBudget: 2048 },
+      ...(thinkingConfig ? { thinkingConfig } : {}),
       maxOutputTokens: 4096,
       responseMimeType: 'application/json',
       responseSchema: {
@@ -1024,6 +1050,7 @@ export const checkPracticeSolution = async (
   try {
     const ai = new GoogleGenAI({ apiKey: getApiKey() });
     const modelId = getSelectedGeminiModelId();
+    const thinkingConfig = buildThinkingConfig(modelId, 4096);
 
     const parts: any[] = [];
 
@@ -1044,7 +1071,7 @@ export const checkPracticeSolution = async (
       { role: 'user', parts },
       {
         systemInstruction: PRACTICE_CHECK_PROMPT,
-        thinkingConfig: { thinkingBudget: 4096 },
+        ...(thinkingConfig ? { thinkingConfig } : {}),
         maxOutputTokens: 4096,
         responseMimeType: "application/json",
         responseSchema: {
@@ -1088,6 +1115,7 @@ export const extractFormulasFromMessage = async (message: string): Promise<Formu
 
     const ai = new GoogleGenAI({ apiKey: getApiKey() });
     const modelId = getSelectedGeminiModelId();
+    const thinkingConfig = buildThinkingConfig(modelId, 1024);
 
     const parsed = await generateStructuredJson(
       ai,
@@ -1098,7 +1126,7 @@ export const extractFormulasFromMessage = async (message: string): Promise<Formu
       },
       {
         systemInstruction: FORMULA_EXTRACT_PROMPT,
-        thinkingConfig: { thinkingBudget: 1024 },
+        ...(thinkingConfig ? { thinkingConfig } : {}),
         maxOutputTokens: 4096,
         responseMimeType: 'application/json',
         responseSchema: {
@@ -1172,6 +1200,7 @@ export const generateFormulaFromLatex = async (
 
     const ai = new GoogleGenAI({ apiKey: getApiKey() });
     const modelId = getSelectedGeminiModelId();
+    const thinkingConfig = buildThinkingConfig(modelId, 4096);
     const prompt = contextText?.trim()
       ? `Formel: ${latex}\n\nZusatzkontext:\n${contextText.trim()}`
       : `Formel: ${latex}`;
@@ -1185,7 +1214,7 @@ export const generateFormulaFromLatex = async (
       },
       {
         systemInstruction: FORMULA_FROM_LATEX_PROMPT,
-        thinkingConfig: { thinkingBudget: 4096 },
+        ...(thinkingConfig ? { thinkingConfig } : {}),
         maxOutputTokens: 12288,
         responseMimeType: 'application/json',
         responseSchema: {
@@ -1242,6 +1271,7 @@ export const generateFormulaFromPrompt = async (
 
     const ai = new GoogleGenAI({ apiKey: getApiKey() });
     const modelId = getSelectedGeminiModelId();
+    const thinkingConfig = buildThinkingConfig(modelId, 4096);
 
     const parsed = await generateStructuredJson(
       ai,
@@ -1252,7 +1282,7 @@ export const generateFormulaFromPrompt = async (
       },
       {
         systemInstruction: FORMULA_FROM_PROMPT_PROMPT,
-        thinkingConfig: { thinkingBudget: 4096 },
+        ...(thinkingConfig ? { thinkingConfig } : {}),
         maxOutputTokens: 12288,
         responseMimeType: 'application/json',
         responseSchema: {
@@ -1649,6 +1679,7 @@ export const chatWithAI = async (input: {
   try {
     const ai = new GoogleGenAI({ apiKey: getApiKey() });
     const modelId = getSelectedGeminiModelId();
+    const thinkingConfig = buildThinkingConfig(modelId);
     const messageText = input.messageText?.trim() ?? '';
     const messageImages = Array.isArray(input.messageImages) ? input.messageImages : [];
     const context = input.context;
@@ -1698,6 +1729,7 @@ ${GRAPH_INSTRUCTIONS}
       contents,
       config: {
         systemInstruction: contextPrompt,
+        ...(thinkingConfig ? { thinkingConfig } : {}),
       }
     });
 
