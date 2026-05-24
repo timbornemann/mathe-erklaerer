@@ -122,6 +122,169 @@ const getApiKey = () => {
   return import.meta.env.VITE_GEMINI_API_KEY || '';
 };
 
+const GEMINI_MODEL_STORAGE_KEY = 'GEMINI_MODEL_ID';
+const DEFAULT_GEMINI_MODEL_ID = 'gemini-3-pro-preview';
+
+const MODEL_NAME_EXCLUSION_MARKERS = [
+  'tts',
+  'native-audio',
+  'audio-dialog',
+  'embedding',
+  'learnlm',
+  'imagen',
+  'veo'
+];
+
+export interface SelectableGeminiModel {
+  id: string;
+  displayName: string;
+  description: string;
+  inputTokenLimit?: number;
+  outputTokenLimit?: number;
+  thinking?: boolean;
+}
+
+const normalizeModelId = (value: unknown): string | null => {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+
+  if (trimmed.startsWith('models/')) {
+    return trimmed.slice('models/'.length);
+  }
+
+  const modelSegmentIndex = trimmed.lastIndexOf('/models/');
+  if (modelSegmentIndex >= 0) {
+    const candidate = trimmed.slice(modelSegmentIndex + '/models/'.length).trim();
+    return candidate || null;
+  }
+
+  if (trimmed.startsWith('publishers/')) {
+    const parts = trimmed.split('/');
+    const last = parts[parts.length - 1];
+    return last || null;
+  }
+
+  return trimmed;
+};
+
+const getModelActions = (model: Record<string, unknown>): string[] => {
+  const raw =
+    model.supportedActions ??
+    model.supportedGenerationMethods ??
+    model.supported_generation_methods;
+  if (!Array.isArray(raw)) return [];
+  return raw.filter((entry): entry is string => typeof entry === 'string');
+};
+
+const extractModelId = (model: Record<string, unknown>): string | null =>
+  normalizeModelId(model.name) ??
+  normalizeModelId(model.baseModelId);
+
+const hasTextAndImageModalities = (model: Record<string, unknown>): boolean | null => {
+  const rawInputModalities = model.inputModalities ?? model.input_modalities;
+  if (!Array.isArray(rawInputModalities)) return null;
+
+  const normalized = rawInputModalities
+    .map((entry) => (typeof entry === 'string' ? entry.toUpperCase() : ''))
+    .filter((entry) => entry !== '');
+
+  const hasText = normalized.includes('TEXT');
+  const hasImage = normalized.includes('IMAGE');
+  return hasText && hasImage;
+};
+
+const isTextAndImageCompatibleModel = (model: Record<string, unknown>): boolean => {
+  const modelId = extractModelId(model);
+  if (!modelId) return false;
+
+  const normalizedModelId = modelId.toLowerCase();
+  if (!normalizedModelId.startsWith('gemini-')) {
+    return false;
+  }
+
+  if (MODEL_NAME_EXCLUSION_MARKERS.some((marker) => normalizedModelId.includes(marker))) {
+    return false;
+  }
+
+  const actions = getModelActions(model);
+  const supportsGenerateContent = actions.some((action) => action.toLowerCase() === 'generatecontent');
+  if (!supportsGenerateContent) {
+    return false;
+  }
+
+  const modalitiesCheck = hasTextAndImageModalities(model);
+  if (modalitiesCheck !== null) {
+    return modalitiesCheck;
+  }
+
+  return true;
+};
+
+const buildSelectableModel = (model: Record<string, unknown>): SelectableGeminiModel | null => {
+  const id = extractModelId(model);
+  if (!id) return null;
+
+  const displayName =
+    typeof model.displayName === 'string' && model.displayName.trim() !== ''
+      ? model.displayName.trim()
+      : id;
+
+  const description =
+    typeof model.description === 'string' ? model.description.trim() : '';
+
+  return {
+    id,
+    displayName,
+    description,
+    inputTokenLimit: typeof model.inputTokenLimit === 'number' ? model.inputTokenLimit : undefined,
+    outputTokenLimit: typeof model.outputTokenLimit === 'number' ? model.outputTokenLimit : undefined,
+    thinking: model.thinking === true
+  };
+};
+
+export const getDefaultGeminiModelId = (): string => DEFAULT_GEMINI_MODEL_ID;
+
+export const getSelectedGeminiModelId = (): string => {
+  if (typeof window === 'undefined') {
+    return DEFAULT_GEMINI_MODEL_ID;
+  }
+
+  const savedModel = localStorage.getItem(GEMINI_MODEL_STORAGE_KEY)?.trim();
+  const normalizedSavedModel = normalizeModelId(savedModel);
+  return normalizedSavedModel || DEFAULT_GEMINI_MODEL_ID;
+};
+
+export const listSelectableGeminiModels = async (apiKeyOverride?: string): Promise<SelectableGeminiModel[]> => {
+  const apiKey = apiKeyOverride?.trim() || getApiKey();
+  if (!apiKey) {
+    throw new Error('Kein API Key gefunden. Hinterlege zuerst einen Gemini API Key.');
+  }
+
+  const ai = new GoogleGenAI({ apiKey });
+  const pager = await ai.models.list({ config: { queryBase: true, pageSize: 100 } });
+  let page = pager.page;
+  const deduped = new Map<string, SelectableGeminiModel>();
+
+  while (true) {
+    for (const modelCandidate of page) {
+      const model = modelCandidate as unknown as Record<string, unknown>;
+      if (!isTextAndImageCompatibleModel(model)) continue;
+      const selectable = buildSelectableModel(model);
+      if (!selectable) continue;
+      if (!deduped.has(selectable.id)) {
+        deduped.set(selectable.id, selectable);
+      }
+    }
+
+    if (!pager.hasNextPage()) break;
+    page = await pager.nextPage();
+  }
+
+  const result = Array.from(deduped.values()).sort((a, b) => a.id.localeCompare(b.id, 'de'));
+  return result;
+};
+
 /**
  * Extracts JSON from a Gemini response, handling cases where the model
  * wraps JSON in markdown code fences or returns it inside candidates.
@@ -681,7 +844,7 @@ export const generatePracticeTask = async (
 ): Promise<{ taskText: string; description: string }> => {
   try {
     const ai = new GoogleGenAI({ apiKey: getApiKey() });
-    const modelId = 'gemini-3-pro-preview';
+    const modelId = getSelectedGeminiModelId();
 
     const examplesSection = exampleTasks.length
       ? `\nBeispielaufgaben des Nutzers (orientiere dich an Stil und Umfang):\n${exampleTasks.map((t, i) => `${i + 1}. ${t}`).join('\n')}`
@@ -756,7 +919,7 @@ export const generatePracticeTaskBatch = async (
   }
 
   const ai = new GoogleGenAI({ apiKey: getApiKey() });
-  const modelId = 'gemini-3-pro-preview';
+  const modelId = getSelectedGeminiModelId();
 
   const examplesSection = exampleTasks.length
     ? `\nBeispielaufgaben:\n${exampleTasks.map((task, index) => `${index + 1}. ${task}`).join('\n')}`
@@ -860,7 +1023,7 @@ export const checkPracticeSolution = async (
 ): Promise<{ isCorrect: boolean; feedback: string }> => {
   try {
     const ai = new GoogleGenAI({ apiKey: getApiKey() });
-    const modelId = 'gemini-3-pro-preview';
+    const modelId = getSelectedGeminiModelId();
 
     const parts: any[] = [];
 
@@ -910,7 +1073,7 @@ export const solvePracticeTask = async (
 ): Promise<MathSolution> => {
   try {
     const ai = new GoogleGenAI({ apiKey: getApiKey() });
-    const modelId = 'gemini-3-pro-preview';
+    const modelId = getSelectedGeminiModelId();
     return await generateClassicSolution(ai, modelId, `Löse folgende Aufgabe Schritt für Schritt:\n\n${taskText}`);
   } catch (error: any) {
     console.error("Practice Solve Error:", error);
@@ -924,7 +1087,7 @@ export const extractFormulasFromMessage = async (message: string): Promise<Formu
     if (!text) return [];
 
     const ai = new GoogleGenAI({ apiKey: getApiKey() });
-    const modelId = 'gemini-3-pro-preview';
+    const modelId = getSelectedGeminiModelId();
 
     const parsed = await generateStructuredJson(
       ai,
@@ -1008,7 +1171,7 @@ export const generateFormulaFromLatex = async (
     }
 
     const ai = new GoogleGenAI({ apiKey: getApiKey() });
-    const modelId = 'gemini-3-pro-preview';
+    const modelId = getSelectedGeminiModelId();
     const prompt = contextText?.trim()
       ? `Formel: ${latex}\n\nZusatzkontext:\n${contextText.trim()}`
       : `Formel: ${latex}`;
@@ -1078,7 +1241,7 @@ export const generateFormulaFromPrompt = async (
     }
 
     const ai = new GoogleGenAI({ apiKey: getApiKey() });
-    const modelId = 'gemini-3-pro-preview';
+    const modelId = getSelectedGeminiModelId();
 
     const parsed = await generateStructuredJson(
       ai,
@@ -1296,7 +1459,7 @@ export const resumeTutorSolution = async (
   options?: SolveMathOptions
 ): Promise<MathSolution> => {
   const ai = new GoogleGenAI({ apiKey: getApiKey() });
-  const modelId = 'gemini-3-pro-preview';
+  const modelId = getSelectedGeminiModelId();
 
   const existingSteps = normalizeTutorSteps(Array.isArray(existingSolution.steps) ? existingSolution.steps : []);
   if (!existingSteps.length) {
@@ -1406,7 +1569,7 @@ export const solveMathProblem = async (
 ): Promise<MathSolution> => {
   try {
     const ai = new GoogleGenAI({ apiKey: getApiKey() });
-    const modelId = 'gemini-3-pro-preview';
+    const modelId = getSelectedGeminiModelId();
 
     if (mode === InputMode.TUTOR) {
       if (options?.onTutorProgress) {
@@ -1485,7 +1648,7 @@ export const chatWithAI = async (input: {
 }): Promise<string> => {
   try {
     const ai = new GoogleGenAI({ apiKey: getApiKey() });
-    const modelId = 'gemini-3-pro-preview';
+    const modelId = getSelectedGeminiModelId();
     const messageText = input.messageText?.trim() ?? '';
     const messageImages = Array.isArray(input.messageImages) ? input.messageImages : [];
     const context = input.context;
