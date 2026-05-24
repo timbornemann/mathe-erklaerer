@@ -1200,6 +1200,7 @@ const escapeMermaidLabel = (label: string): string =>
 
 const sanitizeMermaidSource = (source: string): string => {
   let next = source.replace(/\r\n?/g, '\n');
+  let generatedSubgraphId = 0;
 
   // Keep only the Mermaid section if extra markdown/code-fence text leaked into the block.
   const mermaidLines: string[] = [];
@@ -1226,6 +1227,22 @@ const sanitizeMermaidSource = (source: string): string => {
   next = next
     .split('\n')
     .map((line) => {
+      const subgraphMatch = line.match(/^(\s*)subgraph\s+(.+)$/i);
+      if (subgraphMatch) {
+        const [, indent, rawSubgraphSpec] = subgraphMatch;
+        const subgraphSpec = rawSubgraphSpec.trim();
+        const hasExplicitLabel = /^[A-Za-z_][A-Za-z0-9_-]*\s*\[[^\]]+\]\s*$/.test(subgraphSpec);
+        const isQuotedTitle = /^"(?:[^"\\]|\\.)*"$/.test(subgraphSpec);
+        const isPlainId = /^[A-Za-z_][A-Za-z0-9_-]*$/.test(subgraphSpec);
+        const hasSpecialChars = /[^\w\s-]/.test(subgraphSpec);
+
+        if (subgraphSpec && !hasExplicitLabel && !isQuotedTitle && !isPlainId && hasSpecialChars) {
+          generatedSubgraphId += 1;
+          const subgraphId = `subgraph_${generatedSubgraphId}`;
+          line = `${indent}subgraph ${subgraphId}["${escapeMermaidLabel(subgraphSpec)}"]`;
+        }
+      }
+
       const trimmed = line.trim();
       if (!trimmed || trimmed.startsWith('%%') || graphDeclarationRegex.test(trimmed)) {
         return line;
